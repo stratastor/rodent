@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +8,8 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/constants"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -60,26 +61,16 @@ func LoadConfig(configFilePath string) *Config {
 
 		viper.SetConfigType("yaml")
 
-		// Check environment variable for config path
-		envConfigPath := os.Getenv("RODENT_CONFIG")
-		if configFilePath != "" {
-			configPath = configFilePath
-		} else if envConfigPath != "" {
-			configPath = envConfigPath
-		} else {
-			viper.SetConfigName("rodent.yml")
-			viper.AddConfigPath(".")             // Current directory
-			viper.AddConfigPath("/etc/rodent/")  // System-wide path
-			viper.AddConfigPath("$HOME/.rodent") // User directory
-		}
+		// Determine config path with precedence
+		configPath = determineConfigPath(configFilePath)
 
-		// If config path is explicitly provided
 		if configPath != "" {
 			absPath, err := filepath.Abs(configPath)
 			if err != nil {
 				log.Error("Invalid config path: %v", err)
+			} else {
+				viper.SetConfigFile(absPath)
 			}
-			viper.SetConfigFile(absPath)
 		}
 
 		// Set defaults
@@ -103,7 +94,7 @@ func LoadConfig(configFilePath string) *Config {
 		if err := viper.ReadInConfig(); err != nil {
 			log.Warn("Config file not found or unreadable, using defaults: %v", err)
 		} else {
-			configPath = viper.ConfigFileUsed() // Store the path of the loaded config
+			configPath = viper.ConfigFileUsed()
 		}
 
 		// Unmarshal into Config struct
@@ -113,24 +104,99 @@ func LoadConfig(configFilePath string) *Config {
 		}
 
 		instance = &cfg
+
+		// Save the configuration if it was loaded from a non-standard location
+		if configPath == "" {
+			if err := SaveConfig(""); err != nil {
+				log.Error("Failed to persist configuration: %v", err)
+			}
+		}
 	})
 
 	return instance
 }
 
-// TODO: Use this function to save the configuration to a file
 // SaveConfig persists the current configuration to a specified path.
 func SaveConfig(path string) error {
-	configJSON, err := json.MarshalIndent(instance, "", "  ")
+	if path == "" {
+		// Determine default save location based on user privileges
+		if os.Geteuid() == 0 {
+			if err := os.MkdirAll(constants.SystemConfigDir, 0755); err != nil {
+				return fmt.Errorf("failed to create system config directory: %w", err)
+			}
+			path = filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
+			}
+			userConfigDir := filepath.Join(home, ".rodent")
+			if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+				return fmt.Errorf("failed to create user config directory: %w", err)
+			}
+			path = filepath.Join(userConfigDir, constants.ConfigFileName)
+		}
+	}
+
+	// Create parent directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Save configuration
+	configYAML, err := yaml.Marshal(instance)
 	if err != nil {
 		return fmt.Errorf("failed to serialize configuration: %w", err)
 	}
 
-	if err := os.WriteFile(path, configJSON, 0644); err != nil {
+	if err := os.WriteFile(path, configYAML, 0644); err != nil {
 		return fmt.Errorf("failed to write configuration to file: %w", err)
 	}
 
+	// Update the tracked config path
+	configPath = path
+
 	return nil
+}
+
+func determineConfigPath(explicitPath string) string {
+	// 1. Explicit path from command line
+	if explicitPath != "" {
+		return explicitPath
+	}
+
+	// 2. Environment variable
+	if envPath := os.Getenv("RODENT_CONFIG"); envPath != "" {
+		return envPath
+	}
+
+	// 3. Current working directory
+	currentDir, err := os.Getwd()
+	if err == nil {
+		cwdConfig := filepath.Join(currentDir, constants.ConfigFileName)
+		if _, err := os.Stat(cwdConfig); err == nil {
+			return cwdConfig
+		}
+	}
+
+	// 4. User-specific config for non-root users
+	if os.Geteuid() != 0 {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			userConfig := filepath.Join(home, ".rodent", constants.ConfigFileName)
+			if _, err := os.Stat(userConfig); err == nil {
+				return userConfig
+			}
+		}
+	}
+
+	// 5. System-wide config
+	systemConfig := filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
+	if _, err := os.Stat(systemConfig); err == nil {
+		return systemConfig
+	}
+
+	return ""
 }
 
 // GetLoadedConfigPath returns the path of the currently loaded configuration file.
