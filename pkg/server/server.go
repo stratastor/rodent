@@ -26,12 +26,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 )
@@ -103,70 +100,4 @@ func Shutdown(ctx context.Context) error {
 		return nil
 	}
 	return srv.Shutdown(ctx)
-}
-
-// LoggerMiddleware creates a dedicated middleware function for better reusability and testing
-func LoggerMiddleware(l logger.Logger) gin.HandlerFunc {
-	// This is to convert slog.Attr slice to a flat list of arguments
-	logAttrs := func(attrs []slog.Attr) []any {
-		args := make([]any, len(attrs)*2)
-		for i, attr := range attrs {
-			args[i*2] = attr.Key
-			args[i*2+1] = attr.Value.Any()
-		}
-		return args
-	}
-
-	return func(c *gin.Context) {
-		// Track start time
-		start := time.Now()
-		path := c.Request.URL.Path
-		query := c.Request.URL.RawQuery
-
-		// Skip logging for health check endpoints to reduce noise
-		if path == "/health" {
-			return
-		}
-
-		// Get request ID or generate one if not present
-		requestID := c.GetHeader("X-Request-Id")
-		if requestID == "" {
-			requestID = uuid.New().String()
-			c.Header("X-Request-Id", requestID)
-		}
-
-		// Process request
-		c.Next()
-
-		// Convert fields to slog.Attr slice for flat structure
-		attrs := []slog.Attr{
-			slog.String("request_id", requestID),
-			slog.String("method", c.Request.Method),
-			slog.String("path", path),
-			slog.String("query", query),
-			slog.Int("status", c.Writer.Status()),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-			slog.Int("bytes_out", c.Writer.Size()),
-			slog.String("ip", c.ClientIP()),
-			slog.String("user_agent", c.Request.UserAgent()),
-		}
-
-		// Add optional fields
-		if xff := c.GetHeader("X-Forwarded-For"); xff != "" {
-			attrs = append(attrs, slog.String("forwarded_for", xff))
-		}
-		if errs := c.Errors.ByType(gin.ErrorTypePrivate).String(); errs != "" {
-			attrs = append(attrs, slog.String("error", errs))
-		}
-
-		// Log with appropriate level
-		switch {
-		case c.Writer.Status() >= 500:
-			l.Error("Server Error", logAttrs(attrs)...)
-		case c.Writer.Status() >= 400:
-			l.Warn("Client Error", logAttrs(attrs)...)
-		default:
-			l.Info("Request", logAttrs(attrs)...)
-		}
-	}
 }

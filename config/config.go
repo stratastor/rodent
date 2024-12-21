@@ -93,7 +93,7 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Load configuration file
 		if err := viper.ReadInConfig(); err != nil {
-			l.Warn("Config file not found or unreadable, using defaults", "err", err)
+			l.Debug("Config file not found or unreadable, using defaults", "err", err)
 		} else {
 			configPath = viper.ConfigFileUsed()
 		}
