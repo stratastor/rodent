@@ -2,8 +2,6 @@ module github.com/stratastor/rodent
 
 go 1.23.1
 
-replace github.com/stratastor/rodent => ./
-
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-resty/resty/v2 v2.16.2

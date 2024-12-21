@@ -53,9 +53,10 @@ func LoadConfig(configFilePath string) *Config {
 			EnableSentry: false,
 			SentryDSN:    "",
 		} // Adjust the logger.Config initialization manually
-		log, err := logger.NewTag(logConfig, "config")
+		l, err := logger.NewTag(logConfig, "config")
 		if err != nil {
 			fmt.Printf("Failed to create logger: %v\n", err)
+			// TODO: Why exit here? Return error/nil instead?
 			os.Exit(1)
 		}
 
@@ -67,7 +68,7 @@ func LoadConfig(configFilePath string) *Config {
 		if configPath != "" {
 			absPath, err := filepath.Abs(configPath)
 			if err != nil {
-				log.Error("Invalid config path: %v", err)
+				l.Error("Invalid config path", "err", err)
 			} else {
 				viper.SetConfigFile(absPath)
 			}
@@ -92,7 +93,7 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Load configuration file
 		if err := viper.ReadInConfig(); err != nil {
-			log.Warn("Config file not found or unreadable, using defaults: %v", err)
+			l.Warn("Config file not found or unreadable, using defaults", "err", err)
 		} else {
 			configPath = viper.ConfigFileUsed()
 		}
@@ -100,7 +101,7 @@ func LoadConfig(configFilePath string) *Config {
 		// Unmarshal into Config struct
 		var cfg Config
 		if err := viper.Unmarshal(&cfg); err != nil {
-			log.Error("Failed to parse configuration: %v", err)
+			l.Error("Failed to parse configuration", "err", err)
 		}
 
 		instance = &cfg
@@ -108,7 +109,7 @@ func LoadConfig(configFilePath string) *Config {
 		// Save the configuration if it was loaded from a non-standard location
 		if configPath == "" {
 			if err := SaveConfig(""); err != nil {
-				log.Error("Failed to persist configuration: %v", err)
+				l.Error("Failed to persist configuration", "err", err)
 			}
 		}
 	})

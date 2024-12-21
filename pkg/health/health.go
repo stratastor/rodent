@@ -16,7 +16,7 @@ type HealthChecker struct {
 
 func NewHealthChecker(cfg *config.Config) *HealthChecker {
 	logConfig := config.NewLoggerConfig(cfg)
-	log, err := logger.NewTag(logConfig, "health")
+	l, err := logger.NewTag(logConfig, "health")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
@@ -30,11 +30,12 @@ func NewHealthChecker(cfg *config.Config) *HealthChecker {
 
 	return &HealthChecker{
 		Client: client,
-		Logger: log,
+		Logger: l,
 	}
 }
 
-func (hc *HealthChecker) CheckHealth() error {
+// TODO: Implement a sophisticated health check convering all Rodent components
+func (hc *HealthChecker) CheckHealth() (string, error) {
 	cfg := config.GetConfig()
 
 	resp, err := hc.Client.R().
@@ -42,15 +43,12 @@ func (hc *HealthChecker) CheckHealth() error {
 		Get("{endpoint}")
 
 	if err != nil {
-		hc.Logger.Error("Health check failed: %v", err)
-		return err
+		return "", err
 	}
 
 	if resp.IsSuccess() {
-		fmt.Println("Health: Healthy")
+		return resp.String(), nil
 	} else {
-		fmt.Printf("Health: Unhealthy (%s)\n", resp.Status())
+		return "", fmt.Errorf("Unhealthy. Status: %s, Response: %s", resp.Status(), resp.String())
 	}
-
-	return nil
 }
