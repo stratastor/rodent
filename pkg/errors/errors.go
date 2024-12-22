@@ -112,7 +112,9 @@ type RodentError struct {
 	// Context    string           `json:"context,omitempty"`
 	HTTPStatus int `json:"-"`
 
-	// The Metadata field is designed for additional contextual information that doesn't fit into the standard error fields but is valuable for debugging and API responses. It's particularly useful for:
+	// The Metadata field is designed for additional contextual information
+	// that doesn't fit into the standard error fields but is valuable for
+	// debugging and API responses. It's particularly useful for:
 	// - API responses where JSON serialization includes the metadata
 	// - Logging with structured details
 	// - Debugging with command-specific information
