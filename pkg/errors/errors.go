@@ -42,7 +42,8 @@ const (
 	ConfigMarshalFailed                    // Config serialization failed
 	ConfigUnmarshalFailed                  // Config deserialization failed
 	ConfigHomeDirectoryError               // Error getting home directory
-
+)
+const (
 	// Server Errors (1100-1199)
 	ServerStart             = 1100 + iota // Failed to start server
 	ServerShutdown                        // Error during shutdown
@@ -54,19 +55,69 @@ const (
 	ServerResponseError                   // Response generation error
 	ServerContextCancelled                // Context cancelled
 	ServerTLSError                        // TLS configuration error
+)
 
+const (
+	// TODO: Remove redundant error codes
 	// ZFS Operations (1200-1299)
 	ZFSCommandFailed    = 1200 + iota // ZFS command execution failed
 	ZFSPoolNotFound                   // Pool not found
-	ZFSDatasetNotFound                // Dataset not found
 	ZFSPermissionDenied               // Permission denied
-	ZFSSnapshotFailed                 // Snapshot operation failed
 	ZFSPropertyError                  // Property operation failed
 	ZFSMountError                     // Mount operation failed
 	ZFSCloneError                     // Clone operation failed
 	ZFSQuotaError                     // Quota operation failed
 	ZFSIOError                        // I/O error during operation
+	ZFSInvalidSize
+	ZFSQuotaExceeded
+	ZFSPermissionError
 
+	ZFSDatasetNotFound // Dataset not found
+	ZFSDatasetCreate
+	ZFSDatasetList
+	ZFSDatasetDestroy
+	ZFSDatasetGetProperty
+	ZFSDatasetSetProperty
+	ZFSDatasetPropertyNotFound
+	ZFSDatasetClone
+	ZFSDatasetInvalidName
+	ZFSDatasetInvalidProperty
+	ZFSDatasetRename
+	ZFSDatasetSnapshot
+
+	ZFSSnapshotList
+	ZFSSnapshotDestroy
+	ZFSSnapshotRollback
+	ZFSSnapshotFailed // Snapshot operation failed
+	ZFSSnapshotInvalidName
+	ZFSSnapshotInvalidProperty
+
+	ZFSBookmarkFailed
+	ZFSBookmarkInvalidName
+	ZFSBookmarkInvalidProperty
+
+	ZFSClonePromoteFailed
+	ZFSMountOperationFailed
+	ZFSUnmountOperationFailed
+	ZFSPoolScrubFailed
+	ZFSPoolResilverFailed
+
+	ZFSVolumeOperationFailed
+
+	ZFSPoolCreate
+	ZFSPoolImport
+	ZFSPoolExport
+	ZFSPoolStatus
+	ZFSPoolList
+	ZFSPoolDestroy
+	ZFSPoolGetProperty
+	ZFSPoolSetProperty
+	ZFSPoolPropertyNotFound
+	ZFSPoolInvalidName
+	ZFSPoolInvalidDevice
+)
+
+const (
 	// Command Execution (1300-1399)
 	CommandNotFound     = 1300 + iota // Command not found
 	CommandExecution                  // Execution failed
@@ -78,7 +129,9 @@ const (
 	CommandContext                    // Context handling error
 	CommandPipe                       // Command pipe error
 	CommandWorkDir                    // Working directory error
+)
 
+const (
 	// Health Check (1400-1499)
 	HealthCheckFailed     = 1400 + iota // Health check failed
 	HealthCheckTimeout                  // Health check timed out
@@ -90,7 +143,9 @@ const (
 	HealthCheckThreshold                // Threshold exceeded
 	HealthCheckState                    // State transition error
 	HealthCheckRecovery                 // Recovery failed
+)
 
+const (
 	// Lifecycle Management (1500-1599)
 	LifecyclePID      = 1500 + iota // PID file operation failed
 	LifecycleShutdown               // Shutdown process error
@@ -154,14 +209,53 @@ var errorDefinitions = map[ErrorCode]struct {
 	// ZFS errors
 	ZFSCommandFailed:    {"ZFS command execution failed", DomainZFS, http.StatusInternalServerError},
 	ZFSPoolNotFound:     {"ZFS pool not found", DomainZFS, http.StatusNotFound},
-	ZFSDatasetNotFound:  {"ZFS dataset not found", DomainZFS, http.StatusNotFound},
 	ZFSPermissionDenied: {"Permission denied for ZFS operation", DomainZFS, http.StatusForbidden},
-	ZFSSnapshotFailed:   {"Failed to create/manage snapshot", DomainZFS, http.StatusInternalServerError},
 	ZFSPropertyError:    {"ZFS property operation failed", DomainZFS, http.StatusInternalServerError},
 	ZFSMountError:       {"ZFS mount operation failed", DomainZFS, http.StatusInternalServerError},
-	ZFSCloneError:       {"ZFS clone operation failed", DomainZFS, http.StatusInternalServerError},
 	ZFSQuotaError:       {"ZFS quota operation failed", DomainZFS, http.StatusInternalServerError},
 	ZFSIOError:          {"ZFS I/O operation failed", DomainZFS, http.StatusInternalServerError},
+
+	ZFSBookmarkFailed:  {"Failed to create/list bookmark", DomainZFS, http.StatusInternalServerError},
+	ZFSQuotaExceeded:   {"Dataset quota exceeded", DomainZFS, http.StatusForbidden},
+	ZFSPermissionError: {"Permission denied for ZFS operation", DomainZFS, http.StatusForbidden},
+	ZFSInvalidSize:     {"Invalid volume size specified", DomainZFS, http.StatusBadRequest},
+
+	ZFSCloneError: {"ZFS clone operation failed", DomainZFS, http.StatusInternalServerError},
+
+	ZFSDatasetCreate:           {"Failed to create ZFS dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetNotFound:         {"ZFS dataset not found", DomainZFS, http.StatusNotFound},
+	ZFSDatasetList:             {"Failed to list ZFS datasets", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetDestroy:          {"Failed to destroy ZFS dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetGetProperty:      {"Failed to get dataset property", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetSetProperty:      {"Failed to set dataset property", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetPropertyNotFound: {"Dataset property not found", DomainZFS, http.StatusNotFound},
+	ZFSDatasetClone:            {"Failed to clone dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetInvalidName:      {"Invalid dataset name", DomainZFS, http.StatusBadRequest},
+	ZFSDatasetInvalidProperty:  {"Invalid property value", DomainZFS, http.StatusBadRequest},
+	ZFSDatasetRename:           {"Failed to rename dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetSnapshot:         {"Failed to create snapshot", DomainZFS, http.StatusInternalServerError},
+
+	ZFSSnapshotList:            {"Failed to list snapshots", DomainZFS, http.StatusInternalServerError},
+	ZFSSnapshotDestroy:         {"Failed to destroy snapshot", DomainZFS, http.StatusInternalServerError},
+	ZFSSnapshotRollback:        {"Failed to rollback snapshot", DomainZFS, http.StatusInternalServerError},
+	ZFSSnapshotFailed:          {"Failed to create/manage snapshot", DomainZFS, http.StatusInternalServerError},
+	ZFSSnapshotInvalidName:     {"Invalid snapshot name", DomainZFS, http.StatusBadRequest},
+	ZFSSnapshotInvalidProperty: {"Invalid snapshot property value", DomainZFS, http.StatusBadRequest},
+
+	ZFSBookmarkInvalidName:     {"Invalid bookmark name", DomainZFS, http.StatusBadRequest},
+	ZFSBookmarkInvalidProperty: {"Invalid bookmark property value", DomainZFS, http.StatusBadRequest},
+
+	ZFSPoolCreate:           {"Failed to create ZFS pool", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolImport:           {"Failed to import ZFS pool", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolExport:           {"Failed to export ZFS pool", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolStatus:           {"Failed to get pool status", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolList:             {"Failed to get pool list", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolDestroy:          {"Failed to destroy pool", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolGetProperty:      {"Failed to get pool property", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolSetProperty:      {"Failed to set pool property", DomainZFS, http.StatusInternalServerError},
+	ZFSPoolPropertyNotFound: {"Pool property not found", DomainZFS, http.StatusNotFound},
+	ZFSPoolInvalidName:      {"Invalid pool name", DomainZFS, http.StatusBadRequest},
+	ZFSPoolInvalidDevice:    {"Invalid device", DomainZFS, http.StatusBadRequest},
 
 	// Command execution errors
 	CommandNotFound:     {"Command not found", DomainCommand, http.StatusNotFound},
