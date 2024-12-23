@@ -9,7 +9,7 @@ type PoolStatus struct {
 		VersMajor int    `json:"vers_major"`
 		VersMinor int    `json:"vers_minor"`
 	} `json:"output_version"`
-	Pools map[string]Manager `json:"pools"`
+	Pools map[string]Pool `json:"pools"`
 }
 
 // Pool represents a ZFS storage pool

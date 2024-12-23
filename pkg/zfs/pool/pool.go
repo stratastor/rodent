@@ -159,6 +159,13 @@ func (p *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 	return prop, nil
 }
 
+func (p *Manager) SetProperty(ctx context.Context, name, property, value string) error {
+	args := []string{"set", fmt.Sprintf("%s=%s", property, value), name}
+
+	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool set", args...)
+	return errors.Wrap(err, errors.ZFSPoolSetProperty)
+}
+
 // Export exports a ZFS pool
 func (p *Manager) Export(ctx context.Context, name string, force bool) error {
 	args := []string{"export"}
@@ -197,11 +204,13 @@ func (p *Manager) Scrub(ctx context.Context, name string, stop bool) error {
 
 // List returns a list of all pools
 func (p *Manager) List(ctx context.Context) ([]Pool, error) {
+	args := []string{"-H", "-p", "-o", "name,size,allocated,free,state,health"}
+
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,
 	}
 
-	out, err := p.executor.Execute(ctx, opts, "zpool list", []string{})
+	out, err := p.executor.Execute(ctx, opts, "zpool list", args...)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.ZFSPoolList)
 	}
@@ -214,4 +223,32 @@ func (p *Manager) List(ctx context.Context) ([]Pool, error) {
 	}
 
 	return result.Pools, nil
+}
+
+func (p *Manager) Resilver(ctx context.Context, name string) error {
+	args := []string{"online", "-e", name}
+
+	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool", args...)
+	return errors.Wrap(err, errors.ZFSPoolResilverFailed)
+}
+
+func (p *Manager) AttachDevice(ctx context.Context, pool, device, newDevice string) error {
+	args := []string{"attach", pool, device, newDevice}
+
+	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool attach", args...)
+	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+}
+
+func (p *Manager) DetachDevice(ctx context.Context, pool, device string) error {
+	args := []string{"detach", pool, device}
+
+	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool detach", args...)
+	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+}
+
+func (p *Manager) ReplaceDevice(ctx context.Context, pool, oldDevice, newDevice string) error {
+	args := []string{"replace", pool, oldDevice, newDevice}
+
+	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool replace", args...)
+	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 }

@@ -109,7 +109,10 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Filesystem operations
 		filesystems := datasets.Group("/filesystems")
 		{
-			filesystems.POST("", h.createFilesystem)
+			filesystems.POST("",
+				ValidateNameLength(),
+				ValidateMountPoint(),
+				h.createFilesystem)
 			filesystems.GET("", h.listFilesystems)
 		}
 
@@ -122,7 +125,9 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 		// Common operations (with validation)
 		datasets.DELETE("/:name", ValidateDatasetName(), h.destroyDataset)
-		datasets.POST("/:name/rename", ValidateDatasetName(), h.renameDataset)
+		datasets.POST("/:name/rename",
+			ValidateDatasetName(),
+			h.renameDataset)
 
 		// Property operations (with validation)
 		datasets.GET("/:name/properties/:property",
@@ -280,7 +285,7 @@ func (h *DatasetHandler) getProperty(c *gin.Context) {
 	prop, err := h.manager.GetProperty(c.Request.Context(), name, property)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, errors.ZFSDatasetPropertyNotFound) {
+		if errors.Is(err, errors.ErrZFSDatasetPropertyNotFound) {
 			status = http.StatusNotFound
 		}
 		c.JSON(status, err)
@@ -288,10 +293,6 @@ func (h *DatasetHandler) getProperty(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, prop)
-}
-
-type setPropertyRequest struct {
-	Value string `json:"value" binding:"required"`
 }
 
 func (h *DatasetHandler) setProperty(c *gin.Context) {
@@ -314,14 +315,14 @@ func (h *DatasetHandler) setProperty(c *gin.Context) {
 
 // Snapshot operations
 func (h *DatasetHandler) createSnapshot(c *gin.Context) {
-	dataset := c.Param("dataset")
+	ds := c.Param("dataset")
 	var cfg dataset.SnapshotConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
-	cfg.Dataset = dataset
+	cfg.Dataset = ds
 	if err := h.manager.CreateSnapshot(c.Request.Context(), cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, err)
 		return
@@ -331,8 +332,15 @@ func (h *DatasetHandler) createSnapshot(c *gin.Context) {
 }
 
 func (h *DatasetHandler) listSnapshots(c *gin.Context) {
-	dataset := c.Param("dataset")
-	snapshots, err := h.manager.ListSnapshots(c.Request.Context(), dataset)
+	ds := c.Param("dataset")
+	recursive := c.Query("recursive") == "true"
+
+	opts := dataset.SnapshotListOptions{
+		Dataset:   ds,
+		Recursive: recursive,
+	}
+
+	snapshots, err := h.manager.ListSnapshots(c.Request.Context(), opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, err)
 		return
@@ -354,7 +362,7 @@ func (h *DatasetHandler) destroySnapshot(c *gin.Context) {
 }
 
 func (h *DatasetHandler) rollbackSnapshot(c *gin.Context) {
-	dataset := c.Param("dataset")
+	ds := c.Param("dataset")
 	snapshot := c.Param("snapshot")
 
 	var cfg dataset.RollbackConfig
@@ -364,7 +372,7 @@ func (h *DatasetHandler) rollbackSnapshot(c *gin.Context) {
 	}
 
 	cfg.Snapshot = snapshot
-	if err := h.manager.Rollback(c.Request.Context(), dataset, cfg); err != nil {
+	if err := h.manager.Rollback(c.Request.Context(), ds, cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, err)
 		return
 	}
