@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -22,6 +23,8 @@ type CommandExecutor struct {
 
 	useSudo bool          // Whether to use sudo for privileged commands
 	timeout time.Duration // Default command timeout
+
+	logger logger.Logger
 }
 
 // CommandFlags represents supported command flags
@@ -42,10 +45,16 @@ type CommandOptions struct {
 	CaptureOutput bool          // Whether to capture command output
 }
 
-func NewCommandExecutor(useSudo bool) *CommandExecutor {
+func NewCommandExecutor(useSudo bool, logConfig logger.Config) *CommandExecutor {
+	l, err := logger.NewTag(logConfig, "zfs-cmd")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create logger: %v", err))
+	}
+
 	return &CommandExecutor{
 		features: make(map[string]bool),
 		useSudo:  useSudo,
+		logger:   l,
 	}
 }
 
@@ -65,7 +74,7 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 	cmdArgs := e.buildCommandArgs(cmd, opts, args...)
 
 	// Debug logging
-	fmt.Printf("Executing command: %s\n", strings.Join(cmdArgs, " "))
+	e.logger.Debug("Executing command", "cmd", strings.Join(cmdArgs, " "))
 
 	// Create command
 	execCmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)

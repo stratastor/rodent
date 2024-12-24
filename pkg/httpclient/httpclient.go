@@ -153,11 +153,18 @@ func (c *Client) applyConfig() {
 	if c.config.BearerToken != "" {
 		c.Client.SetAuthToken(c.config.BearerToken)
 	}
-	if c.config.Debug {
+	if c.config.Debug == true {
 		c.Client.SetDebug(true)
 		if c.config.DebugBodyLimit > 0 {
 			c.Client.SetDebugBodyLimit(c.config.DebugBodyLimit)
 		}
+	} else {
+		c.Client.SetDebug(false)
+		// Suppress Resty logs by setting a no-op logger
+		c.Client.SetLogger(NoOpLogger{})
+	}
+	if c.config.EnableTrace == true {
+		c.Client.EnableTrace()
 	}
 	if len(c.config.RetryConditions) > 0 {
 		for _, condition := range c.config.RetryConditions {
@@ -183,6 +190,29 @@ func (c *Client) applyConfig() {
 	}
 
 	c.Client.SetTransport(transport)
+}
+
+// NoOpLogger suppresses all logs
+type NoOpLogger struct{}
+
+// Printf is a no-op implementation of the Printf method
+func (l NoOpLogger) Printf(format string, v ...interface{}) {
+	// Do nothing
+}
+
+// Debugf is a no-op implementation of the Debugf method
+func (l NoOpLogger) Debugf(format string, v ...interface{}) {
+	// Do nothing
+}
+
+// Warnf is a no-op implementation of the Warnf method
+func (l NoOpLogger) Warnf(format string, v ...interface{}) {
+	// Do nothing
+}
+
+// Errorf is a no-op implementation of the Errorf method
+func (l NoOpLogger) Errorf(format string, v ...interface{}) {
+	// Do nothing
 }
 
 // ValidateConfig checks if the configuration is valid

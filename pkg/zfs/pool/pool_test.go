@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/testutil"
 )
@@ -14,7 +15,7 @@ func TestPoolOperations(t *testing.T) {
 	env := testutil.NewTestEnv(t, 3)
 	defer env.Cleanup() // Only cleanup devices
 
-	executor := command.NewCommandExecutor(true)
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	manager := NewManager(executor)
 	poolName := testutil.GeneratePoolName()
 

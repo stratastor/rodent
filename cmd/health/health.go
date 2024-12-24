@@ -1,7 +1,7 @@
 package health
 
 import (
-	"log"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/stratastor/rodent/config"
@@ -17,10 +17,10 @@ func NewHealthCmd() *cobra.Command {
 			checker := health.NewHealthChecker(cfg)
 			ret, err := checker.CheckHealth()
 			if err != nil {
-				log.Println("Health check failed: ", err)
+				fmt.Println("Health check failed: ", err)
 				return nil
 			}
-			log.Println(ret)
+			fmt.Println(ret)
 			return nil
 		},
 	}

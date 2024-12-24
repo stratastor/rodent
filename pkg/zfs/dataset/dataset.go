@@ -1,11 +1,10 @@
-// pkg/zfs/dataset/dataset.go
-
 package dataset
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
@@ -20,38 +19,45 @@ func NewManager(executor *command.CommandExecutor) *Manager {
 	return &Manager{executor: executor}
 }
 
-// // Create creates a new ZFS dataset
-// func (m *Manager) Create(ctx context.Context, cfg CreateConfig) error {
-// 	args := []string{"create"}
+// Create creates a ZFS dataset (filesystem or volume)
+func (m *Manager) Create(ctx context.Context, cfg CreateConfig) error {
+	args := []string{"create"}
 
-// 	// Add create options
-// 	if cfg.Parents {
-// 		args = append(args, "-p")
-// 	}
+	// Add parent flag if specified
+	if cfg.Parents {
+		args = append(args, "-p")
+	}
 
-// 	// Add properties
-// 	for k, v := range cfg.Properties {
-// 		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
-// 	}
+	// Add volume flag and size for volumes
+	if cfg.Type == "volume" {
+		if size, ok := cfg.Properties["volsize"]; ok {
+			args = append(args, "-V", size)
+			// Remove from properties to avoid duplication
+			delete(cfg.Properties, "volsize")
+		} else {
+			return errors.New(errors.ZFSInvalidSize, "volume size not specified")
+		}
+	}
 
-// 	if cfg.MountPoint != "" {
-// 		args = append(args, "-m", cfg.MountPoint)
-// 	}
+	// Add remaining properties if specified
+	for k, v := range cfg.Properties {
+		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
+	}
 
-// 	// Add dataset name
-// 	args = append(args, cfg.Name)
+	args = append(args, cfg.Name)
 
-// 	opts := command.CommandOptions{
-// 		Flags: command.FlagForce,
-// 	}
+	opts := command.CommandOptions{}
+	out, err := m.executor.Execute(ctx, opts, "zfs create", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSDatasetCreate).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSDatasetCreate)
+	}
 
-// 	_, err := m.executor.Execute(ctx, opts, "zfs create", args...)
-// 	if err != nil {
-// 		return errors.Wrap(err, errors.ZFSDatasetCreate)
-// 	}
-
-// 	return nil
-// }
+	return nil
+}
 
 // List returns a list of datasets
 func (m *Manager) List(ctx context.Context, recursive bool) ([]Dataset, error) {
@@ -102,12 +108,9 @@ func (m *Manager) Destroy(ctx context.Context, name string, recursive bool) erro
 	return nil
 }
 
-// GetProperty gets a specific property of a dataset
+// GetProperty gets a dataset property
 func (m *Manager) GetProperty(ctx context.Context, name, property string) (Property, error) {
-	args := []string{"get", property}
-	if name != "" {
-		args = append(args, name)
-	}
+	args := []string{"get", "-H", "-p", "-o", "value,source", property, name}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,
@@ -119,13 +122,22 @@ func (m *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 	}
 
 	var result struct {
-		Properties map[string]Property `json:"properties"`
+		Datasets map[string]struct {
+			Properties map[string]Property `json:"properties"`
+		} `json:"datasets"`
 	}
+
 	if err := json.Unmarshal(out, &result); err != nil {
 		return Property{}, errors.Wrap(err, errors.CommandOutputParse)
 	}
 
-	prop, ok := result.Properties[property]
+	ds, ok := result.Datasets[name]
+	if !ok {
+		return Property{}, errors.New(errors.ZFSDatasetNotFound,
+			fmt.Sprintf("dataset %s not found", name))
+	}
+
+	prop, ok := ds.Properties[property]
 	if !ok {
 		return Property{}, errors.New(errors.ZFSDatasetPropertyNotFound,
 			fmt.Sprintf("property %s not found", property))
@@ -192,32 +204,83 @@ func (m *Manager) CreateVolume(ctx context.Context, cfg VolumeConfig) error {
 func (m *Manager) CreateSnapshot(ctx context.Context, cfg SnapshotConfig) error {
 	args := []string{"snapshot"}
 
+	// Add recursive flag if specified
 	if cfg.Recursive {
 		args = append(args, "-r")
 	}
 
+	// Add properties if specified
 	for k, v := range cfg.Properties {
 		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
 	}
 
-	args = append(args, fmt.Sprintf("%s@%s", cfg.Dataset, cfg.Name))
+	// Form snapshot name as dataset@snapshot
+	snapName := fmt.Sprintf("%s@%s", cfg.Dataset, cfg.Name)
+	args = append(args, snapName)
 
-	_, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs snapshot", args...)
-	return errors.Wrap(err, errors.ZFSSnapshotFailed)
+	opts := command.CommandOptions{}
+	out, err := m.executor.Execute(ctx, opts, "zfs snapshot", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSSnapshotFailed).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSSnapshotFailed)
+	}
+
+	return nil
+}
+
+// Exists checks if a dataset exists
+func (m *Manager) Exists(ctx context.Context, name string) (bool, error) {
+	args := []string{"list", "-H"}
+
+	// Add type flag for bookmarks
+	if strings.Contains(name, "#") {
+		args = append(args, "-t", "bookmark")
+	} else if strings.Contains(name, "@") {
+		args = append(args, "-t", "snapshot")
+	}
+
+	args = append(args, name)
+
+	opts := command.CommandOptions{}
+	_, err := m.executor.Execute(ctx, opts, "zfs list", args...)
+	if err != nil {
+		// if cmdErr, ok := err.(*errors.RodentError); ok {
+		// 	// Check if it's a non-existent dataset error (exit code 1)
+		// 	if cmdErr.Code == errors.CommandExecution {
+		// 		return false, nil
+		// 	}
+		// }
+		return false, errors.Wrap(err, errors.ZFSDatasetList)
+	}
+
+	return true, nil
 }
 
 // Clone creates a clone from a snapshot
 func (m *Manager) Clone(ctx context.Context, cfg CloneConfig) error {
 	args := []string{"clone"}
 
+	// Add properties if specified
 	for k, v := range cfg.Properties {
 		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
 	}
 
 	args = append(args, cfg.Snapshot, cfg.Name)
 
-	_, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs clone", args...)
-	return errors.Wrap(err, errors.ZFSCloneError)
+	opts := command.CommandOptions{}
+	out, err := m.executor.Execute(ctx, opts, "zfs clone", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSCloneError).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSCloneError)
+	}
+
+	return nil
 }
 
 func (m *Manager) PromoteClone(ctx context.Context, name string) error {
@@ -263,7 +326,7 @@ func (m *Manager) Rollback(ctx context.Context, dataset string, cfg RollbackConf
 
 // ListSnapshots returns a list of snapshots for the given dataset
 func (m *Manager) ListSnapshots(ctx context.Context, opts SnapshotListOptions) ([]SnapshotInfo, error) {
-	args := []string{"list", "-t", "snapshot", "-H"}
+	args := []string{"list", "-t", "snapshot", "-H", "-p"}
 
 	if opts.Recursive {
 		args = append(args, "-r")
@@ -273,7 +336,6 @@ func (m *Manager) ListSnapshots(ctx context.Context, opts SnapshotListOptions) (
 		args = append(args, opts.Dataset)
 	}
 
-	// Add JSON output flag for parsing
 	cmdOpts := command.CommandOptions{
 		Flags: command.FlagJSON,
 	}
@@ -283,32 +345,54 @@ func (m *Manager) ListSnapshots(ctx context.Context, opts SnapshotListOptions) (
 		return nil, errors.Wrap(err, errors.ZFSSnapshotList)
 	}
 
-	var snapshots []SnapshotInfo
-	if err := json.Unmarshal(out, &snapshots); err != nil {
-		return nil, errors.Wrap(err, errors.CommandOutputParse)
+	var result struct {
+		Datasets []SnapshotInfo `json:"datasets"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, errors.Wrap(err, errors.CommandOutputParse).
+			WithMetadata("output", string(out))
 	}
 
-	return snapshots, nil
+	return result.Datasets, nil
 }
 
-// Missing implementations for dataset Manager
+// DestroySnapshot removes a snapshot
 func (m *Manager) DestroySnapshot(ctx context.Context, dataset, snapshot string) error {
-	snapshotPath := fmt.Sprintf("%s@%s", dataset, snapshot)
-	args := []string{"destroy", snapshotPath}
+	// Form full snapshot name
+	snapName := fmt.Sprintf("%s@%s", dataset, snapshot)
+	args := []string{"destroy", snapName}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagForce,
 	}
 
-	_, err := m.executor.Execute(ctx, opts, "zfs destroy", args...)
-	return errors.Wrap(err, errors.ZFSSnapshotDestroy)
+	out, err := m.executor.Execute(ctx, opts, "zfs destroy", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSSnapshotDestroy).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSSnapshotDestroy)
+	}
+
+	return nil
 }
 
-func (m *Manager) CreateBookmark(ctx context.Context, snapshot, bookmark string) error {
-	args := []string{"bookmark", snapshot, bookmark}
+// CreateBookmark creates a bookmark from a snapshot
+func (m *Manager) CreateBookmark(ctx context.Context, cfg BookmarkConfig) error {
+	args := []string{"bookmark", cfg.Snapshot, cfg.Bookmark}
 
-	_, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs bookmark", args...)
-	return errors.Wrap(err, errors.ZFSBookmarkFailed)
+	opts := command.CommandOptions{}
+	out, err := m.executor.Execute(ctx, opts, "zfs bookmark", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSBookmarkFailed).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSBookmarkFailed)
+	}
+
+	return nil
 }
 
 func (m *Manager) ListBookmarks(ctx context.Context, dataset string) ([]Dataset, error) {

@@ -2,7 +2,8 @@ package serve
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"os"
 
 	"github.com/sevlyar/go-daemon"
 	"github.com/spf13/cobra"
@@ -30,7 +31,8 @@ func runServe(cmd *cobra.Command, args []string) {
 	pidFile := constants.RodentPIDFilePath
 	// Check for existing instance before proceeding
 	if err := lifecycle.EnsureSingleInstance(pidFile); err != nil {
-		log.Fatalf("Failed to start: %v\n", err)
+		fmt.Printf("Failed to start: %v\n", err)
+		os.Exit(1)
 	}
 
 	if detached {
@@ -46,11 +48,12 @@ func runServe(cmd *cobra.Command, args []string) {
 
 		d, err := ctx.Reborn()
 		if err != nil {
-			log.Fatalf("Failed to start daemon: %v\n", err)
+			fmt.Printf("Failed to start daemon: %v\n", err)
+			os.Exit(1)
 		}
 
 		if d != nil {
-			log.Println("Rodent is running as a daemon")
+			fmt.Println("Rodent is running as a daemon")
 			return
 		}
 		defer ctx.Release()
@@ -71,9 +74,9 @@ func startServer() {
 
 	// Register shutdown hook for server cleanup
 	lifecycle.RegisterShutdownHook(func() {
-		log.Println("Shutting down server")
+		fmt.Println("Shutting down server")
 		if err := server.Shutdown(ctx); err != nil {
-			log.Printf("Error during server shutdown: %v\n", err)
+			fmt.Printf("Error during server shutdown: %v\n", err)
 		}
 	})
 
@@ -81,8 +84,8 @@ func startServer() {
 	go lifecycle.HandleSignals(ctx)
 
 	// Start the server
-	log.Printf("Starting Rodent server on port %d\n", cfg.Server.Port)
+	fmt.Printf("Starting Rodent server on port %d\n", cfg.Server.Port)
 	if err := server.Start(ctx, cfg.Server.Port); err != nil {
-		log.Printf("Failed to start server: %v", err)
+		fmt.Printf("Failed to start server: %v", err)
 	}
 }

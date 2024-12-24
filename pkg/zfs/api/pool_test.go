@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
@@ -23,7 +24,7 @@ func TestPoolAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	executor := command.NewCommandExecutor(true)
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	poolManager := pool.NewManager(executor)
 	poolHandler := NewPoolHandler(poolManager)
 

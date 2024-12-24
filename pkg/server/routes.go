@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -10,7 +11,7 @@ import (
 
 func registerRoutes(engine *gin.Engine) {
 	// Create command executor with sudo support
-	executor := command.NewCommandExecutor(true)
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "warn"})
 
 	// Initialize managers
 	datasetManager := dataset.NewManager(executor)
