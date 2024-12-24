@@ -9,22 +9,18 @@ type PoolStatus struct {
 		VersMajor int    `json:"vers_major"`
 		VersMinor int    `json:"vers_minor"`
 	} `json:"output_version"`
-	Pools map[string]Pool `json:"pools"`
+	Pools map[string]*Pool `json:"pools"`
 }
 
 // Pool represents a ZFS storage pool
 type Pool struct {
-	Name       string              `json:"name"`
-	Type       string              `json:"type"`
-	State      string              `json:"state"`
-	GUID       string              `json:"pool_guid"`
-	HostID     string              `json:"hostid,omitempty"`
-	Hostname   string              `json:"hostname,omitempty"`
-	TXG        string              `json:"txg"`
-	SPAVersion string              `json:"spa_version"`
-	ZPLVersion string              `json:"zpl_version"`
-	Properties map[string]Property `json:"properties"`
-	VDevs      []VDev              `json:"vdevs"`
+	Name       string           `json:"name"`
+	State      string           `json:"state"`
+	GUID       string           `json:"pool_guid"`
+	TXG        string           `json:"txg"`
+	SPAVersion string           `json:"spa_version"`
+	ZPLVersion string           `json:"zpl_version"`
+	VDevs      map[string]*VDev `json:"vdevs"` // Change []VDev to map[string]*VDev
 }
 
 // Property represents a pool property with source information
@@ -41,13 +37,15 @@ type Source struct {
 
 // VDev represents a virtual device in the pool
 type VDev struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	State    string `json:"state"`
-	Path     string `json:"path,omitempty"`
-	GUID     string `json:"guid,omitempty"`
-	Stats    Stats  `json:"stats,omitempty"`
-	Children []VDev `json:"children,omitempty"`
+	Name           string           `json:"name"`
+	VDevType       string           `json:"vdev_type"`
+	GUID           string           `json:"guid"`
+	State          string           `json:"state"`
+	Path           string           `json:"path,omitempty"`
+	VDevs          map[string]*VDev `json:"vdevs,omitempty"` // Nested vdevs as map
+	ReadErrors     string           `json:"read_errors"`
+	WriteErrors    string           `json:"write_errors"`
+	ChecksumErrors string           `json:"checksum_errors"`
 }
 
 // Stats holds VDev performance statistics

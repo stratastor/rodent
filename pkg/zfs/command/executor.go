@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -63,6 +64,9 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 	// Build command with appropriate prefixes and flags
 	cmdArgs := e.buildCommandArgs(cmd, opts, args...)
 
+	// Debug logging
+	fmt.Printf("Executing command: %s\n", strings.Join(cmdArgs, " "))
+
 	// Create command
 	execCmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 
@@ -88,6 +92,7 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 	// Read output in goroutine
 	var outData []byte
 	var outErr error
+	var stderrBuf bytes.Buffer
 	done := make(chan struct{})
 
 	go func() {
@@ -98,6 +103,9 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 			return
 		}
 		outData = data
+		// Capture stderr for error reporting
+		stderrData, _ := io.ReadAll(stderr)
+		stderrBuf.Write(stderrData)
 	}()
 
 	// Wait for either:
@@ -120,14 +128,15 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 		// Wait for command completion and check exit status
 		if err := execCmd.Wait(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
-				errOut, _ := io.ReadAll(stderr)
 				return nil, errors.NewCommandError(
 					strings.Join(cmdArgs, " "),
 					exitErr.ExitCode(),
-					string(errOut),
+					stderrBuf.String(),
 				)
 			}
-			return nil, errors.Wrap(err, errors.CommandExecution)
+			return nil, errors.Wrap(err, errors.CommandExecution).
+				WithMetadata("command", strings.Join(cmdArgs, " ")).
+				WithMetadata("stderr", stderrBuf.String())
 		}
 
 		return outData, nil
@@ -142,16 +151,18 @@ func (e *CommandExecutor) buildCommandArgs(cmd string, opts CommandOptions, args
 		cmdArgs = append(cmdArgs, "sudo")
 	}
 
-	// Add base command
+	// Split command into base command and subcommand
+	parts := strings.Fields(cmd) // This splits on whitespace better than SplitN
+
+	// Add base command (zfs or zpool)
 	switch {
-	case strings.HasPrefix(cmd, "zfs"):
+	case strings.HasPrefix(parts[0], "zfs"):
 		cmdArgs = append(cmdArgs, BinZFS)
-	case strings.HasPrefix(cmd, "zpool"):
+	case strings.HasPrefix(parts[0], "zpool"):
 		cmdArgs = append(cmdArgs, BinZpool)
 	}
 
-	// Add subcommand
-	parts := strings.SplitN(cmd, " ", 2)
+	// Add subcommand if present
 	if len(parts) > 1 {
 		cmdArgs = append(cmdArgs, parts[1])
 	}
@@ -173,8 +184,13 @@ func (e *CommandExecutor) buildCommandArgs(cmd string, opts CommandOptions, args
 		cmdArgs = append(cmdArgs, "-H")
 	}
 
-	// Add command arguments
-	cmdArgs = append(cmdArgs, args...)
+	// Add remaining arguments, but skip the operation if it's duplicated
+	for _, arg := range args {
+		if len(parts) > 1 && arg == parts[1] {
+			continue // Skip if argument matches the operation
+		}
+		cmdArgs = append(cmdArgs, arg)
+	}
 
 	return cmdArgs
 }

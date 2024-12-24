@@ -29,10 +29,17 @@ func (e *RodentError) Error() string {
 	// - It follows the standard error interface pattern for concise error messages
 	// - Metadata is meant for structured data consumption (API responses, logging, monitoring)
 	// - Including all metadata would make error messages too verbose for standard logging
+	msg := fmt.Sprintf("[%s-%d] %s", e.Domain, e.Code, e.Message)
 	if e.Details != "" {
-		return fmt.Sprintf("[%s-%d] %s - %s", e.Domain, e.Code, e.Message, e.Details)
+		msg += " - " + e.Details
 	}
-	return fmt.Sprintf("[%s-%d] %s", e.Domain, e.Code, e.Message)
+	// Include stderr in error message if available
+	if e.Metadata != nil {
+		if stderr, ok := e.Metadata["stderr"]; ok && stderr != "" {
+			msg += "\nCommand output: " + stderr
+		}
+	}
+	return msg
 }
 
 func (e *RodentError) WithMetadata(key, value string) *RodentError {
@@ -101,9 +108,22 @@ func Is(err, target error) bool {
 
 // Wrap wraps an existing error with additional context
 func Wrap(err error, code ErrorCode) *RodentError {
-	re := New(code, err.Error())
-	re.WithMetadata("wrapped_error", err.Error())
-	return re
+	if re, ok := err.(*RodentError); ok {
+		// Create new error but preserve metadata
+		newErr := New(code, re.Details)
+		// Copy metadata from original error
+		if re.Metadata != nil {
+			for k, v := range re.Metadata {
+				newErr.WithMetadata(k, v)
+			}
+		}
+		// Add wrapped error info
+		newErr.WithMetadata("wrapped_code", fmt.Sprintf("%d", re.Code))
+		newErr.WithMetadata("wrapped_domain", string(re.Domain))
+		newErr.WithMetadata("wrapped_message", re.Message)
+		return newErr
+	}
+	return New(code, err.Error())
 }
 
 // Unwrap implements the interface for errors.Unwrap
@@ -131,7 +151,7 @@ type CommandError struct {
 }
 
 func NewCommandError(cmd string, exitCode int, stderr string) *RodentError {
-	return New(CommandExecution, "").
+	return New(CommandExecution, "Command execution failed").
 		WithMetadata("command", cmd).
 		WithMetadata("exit_code", fmt.Sprintf("%d", exitCode)).
 		WithMetadata("stderr", stderr)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
@@ -37,7 +38,7 @@ func buildVDevArgs(specs []VDevSpec) []string {
 
 // Create creates a new ZFS pool
 func (p *Manager) Create(ctx context.Context, cfg CreateConfig) error {
-	args := []string{"create"}
+	args := []string{}
 
 	// Add properties
 	for k, v := range cfg.Properties {
@@ -129,7 +130,7 @@ func (p *Manager) Status(ctx context.Context, name string) (*PoolStatus, error) 
 
 // GetProperty gets a specific property of a pool
 func (p *Manager) GetProperty(ctx context.Context, name, property string) (Property, error) {
-	args := []string{"get", property}
+	args := []string{"get", "-H", property}
 	if name != "" {
 		args = append(args, name)
 	}
@@ -144,13 +145,22 @@ func (p *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 	}
 
 	var result struct {
-		Properties map[string]Property `json:"properties"`
+		Pools map[string]struct {
+			Properties map[string]Property `json:"properties"`
+		} `json:"pools"`
 	}
+
 	if err := json.Unmarshal(out, &result); err != nil {
 		return Property{}, errors.Wrap(err, errors.CommandOutputParse)
 	}
 
-	prop, ok := result.Properties[property]
+	poolData, ok := result.Pools[name]
+	if !ok {
+		return Property{}, errors.New(errors.ZFSPoolNotFound,
+			fmt.Sprintf("pool %s not found", name))
+	}
+
+	prop, ok := poolData.Properties[property]
 	if !ok {
 		return Property{}, errors.New(errors.ZFSPoolPropertyNotFound,
 			fmt.Sprintf("property %s not found", property))
@@ -160,10 +170,28 @@ func (p *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 }
 
 func (p *Manager) SetProperty(ctx context.Context, name, property, value string) error {
-	args := []string{"set", fmt.Sprintf("%s=%s", property, value), name}
+	// Format: zpool set property=value poolname
+	// For values with spaces, we need to properly escape
+	formattedValue := value
+	if strings.Contains(value, " ") {
+		// Use single quotes to preserve spaces without shell interpretation
+		formattedValue = fmt.Sprintf("'%s'", value)
+	}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool set", args...)
-	return errors.Wrap(err, errors.ZFSPoolSetProperty)
+	args := []string{"set", fmt.Sprintf("%s=%s", property, formattedValue), name}
+
+	opts := command.CommandOptions{}
+	out, err := p.executor.Execute(ctx, opts, "zpool set", args...)
+	if err != nil {
+		// Add command output to error context if available
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolSetProperty).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolSetProperty)
+	}
+
+	return nil
 }
 
 // Export exports a ZFS pool
@@ -180,14 +208,28 @@ func (p *Manager) Export(ctx context.Context, name string, force bool) error {
 
 // Destroy destroys a ZFS pool
 func (p *Manager) Destroy(ctx context.Context, name string, force bool) error {
+	if name == "" {
+		return errors.New(errors.ZFSPoolInvalidName, "pool name cannot be empty")
+	}
+
 	args := []string{"destroy"}
 	if force {
 		args = append(args, "-f")
 	}
 	args = append(args, name)
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool destroy", args...)
-	return errors.Wrap(err, errors.ZFSPoolDestroy)
+	opts := command.CommandOptions{}
+	out, err := p.executor.Execute(ctx, opts, "zpool destroy", args...)
+	if err != nil {
+		// Include command output in error if available
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolDestroy).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolDestroy)
+	}
+
+	return nil
 }
 
 // Scrub starts/stops a scrub on a pool

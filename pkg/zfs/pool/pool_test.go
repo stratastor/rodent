@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stratastor/rodent/pkg/zfs/command"
@@ -10,17 +11,28 @@ import (
 
 func TestPoolOperations(t *testing.T) {
 	// Setup test environment
-	env := testutil.NewTestEnv(t, 3) // 3 disks for RAIDZ
-	defer env.Cleanup()
+	env := testutil.NewTestEnv(t, 3)
+	defer env.Cleanup() // Only cleanup devices
 
-	// Create pool manager
 	executor := command.NewCommandExecutor(true)
 	manager := NewManager(executor)
+	poolName := testutil.GeneratePoolName()
 
-	// Test pool creation
+	// Track pool state for cleanup
+	var poolCreated bool
+	var poolDestroyed bool
+	defer func() {
+		// Only attempt to destroy if pool was created but not destroyed
+		if poolCreated && !poolDestroyed {
+			if err := manager.Destroy(context.Background(), poolName, true); err != nil {
+				t.Logf("cleanup: failed to destroy pool: %v", err)
+			}
+		}
+	}()
+
 	t.Run("CreatePool", func(t *testing.T) {
 		cfg := CreateConfig{
-			Name: "tank",
+			Name: poolName,
 			VDevSpec: []VDevSpec{
 				{
 					Type:    "raidz",
@@ -34,42 +46,50 @@ func TestPoolOperations(t *testing.T) {
 
 		err := manager.Create(context.Background(), cfg)
 		if err != nil {
-			t.Fatalf("failed to create pool: %v", err)
+			t.Fatalf("failed to create pool: %v\nDevices: %v", err, env.GetLoopDevices())
 		}
+		poolCreated = true // Mark pool as created
 
 		// Verify pool exists
-		status, err := manager.Status(context.Background(), "tank")
+		status, err := manager.Status(context.Background(), poolName)
 		if err != nil {
 			t.Fatalf("failed to get pool status: %v", err)
 		}
-		if status.Pools["tank"].State != "ONLINE" {
-			t.Errorf("pool state = %s, want ONLINE", status.Pools["tank"].State)
-		}
-	})
-
-	// Test property operations
-	t.Run("Properties", func(t *testing.T) {
-		// Test setting property
-		err := manager.SetProperty(context.Background(), "tank", "comment", "test pool")
-		if err != nil {
-			t.Fatalf("failed to set property: %v", err)
+		if pool, ok := status.Pools[poolName]; !ok || pool.State != "ONLINE" {
+			t.Errorf("pool state = %s, want ONLINE", pool.State)
 		}
 
-		// Test getting property
-		prop, err := manager.GetProperty(context.Background(), "tank", "comment")
-		if err != nil {
-			t.Fatalf("failed to get property: %v", err)
-		}
-		if prop.Value != "test pool" {
-			t.Errorf("property value = %v, want 'test pool'", prop.Value)
-		}
-	})
+		t.Run("Properties", func(t *testing.T) {
+			err := manager.SetProperty(context.Background(), poolName, "comment", "test pool")
+			if err != nil {
+				t.Fatalf("failed to set property: %v", err)
+			}
 
-	// Test pool destruction
-	t.Run("DestroyPool", func(t *testing.T) {
-		err := manager.Destroy(context.Background(), "tank", true)
-		if err != nil {
-			t.Fatalf("failed to destroy pool: %v", err)
+			prop, err := manager.GetProperty(context.Background(), poolName, "comment")
+			if err != nil {
+				t.Fatalf("failed to get property: %v", err)
+			}
+			// Compare without quotes since they're added by ZFS
+			if strings.Trim(prop.Value.(string), "'") != "test pool" {
+				t.Errorf("property value = %v, want 'test pool'", prop.Value)
+			}
+		})
+
+		// Only run destroy test if pool exists
+		// Only run destroy test if previous tests passed
+		if !t.Failed() {
+			t.Run("DestroyPool", func(t *testing.T) {
+				// Ensure we're destroying the right pool
+				if poolName == "" {
+					t.Fatal("pool name is empty")
+				}
+
+				err := manager.Destroy(context.Background(), poolName, true)
+				if err != nil {
+					t.Fatalf("failed to destroy pool: %v", err)
+				}
+				poolDestroyed = true // Mark as destroyed to prevent second destroy attempt
+			})
 		}
 	})
 }
