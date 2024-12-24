@@ -62,22 +62,40 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	// Split command to get base command (zfs/zpool)
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return nil, errors.New(errors.CommandNotFound, "empty command")
+	}
+
+	// Validate command and arguments
+	if err := e.validateCommand(parts[0], args); err != nil {
+		return nil, err
+	}
+
+	// Build command with security checks
+	cmdArgs := e.buildCommandArgs(cmd, opts, args...)
+
+	// Additional security checks for built command
+	if err := e.validateBuiltCommand(cmdArgs); err != nil {
+		return nil, err
+	}
+
+	// Set timeout
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultTimeout
 	}
-
-	// Apply timeout to context
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
-
-	// Build command with appropriate prefixes and flags
-	cmdArgs := e.buildCommandArgs(cmd, opts, args...)
 
 	// Debug logging
 	e.logger.Debug("Executing command", "cmd", strings.Join(cmdArgs, " "))
 
 	// Create command
 	execCmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
+
+	// Prevent shell expansion
+	execCmd.Env = []string{}
 
 	// Set up pipes for output
 	stdout, err := execCmd.StdoutPipe()
@@ -180,6 +198,9 @@ func (e *CommandExecutor) buildCommandArgs(cmd string, opts CommandOptions, args
 	if opts.Flags&FlagJSON != 0 && JSONSupportedCommands[cmd] {
 		cmdArgs = append(cmdArgs, "-j")
 	}
+	// TODO: Review -p flag as it means different things for different commands. Example: zfs create and zfs get.
+	// 1. zfs create: -p is used to create parent datasets
+	// 2. zfs get: -p is used to display property values in parsable format
 	if opts.Flags&FlagParsable != 0 {
 		cmdArgs = append(cmdArgs, "-p")
 	}
@@ -217,6 +238,42 @@ func (e *CommandExecutor) validateCommand(name string, args []string) error {
 		if strings.ContainsAny(arg, ";&|><$`\\") {
 			return errors.New(errors.CommandInvalidInput,
 				"argument contains invalid characters")
+		}
+	}
+
+	return nil
+}
+
+// validateBuiltCommand performs additional security checks on the final command
+func (e *CommandExecutor) validateBuiltCommand(args []string) error {
+	if len(args) == 0 {
+		return errors.New(errors.CommandInvalidInput, "empty command")
+	}
+
+	// Ensure first argument is an absolute path to zfs/zpool
+	switch args[0] {
+	case "sudo":
+		if len(args) < 2 {
+			return errors.New(errors.CommandInvalidInput, "invalid sudo command")
+		}
+		if args[1] != BinZFS && args[1] != BinZpool {
+			return errors.New(errors.CommandNotFound, "invalid command binary")
+		}
+	case BinZFS, BinZpool:
+		// Direct command is okay
+	default:
+		return errors.New(errors.CommandNotFound, "invalid command binary")
+	}
+
+	// Validate argument count
+	if len(args) > maxCommandArgs {
+		return errors.New(errors.CommandInvalidInput, "too many arguments")
+	}
+
+	// Check for path traversal attempts
+	for _, arg := range args {
+		if strings.Contains(arg, "..") {
+			return errors.New(errors.CommandInvalidInput, "path traversal not allowed")
 		}
 	}
 

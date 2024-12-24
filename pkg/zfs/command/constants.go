@@ -6,12 +6,18 @@ import "time"
 
 const (
 	// Base commands
-	BinZFS   = "zfs"
-	BinZpool = "zpool"
+	// TODO: Make these configurable?
+	BinZFS   = "/usr/local/sbin/zfs"
+	BinZpool = "/usr/local/sbin/zpool"
+
+	maxCommandArgs = 64
 
 	// Default timeout for command execution
 	DefaultTimeout = 30 * time.Second
 )
+
+// Dangerous characters that could enable command injection
+var dangerousChars = "&|><$`\\[];{}"
 
 // Commands that support JSON output
 var JSONSupportedCommands = map[string]bool{
