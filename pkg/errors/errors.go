@@ -131,7 +131,7 @@ func (e *RodentError) Unwrap() error {
 	// If this error was created via Wrap(), return the original error
 	if e.Metadata != nil {
 		if originalErr, ok := e.Metadata["wrapped_error"]; ok {
-			return fmt.Errorf(originalErr)
+			return fmt.Errorf("%s", originalErr)
 		}
 	}
 	return nil
