@@ -13,11 +13,16 @@ import (
 )
 
 func TestDataTransferOperations(t *testing.T) {
+
+	logLevel := os.Getenv("RODENT_LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
 	// Setup test environment
 	env := testutil.NewTestEnv(t, 3)
 	defer env.Cleanup()
 
-	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: logLevel})
 	poolMgr := pool.NewManager(executor)
 	datasetMgr := NewManager(executor)
 
@@ -121,17 +126,24 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snapName,
 				Compressed: true,
-				LogLevel:   "debug",
+				LogLevel:   logLevel,
 			},
 			ReceiveConfig{
-				Target:     dstDs,
+				Target:     dstFs,
 				Force:      true,
 				Properties: map[string]string{"compression": "on"},
 				Resumable:  false,
+				UseParent:  true,
 			},
 		)
 		if err != nil {
-			t.Fatalf("failed to transfer dataset: %v", err)
+			if rerr, ok := err.(*errors.RodentError); ok {
+				t.Fatalf("failed remote transfer: %v\nOutput: %s\nCommand: %s",
+					rerr,
+					rerr.Metadata["output"],
+					rerr.Metadata["command"])
+			}
+			t.Fatalf("failed remote transfer: %v", err)
 		}
 
 		// Verify destination exists
@@ -179,7 +191,7 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snap1,
 				Properties: true,
-				LogLevel:   "debug",
+				LogLevel:   logLevel,
 			},
 			ReceiveConfig{
 				Target:     dstFs,
@@ -263,7 +275,7 @@ func TestDataTransferOperations(t *testing.T) {
 				Snapshot:   snapName,
 				Properties: true,
 				Progress:   true,
-				LogLevel:   "debug",
+				LogLevel:   logLevel,
 			},
 			ReceiveConfig{
 				Target:    dstFs,
@@ -288,7 +300,7 @@ func TestDataTransferOperations(t *testing.T) {
 					ResumeToken: token,
 					Progress:    true,
 					Verbose:     true,
-					LogLevel:    "debug",
+					LogLevel:    logLevel,
 				},
 				ReceiveConfig{
 					Target:    dstFs,
@@ -371,7 +383,7 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snapName,
 				Compressed: true,
-				LogLevel:   "debug",
+				LogLevel:   logLevel,
 				Progress:   true,
 			},
 			ReceiveConfig{

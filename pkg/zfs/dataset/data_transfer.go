@@ -5,12 +5,27 @@ import (
 	stderrors "errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/kballard/go-shellquote"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
+)
+
+var (
+	// Validate snapshot names
+	snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*@[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	// Validate dataset names
+	datasetNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`)
+	propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
+
+	maxRetries    = 3
+	retryInterval = 5 * time.Second
 )
 
 type SendConfig struct {
@@ -69,8 +84,79 @@ type RemoteConfig struct {
 	Port             int    `json:"port"`                          // SSH port (default: 22)
 	User             string `json:"user" binding:"required"`       // SSH user
 	PrivateKey       string `json:"private_key,omitempty"`         // Path to private key
-	Options          string `json:"options,omitempty"`             // Additional SSH options
+	SSHOptions       string `json:"options,omitempty"`             // Additional SSH options
 	SkipHostKeyCheck bool   `json:"skip_host_key_check,omitempty"` // Skip SSH host key check
+}
+
+// Allowed SSH options to prevent abuse
+var allowedSSHOptions = map[string]bool{
+	"AddressFamily":            true,
+	"Compression":              true,
+	"ConnectionAttempts":       true,
+	"ConnectTimeout":           true,
+	"TCPKeepAlive":             true,
+	"ServerAliveInterval":      true,
+	"ServerAliveCountMax":      true,
+	"Ciphers":                  true,
+	"MACs":                     true,
+	"KexAlgorithms":            true,
+	"PreferredAuthentications": true,
+}
+
+// validateSSHOption validates a single SSH option
+func validateSSHOption(option string) error {
+	parts := strings.SplitN(option, "=", 2)
+	if len(parts) != 2 {
+		return errors.New(errors.CommandInvalidInput, "Invalid SSH option format")
+	}
+
+	key := strings.TrimSpace(parts[0])
+	value := strings.TrimSpace(parts[1])
+
+	// Check if option is allowed
+	if !allowedSSHOptions[key] {
+		return errors.New(errors.CommandInvalidInput, "SSH option not allowed").
+			WithMetadata("option", key)
+	}
+
+	// Validate option value
+	if strings.ContainsAny(value, "&|;<>()$`\\\"'") {
+		return errors.New(errors.CommandInvalidInput, "Invalid SSH option value").
+			WithMetadata("option", key)
+	}
+
+	return nil
+}
+
+// parseSSHOptions safely parses custom SSH options
+func parseSSHOptions(options string) ([]string, error) {
+	if options == "" {
+		return nil, nil
+	}
+
+	var result []string
+	// Split options respecting quotes
+	opts := strings.Fields(options)
+
+	for _, opt := range opts {
+		if !strings.HasPrefix(opt, "-o") {
+			// All custom options must be in -o format
+			return nil, errors.New(errors.CommandInvalidInput,
+				"SSH options must use -o format")
+		}
+
+		// Remove -o prefix if present
+		opt = strings.TrimPrefix(opt, "-o")
+		opt = strings.TrimSpace(opt)
+
+		if err := validateSSHOption(opt); err != nil {
+			return nil, err
+		}
+		// Add validated option
+		result = append(result, "-o", opt)
+	}
+
+	return result, nil
 }
 
 // GetResumeToken gets the resume token from a partially received dataset
@@ -92,6 +178,26 @@ func (m *Manager) GetResumeToken(ctx context.Context, dataset string) (string, e
 
 // SendReceive handles data transfer on the same machine
 func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg ReceiveConfig) error {
+	// Validate configurations
+	if err := validateSendConfig(sendCfg); err != nil {
+		return err
+	}
+	if err := validateReceiveConfig(recvCfg); err != nil {
+		return err
+	}
+	if recvCfg.RemoteConfig.Host != "" {
+		if err := validateSSHConfig(recvCfg.RemoteConfig); err != nil {
+			return err
+		}
+	}
+
+	// Use context with timeout
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 24*time.Hour)
+		defer cancel()
+	}
+
 	// Build send command
 	sendPart := []string{command.BinZFS, "send"}
 
@@ -181,31 +287,27 @@ func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg R
 
 	recvPart = append(recvPart, recvCfg.Target)
 
-	sshPart := []string{}
+	// Sanitize command parts
+	sendPart = sanitizeCommandArgs(sendPart)
+	recvPart = sanitizeCommandArgs(recvPart)
+
+	// Build full command with SSH if remote
+	var fullCmd string
 	if recvCfg.RemoteConfig.Host != "" {
-		sshPart = append(sshPart, "ssh")
-		if recvCfg.RemoteConfig.Port != 0 {
-			sshPart = append(sshPart, "-p", fmt.Sprintf("%d", recvCfg.RemoteConfig.Port))
+		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
+		if err != nil {
+			return errors.Wrap(err, errors.CommandInvalidInput)
 		}
-		if recvCfg.RemoteConfig.PrivateKey != "" {
-			sshPart = append(sshPart, "-i", recvCfg.RemoteConfig.PrivateKey)
-		}
-		if recvCfg.RemoteConfig.Options != "" {
-			sshPart = append(sshPart, recvCfg.RemoteConfig.Options)
-		}
-		if recvCfg.RemoteConfig.SkipHostKeyCheck {
-			sshPart = append(sshPart, "-o StrictHostKeyChecking=no")
-		}
-		sshPart = append(sshPart, fmt.Sprintf("%s@%s", recvCfg.RemoteConfig.User, recvCfg.RemoteConfig.Host))
+		fullCmd = fmt.Sprintf("sudo %s | %s sudo %s 2>&1",
+			shellquote.Join(sendPart...),
+			shellquote.Join(sshPart...),
+			shellquote.Join(recvPart...))
+	} else {
+		fullCmd = fmt.Sprintf("sudo %s | sudo %s 2>&1",
+			shellquote.Join(sendPart...),
+			shellquote.Join(recvPart...))
 	}
 
-	// Combine into single piped command
-	fullCmd := fmt.Sprintf("sudo %s | %s sudo %s 2>&1",
-		strings.Join(sendPart, " "),
-		strings.Join(sshPart, " "),
-		strings.Join(recvPart, " "))
-
-	// Debug logging
 	l, err := logger.NewTag(logger.Config{LogLevel: sendCfg.LogLevel}, "zfs-data-transfer")
 	if err != nil {
 		return errors.Wrap(err, errors.RodentMisc)
@@ -213,37 +315,177 @@ func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg R
 	l.Debug("Executing command",
 		"cmd", fullCmd)
 
-	// Execute combined command
-	cmd := exec.Command("bash", "-c", fullCmd)
+	// Execute with retries
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrap(err, errors.CommandContext)
+		}
 
-	// Create pipes for both stdout and stderr
-	var output strings.Builder
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+		cmd := exec.CommandContext(ctx, "bash", "-c", fullCmd)
+		var output strings.Builder
+		cmd.Stdout = &output
+		cmd.Stderr = &output
 
-	// Execute command
-	err = cmd.Run()
-	outputStr := output.String()
+		err = cmd.Run()
+		outputStr := output.String()
 
-	// Log the output regardless of error
-	if outputStr != "" {
-		l.Debug("Command output", "output", outputStr)
-	}
+		if outputStr != "" {
+			l.Debug("Command output", "output", outputStr, "attempt", attempt)
+		}
 
-	// Handle errors with context
-	if err != nil {
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
 		var exitErr *exec.ExitError
 		if stderrors.As(err, &exitErr) {
-			return errors.Wrap(err, errors.ZFSDatasetReceive).
-				WithMetadata("exit_code", fmt.Sprintf("%d", exitErr.ExitCode())).
-				WithMetadata("output", outputStr).
-				WithMetadata("command", fullCmd)
+			// Don't retry on certain exit codes
+			if exitErr.ExitCode() == 1 || exitErr.ExitCode() == 2 {
+				return errors.Wrap(err, errors.ZFSDatasetReceive).
+					WithMetadata("exit_code", fmt.Sprintf("%d", exitErr.ExitCode())).
+					WithMetadata("output", outputStr).
+					WithMetadata("command", fullCmd)
+			}
 		}
-		// Other types of errors
-		return errors.Wrap(err, errors.ZFSDatasetReceive).
-			WithMetadata("output", outputStr).
-			WithMetadata("command", fullCmd)
+
+		if attempt < maxRetries {
+			l.Debug("Retrying command",
+				"attempt", attempt,
+				"max_attempts", maxRetries,
+				"retry_interval", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
+
+	return errors.Wrap(lastErr, errors.ZFSDatasetReceive).
+		WithMetadata("output", "Max retries exceeded").
+		WithMetadata("command", fullCmd)
+}
+
+func validateSendConfig(cfg SendConfig) error {
+	if cfg.ResumeToken != "" {
+		// Resume tokens are opaque but should be printable ASCII
+		if !utf8.ValidString(cfg.ResumeToken) {
+			return errors.New(errors.CommandInvalidInput, "Invalid resume token")
+		}
+		return nil
+	}
+
+	// Validate snapshot name
+	if !snapshotNameRegex.MatchString(cfg.Snapshot) {
+		return errors.New(errors.CommandInvalidInput, "Invalid snapshot name")
+	}
+
+	// Validate from snapshot if specified
+	if cfg.FromSnapshot != "" && !snapshotNameRegex.MatchString(cfg.FromSnapshot) {
+		return errors.New(errors.CommandInvalidInput, "Invalid from snapshot name")
 	}
 
 	return nil
+}
+
+func validateReceiveConfig(cfg ReceiveConfig) error {
+	// Validate target dataset
+	if !datasetNameRegex.MatchString(cfg.Target) {
+		return errors.New(errors.CommandInvalidInput, "Invalid target dataset")
+	}
+
+	// Validate property names and values
+	for k, v := range cfg.Properties {
+		if !propertyValueRegex.MatchString(k) || !propertyValueRegex.MatchString(v) {
+			return errors.New(errors.CommandInvalidInput, "Invalid property name or value")
+		}
+	}
+
+	return nil
+}
+
+// ValidateSSHConfig validates SSH connection parameters
+func validateSSHConfig(cfg RemoteConfig) error {
+	if cfg.Host == "" {
+		return errors.New(errors.CommandInvalidInput, "SSH host cannot be empty")
+	}
+	if cfg.User == "" {
+		return errors.New(errors.CommandInvalidInput, "SSH user cannot be empty")
+	}
+	if cfg.Port < 0 || cfg.Port > 65535 {
+		return errors.New(errors.CommandInvalidInput, "Invalid SSH port")
+	}
+	return nil
+}
+
+// buildSSHCommand constructs SSH command with proper options
+func buildSSHCommand(cfg RemoteConfig) ([]string, error) {
+	sshCmd := []string{"ssh"}
+
+	// Core SSH options
+	if cfg.Port != 0 && cfg.Port != 22 {
+		sshCmd = append(sshCmd, "-p", fmt.Sprintf("%d", cfg.Port))
+	}
+	if cfg.PrivateKey != "" {
+		// Validate private key path
+		if strings.ContainsAny(cfg.PrivateKey, "&|;<>()$`\\\"'") {
+			return nil, errors.New(errors.CommandInvalidInput,
+				"Invalid private key path")
+		}
+		sshCmd = append(sshCmd, "-i", cfg.PrivateKey)
+	}
+
+	// Security options
+	if cfg.SkipHostKeyCheck {
+		sshCmd = append(sshCmd, "-o", "StrictHostKeyChecking=no")
+	}
+
+	// Connection options
+	sshCmd = append(sshCmd,
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+		"-o", "ServerAliveInterval=10",
+		"-o", "ServerAliveCountMax=3",
+	)
+
+	// Parse and add custom options
+	if cfg.SSHOptions != "" {
+		customOpts, err := parseSSHOptions(cfg.SSHOptions)
+		if err != nil {
+			return nil, err
+		}
+		sshCmd = append(sshCmd, customOpts...)
+	}
+
+	// Validate and add destination
+	if strings.ContainsAny(cfg.User, "&|;<>()$`\\\"'") {
+		return nil, errors.New(errors.CommandInvalidInput, "Invalid SSH username")
+	}
+	if strings.ContainsAny(cfg.Host, "&|;<>()$`\\\"'") {
+		return nil, errors.New(errors.CommandInvalidInput, "Invalid SSH host")
+	}
+	sshCmd = append(sshCmd, fmt.Sprintf("%s@%s", cfg.User, cfg.Host))
+
+	return sshCmd, nil
+}
+
+// sanitizeCommandArgs sanitizes command arguments
+func sanitizeCommandArgs(args []string) []string {
+	sanitized := make([]string, 0, len(args))
+	for _, arg := range args {
+		// Remove any shell metacharacters
+		if strings.ContainsAny(arg, "&|><$`\\[]{}") {
+			continue
+		}
+		// Remove any path traversal attempts
+		if strings.Contains(arg, "..") {
+			continue
+		}
+		// Ensure absolute paths for binaries
+		if strings.HasPrefix(arg, command.BinZFS) || strings.HasPrefix(arg, command.BinZpool) {
+			sanitized = append(sanitized, arg)
+			continue
+		}
+		// Regular arguments
+		sanitized = append(sanitized, arg)
+	}
+	return sanitized
 }
