@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -59,6 +60,17 @@ type ReceiveConfig struct {
 	UseParent    bool              `json:"use_parent"`    // -d: Use parent filesystem
 	DryRun       bool              `json:"dry_run"`       // -n: Dry run
 	Verbose      bool              `json:"verbose"`       // -v: Print verbose info
+	RemoteConfig RemoteConfig      `json:"remote_host,omitempty"`
+}
+
+// RemoteConfig defines SSH connection parameters
+type RemoteConfig struct {
+	Host             string `json:"host" binding:"required"`       // Remote hostname/IP
+	Port             int    `json:"port"`                          // SSH port (default: 22)
+	User             string `json:"user" binding:"required"`       // SSH user
+	PrivateKey       string `json:"private_key,omitempty"`         // Path to private key
+	Options          string `json:"options,omitempty"`             // Additional SSH options
+	SkipHostKeyCheck bool   `json:"skip_host_key_check,omitempty"` // Skip SSH host key check
 }
 
 // GetResumeToken gets the resume token from a partially received dataset
@@ -78,8 +90,8 @@ func (m *Manager) GetResumeToken(ctx context.Context, dataset string) (string, e
 	return token, nil
 }
 
-// LocalSendReceive handles data transfer on the same machine
-func (m *Manager) LocalSendReceive(ctx context.Context, sendCfg SendConfig, recvCfg ReceiveConfig) error {
+// SendReceive handles data transfer on the same machine
+func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg ReceiveConfig) error {
 	// Build send command
 	sendPart := []string{command.BinZFS, "send"}
 
@@ -169,9 +181,28 @@ func (m *Manager) LocalSendReceive(ctx context.Context, sendCfg SendConfig, recv
 
 	recvPart = append(recvPart, recvCfg.Target)
 
+	sshPart := []string{}
+	if recvCfg.RemoteConfig.Host != "" {
+		sshPart = append(sshPart, "ssh")
+		if recvCfg.RemoteConfig.Port != 0 {
+			sshPart = append(sshPart, "-p", fmt.Sprintf("%d", recvCfg.RemoteConfig.Port))
+		}
+		if recvCfg.RemoteConfig.PrivateKey != "" {
+			sshPart = append(sshPart, "-i", recvCfg.RemoteConfig.PrivateKey)
+		}
+		if recvCfg.RemoteConfig.Options != "" {
+			sshPart = append(sshPart, recvCfg.RemoteConfig.Options)
+		}
+		if recvCfg.RemoteConfig.SkipHostKeyCheck {
+			sshPart = append(sshPart, "-o StrictHostKeyChecking=no")
+		}
+		sshPart = append(sshPart, fmt.Sprintf("%s@%s", recvCfg.RemoteConfig.User, recvCfg.RemoteConfig.Host))
+	}
+
 	// Combine into single piped command
-	fullCmd := fmt.Sprintf("sudo %s | sudo %s",
+	fullCmd := fmt.Sprintf("sudo %s | %s sudo %s 2>&1",
 		strings.Join(sendPart, " "),
+		strings.Join(sshPart, " "),
 		strings.Join(recvPart, " "))
 
 	// Debug logging
@@ -185,17 +216,33 @@ func (m *Manager) LocalSendReceive(ctx context.Context, sendCfg SendConfig, recv
 	// Execute combined command
 	cmd := exec.Command("bash", "-c", fullCmd)
 
-	// Capture stderr for error reporting
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	// Create pipes for both stdout and stderr
+	var output strings.Builder
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 
-	// Execute and handle errors
-	if err := cmd.Run(); err != nil {
-		if stderr.Len() > 0 {
+	// Execute command
+	err = cmd.Run()
+	outputStr := output.String()
+
+	// Log the output regardless of error
+	if outputStr != "" {
+		l.Debug("Command output", "output", outputStr)
+	}
+
+	// Handle errors with context
+	if err != nil {
+		var exitErr *exec.ExitError
+		if stderrors.As(err, &exitErr) {
 			return errors.Wrap(err, errors.ZFSDatasetReceive).
-				WithMetadata("output", stderr.String())
+				WithMetadata("exit_code", fmt.Sprintf("%d", exitErr.ExitCode())).
+				WithMetadata("output", outputStr).
+				WithMetadata("command", fullCmd)
 		}
-		return errors.Wrap(err, errors.ZFSDatasetReceive)
+		// Other types of errors
+		return errors.Wrap(err, errors.ZFSDatasetReceive).
+			WithMetadata("output", outputStr).
+			WithMetadata("command", fullCmd)
 	}
 
 	return nil

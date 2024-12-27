@@ -2,9 +2,11 @@ package dataset
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 	"github.com/stratastor/rodent/pkg/zfs/testutil"
@@ -115,7 +117,7 @@ func TestDataTransferOperations(t *testing.T) {
 
 		dstDs := dstFs + snapStr
 
-		err = datasetMgr.LocalSendReceive(context.Background(),
+		err = datasetMgr.SendReceive(context.Background(),
 			SendConfig{
 				Snapshot:   snapName,
 				Compressed: true,
@@ -173,7 +175,7 @@ func TestDataTransferOperations(t *testing.T) {
 
 		// Initial transfer
 		dstFs := dstPoolName + "/fs2"
-		err = datasetMgr.LocalSendReceive(context.Background(),
+		err = datasetMgr.SendReceive(context.Background(),
 			SendConfig{
 				Snapshot:   snap1,
 				Properties: true,
@@ -200,7 +202,7 @@ func TestDataTransferOperations(t *testing.T) {
 		}
 
 		// Incremental transfer
-		err = datasetMgr.LocalSendReceive(context.Background(),
+		err = datasetMgr.SendReceive(context.Background(),
 			SendConfig{
 				Snapshot:     snap2,
 				FromSnapshot: snap1,
@@ -256,7 +258,7 @@ func TestDataTransferOperations(t *testing.T) {
 
 		// Start resumable receive
 		dstFs := dstPoolName + "/fs3"
-		err = datasetMgr.LocalSendReceive(context.Background(),
+		err = datasetMgr.SendReceive(context.Background(),
 			SendConfig{
 				Snapshot:   snapName,
 				Properties: true,
@@ -281,7 +283,7 @@ func TestDataTransferOperations(t *testing.T) {
 			}
 
 			// Resume transfer
-			err = datasetMgr.LocalSendReceive(context.Background(),
+			err = datasetMgr.SendReceive(context.Background(),
 				SendConfig{
 					ResumeToken: token,
 					Progress:    true,
@@ -316,6 +318,80 @@ func TestDataTransferOperations(t *testing.T) {
 		if prop.Value != "on" {
 			t.Errorf("property value = %v, want 'on'", prop.Value)
 		}
+	})
+
+	t.Run("RemoteTransfer", func(t *testing.T) {
+		// sudo RODENT_REMOTE_TEST="yes" RODENT_REMOTE_DATASET="tank/ds3" RODENT_REMOTE_HOST="13.xx.xx.xxx" RODENT_REMOTE_USER="ubuntu" RODENT_REMOTE_PRIVATE_KEY="/home/ubuntu/.ssh/id_ed25519" go test -v -run TestDataTransferOperations/RemoteTransfer
+
+		// Skip if no remote test environment
+		if os.Getenv("RODENT_REMOTE_TEST") == "" {
+			t.Skip("Skipping remote transfer test")
+		}
+
+		// Create source filesystem with data
+		srcFs := srcPoolName + "/fs4"
+		err := datasetMgr.Create(context.Background(), CreateConfig{
+			Name: srcFs,
+			Type: "filesystem",
+			Properties: map[string]string{
+				"compression": "on",
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create source filesystem: %v", err)
+		}
+
+		// Create test data in source
+
+		// Create snapshot
+		snapName := srcFs + "@snap1"
+		err = datasetMgr.CreateSnapshot(context.Background(), SnapshotConfig{
+			Dataset: srcFs,
+			Name:    "snap1",
+		})
+		if err != nil {
+			t.Fatalf("failed to create snapshot: %v", err)
+		}
+
+		// Test remote replication
+		remoteConfig := RemoteConfig{
+			Host:             os.Getenv("RODENT_REMOTE_HOST"),
+			User:             os.Getenv("RODENT_REMOTE_USER"),
+			Port:             22,
+			PrivateKey:       os.Getenv("RODENT_REMOTE_PRIVATE_KEY"),
+			SkipHostKeyCheck: true,
+		}
+
+		t.Logf("Remote config: host=%s, user=%s, key=%s",
+			remoteConfig.Host,
+			remoteConfig.User,
+			remoteConfig.PrivateKey)
+
+		err = datasetMgr.SendReceive(context.Background(),
+			SendConfig{
+				Snapshot:   snapName,
+				Compressed: true,
+				LogLevel:   "debug",
+				Progress:   true,
+			},
+			ReceiveConfig{
+				Target:       os.Getenv("RODENT_REMOTE_DATASET"),
+				Force:        true,
+				Resumable:    true,
+				UseParent:    true,
+				RemoteConfig: remoteConfig,
+			},
+		)
+		if err != nil {
+			if rerr, ok := err.(*errors.RodentError); ok {
+				t.Fatalf("failed remote transfer: %v\nOutput: %s\nCommand: %s",
+					rerr,
+					rerr.Metadata["output"],
+					rerr.Metadata["command"])
+			}
+			t.Fatalf("failed remote transfer: %v", err)
+		}
+
 	})
 
 	// Clean up
