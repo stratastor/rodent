@@ -41,6 +41,7 @@ type RodentError struct {
 // 1300-1399: Command execution
 // 1400-1499: Health check
 // 1500-1599: Lifecycle management
+// 1600-1699: Rodent errors
 // 2000-2999: ZFS operations
 // Domain-specific error code ranges:
 const (
@@ -103,6 +104,10 @@ const (
 	ZFSDatasetInvalidProperty
 	ZFSDatasetRename
 	ZFSDatasetSnapshot
+
+	ZFSDatasetSend
+	ZFSDatasetReceive
+	ZFSDatasetNoReceiveToken
 
 	ZFSSnapshotList
 	ZFSSnapshotDestroy
@@ -181,6 +186,11 @@ const (
 	LifecycleResource               // Resource management error
 )
 
+const (
+	// Rodent Errors (1600-1699)
+	RodentMisc = 1600 + iota // Miscelaneous program error
+)
+
 var errorDefinitions = map[ErrorCode]struct {
 	message    string
 	domain     Domain
@@ -241,6 +251,10 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSDatasetInvalidProperty:  {"Invalid property value", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetRename:           {"Failed to rename dataset", DomainZFS, http.StatusInternalServerError},
 	ZFSDatasetSnapshot:         {"Failed to create snapshot", DomainZFS, http.StatusInternalServerError},
+
+	ZFSDatasetSend:           {"Failed to send dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetReceive:        {"Failed to receive dataset", DomainZFS, http.StatusInternalServerError},
+	ZFSDatasetNoReceiveToken: {"No _receive_ token", DomainZFS, http.StatusNotFound},
 
 	ZFSSnapshotList:            {"Failed to list snapshots", DomainZFS, http.StatusInternalServerError},
 	ZFSSnapshotDestroy:         {"Failed to destroy snapshot", DomainZFS, http.StatusInternalServerError},
@@ -303,4 +317,7 @@ var errorDefinitions = map[ErrorCode]struct {
 	LifecycleCleanup:  {"Lifecycle cleanup failed", DomainLifecycle, http.StatusInternalServerError},
 	LifecycleDaemon:   {"Daemon operation failed", DomainLifecycle, http.StatusInternalServerError},
 	LifecycleResource: {"Resource management error", DomainLifecycle, http.StatusInternalServerError},
+
+	// Rodent errors
+	RodentMisc: {"Miscellaneous program error", DomainLifecycle, http.StatusInternalServerError},
 }
