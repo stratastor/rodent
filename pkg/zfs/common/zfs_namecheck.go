@@ -1,6 +1,8 @@
 package common
 
 import (
+	"strings"
+
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -26,8 +28,11 @@ const (
 	TypeVDev
 )
 
-// TypeDataset represents any dataset type (filesystem, volume, or snapshot)
-const TypeDataset = TypeFilesystem | TypeVolume | TypeSnapshot
+const (
+	// TypeDatasetMask represents any dataset type (filesystem, volume, or snapshot)
+	TypeDatasetMask   = TypeFilesystem | TypeVolume | TypeSnapshot
+	TypeZFSEntityMask = TypeFilesystem | TypeVolume | TypeSnapshot | TypeBookmark
+)
 
 // DatasetComponent represents the parsed components of a dataset name
 type DatasetComponent struct {
@@ -80,20 +85,20 @@ func ComponentNameCheck(name string) error {
 
 func EntityNameCheck(path string) error {
 	if len(path) >= MaxDatasetNameLen {
-		return errors.New(errors.ZFSNameTooLong, "name too long")
+		return errors.New(errors.ZFSNameTooLong, "name too long: "+path)
 	}
 
 	if len(path) == 0 {
-		return errors.New(errors.ZFSNameEmptyComponent, "name empty")
+		return errors.New(errors.ZFSNameEmptyComponent, "name empty: "+path)
 	}
 
 	if path[0] == '/' {
-		return errors.New(errors.ZFSNameLeadingSlash, "name cannot start with '/'")
+		return errors.New(errors.ZFSNameLeadingSlash, "name cannot start with '/': "+path)
 	}
 
 	// Check for trailing slash
 	if path[len(path)-1] == '/' {
-		return errors.New(errors.ZFSNameTrailingSlash, "trailing slash")
+		return errors.New(errors.ZFSNameTrailingSlash, "trailing slash: "+path)
 	}
 
 	foundDelim := false
@@ -108,23 +113,23 @@ func EntityNameCheck(path string) error {
 
 		// Zero-length components are not allowed
 		if start == end {
-			return errors.New(errors.ZFSNameEmptyComponent, "empty component")
+			return errors.New(errors.ZFSNameEmptyComponent, "invalid/empty component after '/', '@' or '#': "+path)
 		}
 
 		// Validate component characters
 		component := path[start:end]
 		for _, c := range component {
 			if !isValidChar(c) && c != '%' {
-				return errors.New(errors.ZFSNameInvalidChar, "invalid character")
+				return errors.New(errors.ZFSNameInvalidChar, "invalid character: "+path)
 			}
 		}
 
 		// Check for "." and ".."
 		if component == "." {
-			return errors.New(errors.ZFSNameSelfRef, "self reference")
+			return errors.New(errors.ZFSNameSelfRef, "self reference: "+path)
 		}
 		if component == ".." {
-			return errors.New(errors.ZFSNameParentRef, "parent reference")
+			return errors.New(errors.ZFSNameParentRef, "parent reference: "+path)
 		}
 
 		// If we hit the end, we're done
@@ -135,25 +140,57 @@ func EntityNameCheck(path string) error {
 		// Handle delimiters
 		if path[end] == '@' || path[end] == '#' {
 			if foundDelim {
-				return errors.New(errors.ZFSNameMultipleDelimiters, "multiple delimiters")
+				return errors.New(errors.ZFSNameMultipleDelimiters, "multiple delimiters: "+path)
 			}
 			foundDelim = true
 
 			// Check next character after delimiter
 			if end+1 >= len(path) {
-				return errors.New(errors.ZFSNameEmptyComponent, "empty component after delimiter")
+				return errors.New(errors.ZFSNameEmptyComponent, "empty component after delimiter: "+path)
 			}
 		}
 
 		// Check for slashes after delimiter
 		if path[end] == '/' && foundDelim {
-			return errors.New(errors.ZFSNameTrailingSlash, "slash after delimiter")
+			return errors.New(errors.ZFSNameTrailingSlash, "slash after delimiter: "+path)
 		}
 
 		start = end + 1
 	}
 
 	return DatasetNestCheck(path)
+}
+
+// ValidateZFSName performs comprehensive ZFS name validation based on type
+func ValidateZFSName(path string, dtype DatasetType) error {
+	// Check for snapshot delimiter
+	hasAtSign := strings.Contains(path, "@")
+	if !dtype.IsSnapshot() && hasAtSign {
+		return errors.New(errors.ZFSNameNoAtSign,
+			"snapshot delimiter '@' is not expected here")
+	}
+	if dtype.IsSnapshot() && !hasAtSign {
+		return errors.New(errors.ZFSNameNoAtSign,
+			"missing '@' delimiter in snapshot name")
+	}
+
+	// Check for bookmark delimiter
+	hasPound := strings.Contains(path, "#")
+	if !dtype.IsBookmark() && hasPound {
+		return errors.New(errors.ZFSNameNoPound,
+			"bookmark delimiter '#' is not expected here")
+	}
+	if dtype.IsBookmark() && !hasPound {
+		return errors.New(errors.ZFSNameNoPound,
+			"missing '#' delimiter in bookmark name")
+	}
+
+	// Perform base entity name validation
+	if err := EntityNameCheck(path); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // DatasetNameCheck validates dataset names (no bookmarks allowed)
@@ -327,7 +364,7 @@ func (dc *DatasetComponent) String() string {
 
 // IsDataset returns true if the type is filesystem, volume or snapshot
 func (dt DatasetType) IsDataset() bool {
-	return dt&TypeDataset != 0
+	return dt&TypeDatasetMask != 0
 }
 
 // IsSnapshot returns true if type is snapshot
@@ -338,6 +375,11 @@ func (dt DatasetType) IsSnapshot() bool {
 // IsFilesystem returns true if type is filesystem
 func (dt DatasetType) IsFilesystem() bool {
 	return dt&TypeFilesystem != 0
+}
+
+// IsVolume returns true if type is volume
+func (dt DatasetType) IsVolume() bool {
+	return dt&TypeVolume != 0
 }
 
 // IsBookmark returns true if type is bookmark

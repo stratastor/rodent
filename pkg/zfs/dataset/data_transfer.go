@@ -28,6 +28,11 @@ var (
 	retryInterval = 5 * time.Second
 )
 
+type TransferConfig struct {
+	SendConfig    SendConfig    `json:"send" binding:"required"`
+	ReceiveConfig ReceiveConfig `json:"receive" binding:"required"`
+}
+
 type SendConfig struct {
 	// Required parameters
 	Snapshot     string `json:"snapshot" binding:"required"`
@@ -80,9 +85,9 @@ type ReceiveConfig struct {
 
 // RemoteConfig defines SSH connection parameters
 type RemoteConfig struct {
-	Host             string `json:"host" binding:"required"`       // Remote hostname/IP
+	Host             string `json:"host"`                          // Remote hostname/IP
 	Port             int    `json:"port"`                          // SSH port (default: 22)
-	User             string `json:"user" binding:"required"`       // SSH user
+	User             string `json:"user"`                          // SSH user
 	PrivateKey       string `json:"private_key,omitempty"`         // Path to private key
 	SSHOptions       string `json:"options,omitempty"`             // Additional SSH options
 	SkipHostKeyCheck bool   `json:"skip_host_key_check,omitempty"` // Skip SSH host key check
@@ -160,8 +165,8 @@ func parseSSHOptions(options string) ([]string, error) {
 }
 
 // GetResumeToken gets the resume token from a partially received dataset
-func (m *Manager) GetResumeToken(ctx context.Context, dataset string) (string, error) {
-	args := []string{"get", "-H", "-o", "value", "receive_resume_token", dataset}
+func (m *Manager) GetResumeToken(ctx context.Context, cfg NameConfig) (string, error) {
+	args := []string{"get", "-H", "-o", "value", "receive_resume_token", cfg.Name}
 
 	out, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs get", args...)
 	if err != nil {
@@ -200,6 +205,8 @@ func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg R
 
 	// Build send command
 	sendPart := []string{command.BinZFS, "send"}
+
+	// TODO: Enforce flag rules and combinations
 
 	if sendCfg.ResumeToken != "" {
 		sendPart = append(sendPart, "-t", sendCfg.ResumeToken)

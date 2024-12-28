@@ -66,6 +66,8 @@ func Start(ctx context.Context, port int) error {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
 
+	registerZFSRoutes(engine)
+
 	srv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: engine,

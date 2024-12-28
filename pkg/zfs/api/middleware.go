@@ -1,21 +1,25 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/zfs/common"
+	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
 var (
 	// ZFS naming conventions
-	datasetNameRegex  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`)
-	snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
-	volumeSizeRegex   = regexp.MustCompile(`^\d+[KMGTP]?$`)
-	bookmarkNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	filesystemNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`)
+	snapshotNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	volumeSizeRegex     = regexp.MustCompile(`^\d+[KMGTP]?$`)
+	bookmarkNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 	poolNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
 	devicePathRegex = regexp.MustCompile(`^/dev/[a-zA-Z0-9/]+$`)
@@ -45,11 +49,30 @@ var (
 	}
 )
 
+// ReadResetBody reads and resets the request body so it can be re-read by subsequent handlers
+func ReadResetBody(c *gin.Context) ([]byte, error) {
+	// Read and store the raw body
+	body, err := c.GetRawData()
+	if err != nil {
+		return nil, err
+	}
+
+	// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	return body, nil
+}
+
+// ResetBody resets the request body so it can be re-read by subsequent handlers
+func ResetBody(c *gin.Context, body []byte) {
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+}
+
 // ValidateDatasetName validates dataset name format
 func ValidateDatasetName() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
-		if name != "" && !datasetNameRegex.MatchString(name) {
+		if name != "" && !filesystemNameRegex.MatchString(name) {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
 				errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"),
@@ -63,7 +86,27 @@ func ValidateDatasetName() gin.HandlerFunc {
 // ValidatePropertyName validates property name
 func ValidatePropertyName() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		property := c.Param("property")
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req struct {
+			Property string `json:"property" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		property := req.Property
 		if property == "" || !isValidProperty(property) {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
@@ -77,12 +120,23 @@ func ValidatePropertyName() gin.HandlerFunc {
 
 func ValidateVolumeSize() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
 		var req struct {
 			Size string `json:"size"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			return
 		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
 		if !volumeSizeRegex.MatchString(req.Size) {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
@@ -94,39 +148,71 @@ func ValidateVolumeSize() gin.HandlerFunc {
 	}
 }
 
-// ValidateZFSName validates any ZFS entity name
-func ValidateZFSName(nameType string) gin.HandlerFunc {
+// ValidateZFSEntityName validates any ZFS entity name
+func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		name := c.Param("name")
-		if name == "" {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
-		var valid bool
-		var errCode errors.ErrorCode
-		var message string
-
-		switch nameType {
-		case "dataset":
-			valid = datasetNameRegex.MatchString(name)
-			errCode = errors.ZFSDatasetInvalidName
-			message = "Invalid dataset name format"
-		case "snapshot":
-			valid = snapshotNameRegex.MatchString(name)
-			errCode = errors.ZFSSnapshotInvalidName
-			message = "Invalid snapshot name format"
-		case "bookmark":
-			valid = bookmarkNameRegex.MatchString(name)
-			errCode = errors.ZFSBookmarkInvalidName
-			message = "Invalid bookmark name format"
+		var req struct {
+			Name string `json:"name" binding:"required"`
 		}
-
-		if !valid {
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
-				errors.New(errCode, message),
-			)
+				errors.New(errors.ServerRequestValidation, err.Error()))
 			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		name := req.Name
+
+		// Validate name format
+		switch dtype {
+		case common.TypeZFSEntityMask:
+			err := common.EntityNameCheck(name)
+			if err != nil {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					err,
+				)
+				return
+			}
+		case common.TypeDatasetMask:
+			err := common.DatasetNameCheck(name)
+			if err != nil {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					err,
+				)
+				return
+			}
+		case common.TypeBookmark | common.TypeSnapshot:
+			// This is the case for clone creation where the name can be either a bookmark or snapshot
+			errbm := common.ValidateZFSName(name, common.TypeBookmark)
+			errsnap := common.ValidateZFSName(name, common.TypeSnapshot)
+			if errbm != nil && errsnap != nil {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSNameInvalid, "Name expected to be either a bookmark or snapshot"),
+				)
+				return
+			}
+		default:
+			err := common.ValidateZFSName(name, dtype)
+			if err != nil {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					err,
+				)
+				return
+			}
 		}
 		c.Next()
 	}
@@ -134,6 +220,7 @@ func ValidateZFSName(nameType string) gin.HandlerFunc {
 
 // isValidProperty maintains a list of valid ZFS properties
 func isValidProperty(property string) bool {
+	// TODO: Move this out to common pkg, and sync with ZFS property list
 	validProps := map[string]bool{
 		"compression":    true,
 		"atime":          true,
@@ -196,10 +283,23 @@ func ValidatePoolOperation() gin.HandlerFunc {
 // ValidateDeviceInput validates device path input
 func ValidateDeviceInput(paramName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req map[string]string
-		if err := c.ShouldBindJSON(&req); err != nil {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+
+		var req map[string]string
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
 
 		device, ok := req[paramName]
 		if !ok || !devicePathRegex.MatchString(device) {
@@ -217,10 +317,23 @@ func ValidateDeviceInput(paramName string) gin.HandlerFunc {
 // ValidateDevicePaths validates device paths in pool creation
 func ValidateDevicePaths() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var cfg pool.CreateConfig
-		if err := c.ShouldBindJSON(&cfg); err != nil {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+
+		var cfg pool.CreateConfig
+		if err := c.ShouldBindJSON(&cfg); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
 
 		for _, spec := range cfg.VDevSpec {
 			for _, device := range spec.Devices {
@@ -240,12 +353,25 @@ func ValidateDevicePaths() gin.HandlerFunc {
 // ValidateMountPoint ensures mount points are safe
 func ValidateMountPoint() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
 		var req struct {
 			MountPoint string `json:"mountpoint"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
 
 		if req.MountPoint != "" {
 			// Check format
@@ -273,12 +399,25 @@ func ValidateMountPoint() gin.HandlerFunc {
 // ValidatePropertyValue ensures property values are safe
 func ValidatePropertyValue() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
 		var req struct {
 			Value string `json:"value"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
 
 		// Check length
 		if len(req.Value) > maxPropertyValueLen {
@@ -316,10 +455,23 @@ func ValidatePropertyValue() gin.HandlerFunc {
 // EnhancedValidateDevicePaths adds additional device safety checks
 func EnhancedValidateDevicePaths() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var cfg pool.CreateConfig
-		if err := c.ShouldBindJSON(&cfg); err != nil {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+
+		var cfg pool.CreateConfig
+		if err := c.ShouldBindJSON(&cfg); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
 
 		// Check total number of devices
 		totalDevices := 0
@@ -368,6 +520,139 @@ func ValidateNameLength() gin.HandlerFunc {
 			)
 			return
 		}
+		c.Next()
+	}
+}
+
+// ValidateProperties validates property map
+func ValidateProperties() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req struct {
+			Properties map[string]string `json:"properties"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		for k, v := range req.Properties {
+			// Validate property name
+			if !isValidProperty(k) {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"),
+				)
+				return
+			}
+
+			// Validate property value
+			if len(v) > maxPropertyValueLen {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
+				)
+				return
+			}
+
+			if !propertyValueRegex.MatchString(v) {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSInvalidPropertyValue, "Invalid property value format"),
+				)
+				return
+			}
+
+			// Special handling for quota values
+			if k == "quota" || k == "refquota" {
+				if !quotaRegex.MatchString(v) {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"),
+					)
+					return
+				}
+			}
+		}
+		c.Next()
+	}
+}
+
+// ValidateBlockSize validates volume block size
+func ValidateBlockSize() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req struct {
+			BlockSize string `json:"blocksize"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		if req.BlockSize != "" && !volumeSizeRegex.MatchString(req.BlockSize) {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ZFSInvalidSize, "Invalid block size format"),
+			)
+			return
+		}
+		c.Next()
+	}
+}
+
+// ValidateCloneConfig validates clone creation parameters
+func ValidateCloneConfig() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req dataset.CloneConfig
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		// Validate clone name
+		if !filesystemNameRegex.MatchString(req.CloneName) {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ZFSDatasetInvalidName, "Invalid clone name format"),
+			)
+			return
+		}
+
 		c.Next()
 	}
 }

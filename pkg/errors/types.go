@@ -32,6 +32,8 @@ type RodentError struct {
 	// - Logging with structured details
 	// - Debugging with command-specific information
 	// - Error tracking/monitoring systems
+	// TODO: perhaps use a map[string]interface{} for flexibility?
+	// TODO: Consider map[string][]string for multiple values to accommodate error chains?
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
@@ -243,7 +245,7 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSMountError:           {"ZFS mount operation failed", DomainZFS, http.StatusInternalServerError},
 	ZFSIOError:              {"ZFS I/O operation failed", DomainZFS, http.StatusInternalServerError},
 	ZFSPermissionError:      {"Permission denied for ZFS operation", DomainZFS, http.StatusForbidden},
-	ZFSInvalidSize:          {"Invalid volume size specified", DomainZFS, http.StatusBadRequest},
+	ZFSInvalidSize:          {"Invalid size specified", DomainZFS, http.StatusBadRequest},
 
 	ZFSBookmarkFailed: {"Failed to create/list bookmark", DomainZFS, http.StatusInternalServerError},
 
