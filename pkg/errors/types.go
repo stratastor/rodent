@@ -77,8 +77,7 @@ const (
 	ZFSCommandFailed    = 2000 + iota // ZFS command execution failed
 	ZFSPoolNotFound                   // Pool not found
 	ZFSPermissionDenied               // Permission denied
-	ZFSNameTooLong
-	ZFSPropertyError // Property operation failed
+	ZFSPropertyError                  // Property operation failed
 	ZFSPropertyValueTooLong
 	ZFSInvalidPropertyValue
 	ZFSMountError // Mount operation failed
@@ -91,6 +90,21 @@ const (
 	ZFSQuotaExceeded
 	ZFSQuotaInvalid
 	ZFSPermissionError
+
+	ZFSNameLeadingSlash
+	ZFSNameEmptyComponent
+	ZFSNameTrailingSlash
+	ZFSNameInvalidChar
+	ZFSNameMultipleDelimiters // multiple '@'/'#' delimiters found
+	ZFSNameNoLetter           // pool doesn't begin with a letter
+	ZFSNameReserved
+	ZFSNameDiskLike
+	ZFSNameTooLong
+	ZFSNameSelfRef   // "."
+	ZFSNameParentRef // ".."
+	ZFSNameNoAtSign  // Missing "@" in snapshot
+	ZFSNameNoPound   // Missing "#" in bookmark
+	ZFSNameInvalid
 
 	ZFSDatasetNotFound // Dataset not found
 	ZFSDatasetCreate
@@ -238,6 +252,21 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSQuotaInvalid:  {"ZFS invalid quota", DomainZFS, http.StatusBadRequest},
 
 	ZFSCloneError: {"ZFS clone operation failed", DomainZFS, http.StatusInternalServerError},
+
+	ZFSNameLeadingSlash:       {"Leading slash in name", DomainZFS, http.StatusBadRequest},
+	ZFSNameEmptyComponent:     {"Empty component in name", DomainZFS, http.StatusBadRequest},
+	ZFSNameTrailingSlash:      {"Trailing slash in name", DomainZFS, http.StatusBadRequest},
+	ZFSNameInvalidChar:        {"Invalid character in name", DomainZFS, http.StatusBadRequest},
+	ZFSNameMultipleDelimiters: {"Multiple delimiters in name", DomainZFS, http.StatusBadRequest},
+	ZFSNameNoLetter:           {"Name must begin with a letter", DomainZFS, http.StatusBadRequest},
+	ZFSNameReserved:           {"Name is reserved", DomainZFS, http.StatusBadRequest},
+	ZFSNameDiskLike:           {"Reserved disk name (c[0-9].*)", DomainZFS, http.StatusBadRequest},
+	ZFSNameTooLong:            {"Name is too long", DomainZFS, http.StatusBadRequest},
+	ZFSNameSelfRef:            {"Name is self reference", DomainZFS, http.StatusBadRequest},
+	ZFSNameParentRef:          {"Name is parent reference", DomainZFS, http.StatusBadRequest},
+	ZFSNameNoAtSign:           {"Missing '@' in snapshot name", DomainZFS, http.StatusBadRequest},
+	ZFSNameNoPound:            {"Missing '#' in bookmark name", DomainZFS, http.StatusBadRequest},
+	ZFSNameInvalid:            {"Invalid name", DomainZFS, http.StatusBadRequest},
 
 	ZFSDatasetCreate:           {"Failed to create ZFS dataset", DomainZFS, http.StatusInternalServerError},
 	ZFSDatasetNotFound:         {"ZFS dataset not found", DomainZFS, http.StatusNotFound},
