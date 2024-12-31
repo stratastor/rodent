@@ -3,13 +3,17 @@ package common
 import (
 	"strings"
 	"testing"
+
+	"github.com/stratastor/rodent/pkg/errors"
 )
 
 func TestDatasetType(t *testing.T) {
+	// TODO: This test function is dumber than a door knob. Break it.
 	tests := []struct {
 		name    string
 		dtype   DatasetType
 		isDs    bool
+		isVol   bool
 		isSnap  bool
 		isFs    bool
 		isBookm bool
@@ -41,7 +45,8 @@ func TestDatasetType(t *testing.T) {
 		{
 			name:    "volume",
 			dtype:   TypeVolume,
-			isDs:    true,
+			isDs:    false,
+			isVol:   true,
 			isSnap:  false,
 			isFs:    false,
 			isBookm: false,
@@ -66,6 +71,9 @@ func TestDatasetType(t *testing.T) {
 			}
 			if got := tt.dtype.IsFilesystem(); got != tt.isFs {
 				t.Errorf("IsFilesystem() = %v, want %v", got, tt.isFs)
+			}
+			if got := tt.dtype.IsVolume(); got != tt.isVol {
+				t.Errorf("IsVolume() = %v, want %v", got, tt.isVol)
 			}
 			if got := tt.dtype.IsBookmark(); got != tt.isBookm {
 				t.Errorf("IsBookmark() = %v, want %v", got, tt.isBookm)
@@ -625,6 +633,78 @@ func TestDatasetNestCheck(t *testing.T) {
 			err := DatasetNestCheck(tt.path)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DatasetNestCheck() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestZFSValidateName(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		dtype   DatasetType
+		wantErr bool
+		errCode errors.ErrorCode
+	}{
+		{
+			name:  "valid filesystem",
+			path:  "tank/data",
+			dtype: TypeFilesystem,
+		},
+		{
+			name:  "valid snapshot",
+			path:  "tank/data@snap1",
+			dtype: TypeSnapshot,
+		},
+		{
+			name:  "valid bookmark",
+			path:  "tank/data#mark1",
+			dtype: TypeBookmark,
+		},
+		{
+			name:    "snapshot delimiter in filesystem",
+			path:    "tank/data@snap1",
+			dtype:   TypeFilesystem,
+			wantErr: true,
+			errCode: errors.ZFSNameNoAtSign,
+		},
+		{
+			name:    "missing snapshot delimiter",
+			path:    "tank/data/snap1",
+			dtype:   TypeSnapshot,
+			wantErr: true,
+			errCode: errors.ZFSNameNoAtSign,
+		},
+		{
+			name:    "bookmark delimiter in filesystem",
+			path:    "tank/data#mark1",
+			dtype:   TypeFilesystem,
+			wantErr: true,
+			errCode: errors.ZFSNameNoPound,
+		},
+		{
+			name:    "missing bookmark delimiter",
+			path:    "tank/data/mark1",
+			dtype:   TypeBookmark,
+			wantErr: true,
+			errCode: errors.ZFSNameNoPound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateZFSName(tt.path, tt.dtype)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ZFSValidateName() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				if e, ok := err.(*errors.RodentError); ok {
+					if e.Code != tt.errCode {
+						t.Errorf("ZFSValidateName() error code = %v, want %v",
+							e.Code, tt.errCode)
+					}
+				}
 			}
 		})
 	}

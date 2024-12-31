@@ -3,15 +3,17 @@ package server
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
-func registerRoutes(engine *gin.Engine) {
+func registerZFSRoutes(engine *gin.Engine) {
+	cfg := config.GetConfig()
 	// Create command executor with sudo support
-	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "warn"})
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
 
 	// Initialize managers
 	datasetManager := dataset.NewManager(executor)

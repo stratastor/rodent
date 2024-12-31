@@ -117,6 +117,7 @@ func Wrap(err error, code ErrorCode) *RodentError {
 				newErr.WithMetadata(k, v)
 			}
 		}
+		// TODO: Append error to existing metadata to retain the chain?
 		// Add wrapped error info
 		newErr.WithMetadata("wrapped_code", fmt.Sprintf("%d", re.Code))
 		newErr.WithMetadata("wrapped_domain", string(re.Domain))

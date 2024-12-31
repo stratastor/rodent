@@ -8,19 +8,6 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
-// PoolHandler provides HTTP endpoints for ZFS pool operations.
-// It implements the following features:
-//   - Pool creation and destruction
-//   - Import/export operations
-//   - Status and property management
-//   - Device management (attach/detach/replace)
-//   - Maintenance operations (scrub/resilver)
-//
-// All operations use proper validation and error handling.
-type PoolHandler struct {
-	manager *pool.Manager
-}
-
 func NewPoolHandler(manager *pool.Manager) *PoolHandler {
 	return &PoolHandler{manager: manager}
 }
