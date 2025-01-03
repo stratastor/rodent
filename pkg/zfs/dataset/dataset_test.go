@@ -369,37 +369,6 @@ func TestDatasetOperations(t *testing.T) {
 	poolDestroyed = true
 }
 
-// 	t.Run("Volumes", func(t *testing.T) {
-// 		volName := poolName + "/vol1"
-// 		err := datasetMgr.Create(context.Background(), CreateConfig{
-// 			Name: volName,
-// 			Type: "volume",
-// 			Properties: map[string]string{
-// 				"volsize":      "30M",
-// 				"volblocksize": "8K",
-// 			},
-// 		})
-// 		if err != nil {
-// 			t.Fatalf("failed to create volume: %v", err)
-// 		}
-
-// 		exists, err := datasetMgr.Exists(context.Background(), volName)
-// 		if err != nil {
-// 			t.Fatalf("failed to check volume: %v", err)
-// 		}
-// 		if !exists {
-// 			t.Error("volume does not exist")
-// 		}
-
-// 		prop, err := datasetMgr.GetProperty(context.Background(), volName, "volsize")
-// 		if err != nil {
-// 			t.Fatalf("failed to get property: %v", err)
-// 		}
-// 		if prop.Value != "31457280" {
-// 			t.Errorf("property value = %v, want '31457280'", prop.Value)
-// 		}
-// 	})
-
 // 	// Additional negative test case
 // 	t.Run("VolumeWithoutSize", func(t *testing.T) {
 // 		volName := poolName + "/vol2"
@@ -415,11 +384,3 @@ func TestDatasetOperations(t *testing.T) {
 // 			t.Error("expected error when creating volume without size")
 // 		}
 // 	})
-
-// 	// Clean up test pool
-// 	err = poolMgr.Destroy(context.Background(), poolName, true)
-// 	if err != nil {
-// 		t.Fatalf("failed to destroy pool: %v", err)
-// 	}
-// 	poolDestroyed = true
-// }

@@ -5,6 +5,13 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/common"
 )
 
+// TODO: Perhaps Pool APIs can also be refactored to send param values in the body?
+
+// Unlike Pool operations, Dataset API maynot be RESTFUL.
+// Having dataset values with "/" in the URI params is inconvenient
+// and may lead to confusion. Hence, we will pass information in the body
+// to keep the URI clean and simple.
+//
 // Dataset Operations:
 //
 //	GET    /dataset              List datasets
@@ -127,13 +134,14 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		}
 
 		property := dataset.Group("/property",
-			ValidateZFSEntityName(common.TypeZFSEntityMask),
-			ValidatePropertyName())
+			ValidateZFSEntityName(common.TypeZFSEntityMask))
 		{
-			property.GET("", h.getProperty)
+			property.GET("",
+				ValidatePropertyName(),
+				h.getProperty)
 			// TODO: Accommmodate multiple property values
 			property.PUT("",
-				ValidatePropertyValue(),
+				ValidateZFSProperties(),
 				h.setProperty)
 		}
 
@@ -147,7 +155,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		{
 			filesystem.POST("",
 				ValidateMountPoint(),
-				ValidateProperties(),
+				ValidateZFSProperties(),
 				h.createFilesystem)
 
 			// Mount operations
@@ -172,7 +180,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			volume.POST("",
 				ValidateVolumeSize(),
 				ValidateBlockSize(),
-				ValidateProperties(),
+				ValidateZFSProperties(),
 				h.createVolume)
 		}
 
@@ -185,7 +193,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		{
 			snapshot.POST("",
 				ValidateZFSEntityName(common.TypeFilesystem|common.TypeVolume),
-				ValidateProperties(),
+				ValidateZFSProperties(),
 				h.createSnapshot)
 
 			snapshot.POST("/rollback",
@@ -199,7 +207,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			clone.POST("",
 				ValidateZFSEntityName(common.TypeSnapshot),
 				ValidateCloneConfig(),
-				ValidateProperties(),
+				ValidateZFSProperties(),
 				h.createClone)
 
 			clone.POST("/promote",
@@ -228,6 +236,115 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			transfer.GET("/resume-token",
 				ValidateZFSEntityName(common.TypeFilesystem),
 				h.getResumeToken)
+		}
+	}
+}
+
+// API Routes
+//
+// Pool Operations:
+//
+//	POST   /api/v1/pools
+//	  Request:  {"name": "mypool", "vdev_spec": [{"type": "mirror", "devices": ["/dev/sda", "/dev/sdb"]}]}
+//	  Response: 201 Created
+//
+//	GET    /api/v1/pools
+//	  Response: {"pools": [{"name": "mypool", "state": "ONLINE", ...}]}
+//
+//	DELETE /api/v1/pools/:name
+//	  Response: 204 No Content
+//
+// Import/Export:
+//
+//	POST   /api/v1/pools/import
+//	  Request:  {"name": "mypool", "force": false}
+//	  Response: 200 OK
+//
+//	POST   /api/v1/pools/:name/export
+//	  Response: 200 OK
+//
+// Status and Properties:
+//
+//	GET    /api/v1/pools/:name/status
+//	  Response: {"name": "mypool", "state": "ONLINE", "vdevs": [...]}
+//
+//	GET    /api/v1/pools/:name/properties/:property
+//	  Response: {"value": "on", "source": {"type": "local"}}
+//
+//	PUT    /api/v1/pools/:name/properties/:property
+//	  Request:  {"value": "off"}
+//	  Response: 200 OK
+//
+// Maintenance:
+//
+//	POST   /api/v1/pools/:name/scrub
+//	  Request:  {"stop": false}
+//	  Response: 200 OK
+//
+//	POST   /api/v1/pools/:name/resilver
+//	  Response: 200 OK
+//
+// Device Operations:
+//
+//	POST   /api/v1/pools/:name/devices/attach
+//	  Request:  {"device": "/dev/sdc", "new_device": "/dev/sdd"}
+//	  Response: 200 OK
+//
+//	POST   /api/v1/pools/:name/devices/detach
+//	  Request:  {"device": "/dev/sdc"}
+//	  Response: 200 OK
+//
+//	POST   /api/v1/pools/:name/devices/replace
+//	  Request:  {"old_device": "/dev/sdc", "new_device": "/dev/sdd"}
+//	  Response: 200 OK
+//
+// Error Responses:
+//
+//	400 Bad Request:      Invalid input (name, device path, property)
+//	403 Forbidden:        Permission denied
+//	404 Not Found:        Pool not found
+//	500 Internal Error:   Command execution failed
+func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
+	pools := router.Group("/pools")
+	{
+		// Create/List/Destroy
+		pools.POST("",
+			ValidatePoolName(),
+			ValidateNameLength(),
+			EnhancedValidateDevicePaths(),
+			h.createPool)
+		pools.GET("", h.listPools)
+		pools.DELETE("/:name", ValidatePoolName(), h.destroyPool)
+
+		// Import/Export
+		pools.POST("/import", ValidatePoolOperation(), h.importPool)
+		pools.POST("/:name/export", ValidatePoolName(), h.exportPool)
+
+		// Status and properties
+		pools.GET("/:name/status", ValidatePoolName(), h.getPoolStatus)
+		pools.GET("/:name/properties/:property",
+			ValidatePoolName(),
+			ValidatePropertyName(),
+			h.getProperty)
+		pools.PUT("/:name/properties/:property",
+			ValidatePoolName(),
+			ValidatePropertyName(),
+			ValidatePropertyValue(),
+			h.setProperty)
+
+		// Maintenance
+		pools.POST("/:name/scrub", ValidatePoolName(), h.scrubPool)
+		pools.POST("/:name/resilver", ValidatePoolName(), h.resilverPool)
+
+		// Device operations
+		devices := pools.Group("/:name/devices", ValidatePoolName())
+		{
+			devices.POST("/attach", ValidateDeviceInput("device"), h.attachDevice)
+			devices.POST("/detach", ValidateDeviceInput("device"), h.detachDevice)
+			devices.POST("/replace",
+				ValidateDeviceInput("old_device"),
+				ValidateDeviceInput("new_device"),
+				h.replaceDevice)
 		}
 	}
 }

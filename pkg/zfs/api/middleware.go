@@ -24,9 +24,11 @@ var (
 	poolNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
 	devicePathRegex = regexp.MustCompile(`^/dev/[a-zA-Z0-9/]+$`)
 
-	propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
-	quotaRegex         = regexp.MustCompile(`^\d+[KMGTP]?(:|$)`)
-	mountPointRegex    = regexp.MustCompile(`^/[a-zA-Z0-9/._-]*$`)
+	// TODO: Validate property names? Track ZFS property list? Or just let ZFS handle it?
+	// propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
+
+	quotaRegex      = regexp.MustCompile(`^\d+[KMGTP]?(:|$)`)
+	mountPointRegex = regexp.MustCompile(`^/[a-zA-Z0-9/._-]*$`)
 
 	// Size limits
 	maxPropertyValueLen = 1024
@@ -107,7 +109,7 @@ func ValidatePropertyName() gin.HandlerFunc {
 		ResetBody(c, body)
 
 		property := req.Property
-		if property == "" || !isValidProperty(property) {
+		if property == "" || !isValidDatasetProperty(property) {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
 				errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"),
@@ -218,26 +220,9 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 	}
 }
 
-// isValidProperty maintains a list of valid ZFS properties
-func isValidProperty(property string) bool {
-	// TODO: Move this out to common pkg, and sync with ZFS property list
-	validProps := map[string]bool{
-		"compression":    true,
-		"atime":          true,
-		"quota":          true,
-		"recordsize":     true,
-		"mountpoint":     true,
-		"readonly":       true,
-		"snapdir":        true,
-		"sync":           true,
-		"refquota":       true,
-		"refreservation": true,
-		"canmount":       true,
-		"exec":           true,
-		"setuid":         true,
-		"devices":        true,
-	}
-	return validProps[property]
+// isValidDatasetProperty maintains a list of valid ZFS properties
+func isValidDatasetProperty(property string) bool {
+	return common.IsValidZFSProperty(property)
 }
 
 // ValidatePoolName validates pool name format
@@ -428,15 +413,6 @@ func ValidatePropertyValue() gin.HandlerFunc {
 			return
 		}
 
-		// Check format
-		if !propertyValueRegex.MatchString(req.Value) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSInvalidPropertyValue, "Invalid property value format"),
-			)
-			return
-		}
-
 		// Special handling for quota values
 		if property := c.Param("property"); property == "quota" || property == "refquota" {
 			if !quotaRegex.MatchString(req.Value) {
@@ -524,8 +500,8 @@ func ValidateNameLength() gin.HandlerFunc {
 	}
 }
 
-// ValidateProperties validates property map
-func ValidateProperties() gin.HandlerFunc {
+// ValidateZFSProperties validates ZFS dataset properties, not zpool properties
+func ValidateZFSProperties() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
@@ -549,7 +525,7 @@ func ValidateProperties() gin.HandlerFunc {
 
 		for k, v := range req.Properties {
 			// Validate property name
-			if !isValidProperty(k) {
+			if !isValidDatasetProperty(k) {
 				c.AbortWithStatusJSON(
 					http.StatusBadRequest,
 					errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"),
@@ -562,14 +538,6 @@ func ValidateProperties() gin.HandlerFunc {
 				c.AbortWithStatusJSON(
 					http.StatusBadRequest,
 					errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
-				)
-				return
-			}
-
-			if !propertyValueRegex.MatchString(v) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSInvalidPropertyValue, "Invalid property value format"),
 				)
 				return
 			}

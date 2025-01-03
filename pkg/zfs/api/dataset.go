@@ -22,7 +22,11 @@ func (h *DatasetHandler) listDatasets(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -40,7 +44,11 @@ func (h *DatasetHandler) listAll(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -55,7 +63,11 @@ func (h *DatasetHandler) createFilesystem(c *gin.Context) {
 	}
 
 	if err := h.manager.CreateFilesystem(c.Request.Context(), req); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -73,7 +85,11 @@ func (h *DatasetHandler) listFilesystems(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -91,7 +107,11 @@ func (h *DatasetHandler) listVolumes(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -106,7 +126,11 @@ func (h *DatasetHandler) createVolume(c *gin.Context) {
 	}
 
 	if err := h.manager.CreateVolume(c.Request.Context(), cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -121,7 +145,11 @@ func (h *DatasetHandler) destroyDataset(c *gin.Context) {
 	}
 
 	if err := h.manager.Destroy(c.Request.Context(), req); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -137,11 +165,11 @@ func (h *DatasetHandler) getProperty(c *gin.Context) {
 
 	prop, err := h.manager.GetProperty(c.Request.Context(), req)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, errors.ErrZFSDatasetPropertyNotFound) {
-			status = http.StatusNotFound
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
 		}
-		c.JSON(status, err)
 		return
 	}
 
@@ -156,7 +184,11 @@ func (h *DatasetHandler) setProperty(c *gin.Context) {
 	}
 
 	if err := h.manager.SetProperty(c.Request.Context(), req); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -173,7 +205,11 @@ func (h *DatasetHandler) listProperties(c *gin.Context) {
 
 	props, err := h.manager.ListProperties(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -190,7 +226,11 @@ func (h *DatasetHandler) createSnapshot(c *gin.Context) {
 
 	err := h.manager.CreateSnapshot(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -208,7 +248,11 @@ func (h *DatasetHandler) listSnapshots(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -225,7 +269,11 @@ func (h *DatasetHandler) rollbackSnapshot(c *gin.Context) {
 
 	err := h.manager.Rollback(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -243,7 +291,11 @@ func (h *DatasetHandler) createClone(c *gin.Context) {
 
 	err := h.manager.Clone(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -259,7 +311,11 @@ func (h *DatasetHandler) renameDataset(c *gin.Context) {
 	}
 
 	if err := h.manager.Rename(c.Request.Context(), cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -277,7 +333,11 @@ func (h *DatasetHandler) sendDataset(c *gin.Context) {
 	// Execute transfer
 	err := h.manager.SendReceive(c.Request.Context(), req.SendConfig, req.ReceiveConfig)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -293,7 +353,11 @@ func (h *DatasetHandler) getResumeToken(c *gin.Context) {
 
 	token, err := h.manager.GetResumeToken(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -310,7 +374,11 @@ func (h *DatasetHandler) mountDataset(c *gin.Context) {
 
 	err := h.manager.Mount(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -327,7 +395,11 @@ func (h *DatasetHandler) unmountDataset(c *gin.Context) {
 
 	err := h.manager.Unmount(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -346,7 +418,11 @@ func (h *DatasetHandler) createBookmark(c *gin.Context) {
 
 	err := h.manager.CreateBookmark(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -365,7 +441,11 @@ func (h *DatasetHandler) listBookmarks(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
@@ -382,7 +462,11 @@ func (h *DatasetHandler) promoteClone(c *gin.Context) {
 
 	err := h.manager.PromoteClone(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
