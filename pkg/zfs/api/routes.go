@@ -5,8 +5,6 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/common"
 )
 
-// TODO: Perhaps Pool APIs can also be refactored to send param values in the body?
-
 // Unlike Pool operations, Dataset API maynot be RESTFUL.
 // Having dataset values with "/" in the URI params is inconvenient
 // and may lead to confusion. Hence, we will pass information in the body
@@ -240,6 +238,9 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 }
 
+// TODO: Perhaps Pool APIs can also be refactored to send param values in the body to maintain consistency?
+// 	Pool APIs do not have the same issue as Dataset APIs, but it would be pragmatic to have a consistent approach.
+
 // API Routes
 //
 // Pool Operations:
@@ -312,23 +313,26 @@ func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
 			ValidatePoolName(),
 			ValidateNameLength(),
 			EnhancedValidateDevicePaths(),
+			ValidatePoolProperties(common.CreatePoolPropContext),
 			h.createPool)
 		pools.GET("", h.listPools)
 		pools.DELETE("/:name", ValidatePoolName(), h.destroyPool)
 
 		// Import/Export
-		pools.POST("/import", ValidatePoolOperation(), h.importPool)
+		pools.POST("/import",
+			ValidatePoolProperties(common.ImportPoolPropContext),
+			h.importPool)
 		pools.POST("/:name/export", ValidatePoolName(), h.exportPool)
 
 		// Status and properties
 		pools.GET("/:name/status", ValidatePoolName(), h.getPoolStatus)
 		pools.GET("/:name/properties/:property",
 			ValidatePoolName(),
-			ValidatePropertyName(),
+			ValidatePoolProperty(common.ValidPoolGetPropContext),
 			h.getProperty)
 		pools.PUT("/:name/properties/:property",
 			ValidatePoolName(),
-			ValidatePropertyName(),
+			ValidatePoolProperty(common.AnytimePoolPropContext),
 			ValidatePropertyValue(),
 			h.setProperty)
 
@@ -339,11 +343,10 @@ func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Device operations
 		devices := pools.Group("/:name/devices", ValidatePoolName())
 		{
-			devices.POST("/attach", ValidateDeviceInput("device"), h.attachDevice)
-			devices.POST("/detach", ValidateDeviceInput("device"), h.detachDevice)
+			// TODO: Validate device paths
+			devices.POST("/attach", h.attachDevice)
+			devices.POST("/detach", h.detachDevice)
 			devices.POST("/replace",
-				ValidateDeviceInput("old_device"),
-				ValidateDeviceInput("new_device"),
 				h.replaceDevice)
 		}
 	}

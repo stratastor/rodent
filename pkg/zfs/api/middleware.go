@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -222,7 +221,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 
 // isValidDatasetProperty maintains a list of valid ZFS properties
 func isValidDatasetProperty(property string) bool {
-	return common.IsValidZFSProperty(property)
+	return common.IsValidDatasetProperty(property)
 }
 
 // ValidatePoolName validates pool name format
@@ -258,40 +257,6 @@ func ValidatePoolOperation() gin.HandlerFunc {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
 				errors.New(errors.ZFSPoolInvalidName, "Invalid pool name format"),
-			)
-			return
-		}
-		c.Next()
-	}
-}
-
-// ValidateDeviceInput validates device path input
-func ValidateDeviceInput(paramName string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Read and store the raw body
-		body, err := ReadResetBody(c)
-		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
-			return
-		}
-
-		var req map[string]string
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
-			return
-		}
-		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
-		ResetBody(c, body)
-
-		device, ok := req[paramName]
-		if !ok || !devicePathRegex.MatchString(device) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPoolInvalidDevice,
-					fmt.Sprintf("Invalid device path: %s", paramName)),
 			)
 			return
 		}
@@ -495,6 +460,73 @@ func ValidateNameLength() gin.HandlerFunc {
 				errors.New(errors.ZFSNameTooLong, "Name exceeds maximum length"),
 			)
 			return
+		}
+		c.Next()
+	}
+}
+
+func ValidatePoolProperty(propCtx common.PoolPropContext) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		property := c.Param("property")
+		if !common.IsValidPoolProperty(property, propCtx) {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ZFSPropertyError, "Invalid pool property name"),
+			)
+			return
+		}
+		c.Next()
+	}
+}
+
+// ValidatePoolProperties validates zpool properties, not dataset
+// PoolPropContext is used to determine the context of the property validation:
+// - AnytimePoolPropContext: Properties that can be set at any time
+// - CreatePoolPropContext: Properties that can be set at pool creation time
+// - ImportPoolPropContext: Properties that can be set only at pool import time
+// - ValidPoolSetPropContext: Properties that can be set at any time
+// - ValidPoolGetPropContext: Properties that can be read any time
+func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Read and store the raw body
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req struct {
+			Properties map[string]string `json:"properties"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
+		ResetBody(c, body)
+
+		for k, v := range req.Properties {
+			// Validate property name
+			if !common.IsValidPoolProperty(k, propCtx) {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSPropertyError, "Invalid pool property name"),
+				)
+				return
+			}
+
+			// Validate property value
+			if len(v) > maxPropertyValueLen {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
+				)
+				return
+			}
+
 		}
 		c.Next()
 	}

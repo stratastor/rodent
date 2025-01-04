@@ -64,8 +64,12 @@ func (p *Manager) Create(ctx context.Context, cfg CreateConfig) error {
 		Flags: command.FlagForce, // if cfg.Force is true
 	}
 
-	_, err := p.executor.Execute(ctx, opts, "zpool create", args...)
+	out, err := p.executor.Execute(ctx, opts, "zpool create", args...)
 	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolCreate).
+				WithMetadata("output", string(out))
+		}
 		return errors.Wrap(err, errors.ZFSPoolCreate)
 	}
 
@@ -96,8 +100,12 @@ func (p *Manager) Import(ctx context.Context, cfg ImportConfig) error {
 		args = append(args, cfg.Paths...)
 	}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool import", args...)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool import", args...)
 	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolImport).
+				WithMetadata("output", string(out))
+		}
 		return errors.Wrap(err, errors.ZFSPoolImport)
 	}
 
@@ -115,12 +123,17 @@ func (p *Manager) Status(ctx context.Context, name string) (*PoolStatus, error) 
 		Flags: command.FlagJSON,
 	}
 
+	var status PoolStatus
+
 	out, err := p.executor.Execute(ctx, opts, "zpool status", args...)
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ZFSPoolStatus)
+		if len(out) > 0 {
+			return &status, errors.Wrap(err, errors.ZFSPoolStatus).
+				WithMetadata("output", string(out))
+		}
+		return &status, errors.Wrap(err, errors.ZFSPoolStatus)
 	}
 
-	var status PoolStatus
 	if err := json.Unmarshal(out, &status); err != nil {
 		return nil, errors.Wrap(err, errors.CommandOutputParse)
 	}
@@ -141,6 +154,10 @@ func (p *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 
 	out, err := p.executor.Execute(ctx, opts, "zpool get", args...)
 	if err != nil {
+		if len(out) > 0 {
+			return Property{}, errors.Wrap(err, errors.ZFSPoolGetProperty).
+				WithMetadata("output", string(out))
+		}
 		return Property{}, errors.Wrap(err, errors.ZFSPoolGetProperty)
 	}
 
@@ -202,8 +219,15 @@ func (p *Manager) Export(ctx context.Context, name string, force bool) error {
 	}
 	args = append(args, name)
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool export", args...)
-	return errors.Wrap(err, errors.ZFSPoolExport)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool export", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolExport).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolExport)
+	}
+	return nil
 }
 
 // Destroy destroys a ZFS pool
@@ -240,8 +264,15 @@ func (p *Manager) Scrub(ctx context.Context, name string, stop bool) error {
 	}
 	args = append(args, name)
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool scrub", args...)
-	return errors.Wrap(err, errors.ZFSPoolScrubFailed)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool scrub", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolScrubFailed).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolScrubFailed)
+	}
+	return nil
 }
 
 // List returns a list of all pools
@@ -254,6 +285,10 @@ func (p *Manager) List(ctx context.Context) ([]Pool, error) {
 
 	out, err := p.executor.Execute(ctx, opts, "zpool list", args...)
 	if err != nil {
+		if len(out) > 0 {
+			return nil, errors.Wrap(err, errors.ZFSPoolList).
+				WithMetadata("output", string(out))
+		}
 		return nil, errors.Wrap(err, errors.ZFSPoolList)
 	}
 
@@ -268,29 +303,57 @@ func (p *Manager) List(ctx context.Context) ([]Pool, error) {
 }
 
 func (p *Manager) Resilver(ctx context.Context, name string) error {
-	args := []string{"online", "-e", name}
+	args := []string{"resilver", name}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool", args...)
-	return errors.Wrap(err, errors.ZFSPoolResilverFailed)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool resilver", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolResilverFailed).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolResilverFailed)
+	}
+	return nil
 }
 
 func (p *Manager) AttachDevice(ctx context.Context, pool, device, newDevice string) error {
 	args := []string{"attach", pool, device, newDevice}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool attach", args...)
-	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool attach", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolDeviceOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	}
+	return nil
 }
 
 func (p *Manager) DetachDevice(ctx context.Context, pool, device string) error {
 	args := []string{"detach", pool, device}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool detach", args...)
-	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool detach", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolDeviceOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	}
+	return nil
 }
 
 func (p *Manager) ReplaceDevice(ctx context.Context, pool, oldDevice, newDevice string) error {
 	args := []string{"replace", pool, oldDevice, newDevice}
 
-	_, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool replace", args...)
-	return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool replace", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSPoolDeviceOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+	}
+	return nil
 }
