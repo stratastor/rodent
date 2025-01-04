@@ -13,7 +13,7 @@ import (
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "rodent",
-		Short: "Rodent Node Agent",
+		Short: "Rodent: StrataSTOR Node Agent",
 	}
 
 	rootCmd.AddCommand(serve.NewServeCmd())
