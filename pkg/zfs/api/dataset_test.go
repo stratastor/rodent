@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -358,6 +359,173 @@ func TestDatasetAPI(t *testing.T) {
 				w.Code, http.StatusNoContent)
 			t.Errorf("error: %v", w.Body.String())
 		}
+	})
+
+	t.Run("DiffOperations", func(t *testing.T) {
+		// Create test filesystem
+		fsName := poolName + "/difftest"
+		createReq := dataset.FilesystemConfig{
+			NameConfig: dataset.NameConfig{
+				Name: fsName,
+			},
+			Properties: map[string]string{
+				"compression": "on",
+			},
+		}
+		body, _ := json.Marshal(createReq)
+		req := httptest.NewRequest("POST", dsURI+"/filesystem", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("failed to create filesystem: %v", w.Body.String())
+		}
+
+		// Create initial snapshot
+		snap1 := fsName + "@snap1"
+		snapReq := dataset.SnapshotConfig{
+			NameConfig: dataset.NameConfig{
+				Name: fsName,
+			},
+			SnapName:  "snap1",
+			Recursive: true,
+		}
+		body, _ = json.Marshal(snapReq)
+		req = httptest.NewRequest("POST", dsURI+"/snapshot", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("failed to create first snapshot: %v", w.Body.String())
+		}
+
+		// Create test data
+		testFile := "/" + fsName + "/testfile"
+		if err := os.WriteFile(testFile, []byte("test data"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+
+		// Create second snapshot
+		snap2 := fsName + "@snap2"
+		snap2Req := dataset.SnapshotConfig{
+			NameConfig: dataset.NameConfig{
+				Name: fsName,
+			},
+			SnapName:  "snap2",
+			Recursive: true,
+		}
+		body, _ = json.Marshal(snap2Req)
+		req = httptest.NewRequest("POST", dsURI+"/snapshot", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("failed to create second snapshot: %v", w.Body.String())
+		}
+
+		// Test successful diff between snapshots
+		t.Run("SuccessfulDiff", func(t *testing.T) {
+			diffReq := dataset.DiffConfig{
+				NamesConfig: dataset.NamesConfig{
+					Names: []string{snap1, snap2},
+				},
+			}
+			body, _ = json.Marshal(diffReq)
+			req = httptest.NewRequest("POST", dsURI+"/diff", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("diff operation returned wrong status: got %v want %v",
+					w.Code, http.StatusOK)
+				t.Errorf("error: %v", w.Body.String())
+			}
+
+			var result struct {
+				Result dataset.DiffResult `json:"result"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatalf("failed to parse response: %v", err)
+			}
+
+			// Verify changes
+			found := false
+			for _, change := range result.Result.Changes {
+				if change.Path == testFile && change.ChangeType == "+" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Logf("diff result: %v", result)
+				t.Error("test file change not found in diff result")
+			}
+		})
+
+		// Test error cases
+		t.Run("ErrorCases", func(t *testing.T) {
+			testCases := []struct {
+				name     string
+				config   dataset.DiffConfig
+				wantCode int
+			}{
+				{
+					name: "missing names",
+					config: dataset.DiffConfig{
+						NamesConfig: dataset.NamesConfig{
+							Names: []string{},
+						},
+					},
+					wantCode: http.StatusBadRequest,
+				},
+				{
+					name: "single name only",
+					config: dataset.DiffConfig{
+						NamesConfig: dataset.NamesConfig{
+							Names: []string{snap1},
+						},
+					},
+					wantCode: http.StatusBadRequest,
+				},
+				{
+					name: "invalid snapshot name",
+					config: dataset.DiffConfig{
+						NamesConfig: dataset.NamesConfig{
+							Names: []string{snap1, "invalid@snap"},
+						},
+					},
+					wantCode: http.StatusBadRequest,
+				},
+				{
+					name: "non-existent snapshot",
+					config: dataset.DiffConfig{
+						NamesConfig: dataset.NamesConfig{
+							Names: []string{snap1, fsName + "@nonexistent"},
+						},
+					},
+					wantCode: http.StatusBadRequest,
+				},
+			}
+
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					body, _ := json.Marshal(tc.config)
+					req := httptest.NewRequest("POST", dsURI+"/diff", bytes.NewBuffer(body))
+					req.Header.Set("Content-Type", "application/json")
+					w := httptest.NewRecorder()
+					router.ServeHTTP(w, req)
+
+					if w.Code != tc.wantCode {
+						t.Errorf("got status %v, want %v", w.Code, tc.wantCode)
+						t.Errorf("response: %v", w.Body.String())
+					}
+				})
+			}
+		})
 	})
 
 	t.Run("ErrorCases", func(t *testing.T) {

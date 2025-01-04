@@ -120,6 +120,7 @@ const (
 	ZFSDatasetInvalidProperty
 	ZFSDatasetRename
 	ZFSDatasetSnapshot
+	ZFSDatasetOperation
 
 	ZFSDatasetSend
 	ZFSDatasetReceive
@@ -282,6 +283,7 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSDatasetInvalidProperty:  {"Invalid property value", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetRename:           {"Failed to rename dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetSnapshot:         {"Failed to create snapshot", DomainZFS, http.StatusBadRequest},
+	ZFSDatasetOperation:        {"Failed to perform dataset operation", DomainZFS, http.StatusBadRequest},
 
 	ZFSDatasetSend:           {"Failed to send dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetReceive:        {"Failed to receive dataset", DomainZFS, http.StatusBadRequest},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/stratastor/rodent/pkg/errors"
@@ -562,4 +563,72 @@ func (m *Manager) Unmount(ctx context.Context, cfg UnmountConfig) error {
 		return errors.Wrap(err, errors.ZFSMountError)
 	}
 	return nil
+}
+
+// Diff shows the difference between snapshots or between a snapshot and filesystem
+func (m *Manager) Diff(ctx context.Context, cfg DiffConfig) (DiffResult, error) {
+	// Validate number of arguments
+	if len(cfg.Names) != 2 {
+		return DiffResult{}, errors.New(errors.CommandInvalidInput,
+			"Exactly two names required for diff operation")
+	}
+
+	args := []string{"diff"}
+
+	// Always use these flags for consistent parsable output
+	args = append(args, "-H", "-t", "-F")
+
+	// Add snapshot/filesystem arguments
+	args = append(args, cfg.Names...)
+
+	opts := command.CommandOptions{}
+
+	out, err := m.executor.Execute(ctx, opts, "zfs diff", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return DiffResult{}, errors.Wrap(err, errors.ZFSDatasetOperation).
+				WithMetadata("output", string(out))
+		}
+		return DiffResult{}, errors.Wrap(err, errors.ZFSDatasetOperation)
+	}
+
+	// Parse the output
+	result := DiffResult{
+		Changes: make([]DiffEntry, 0),
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		// Split on tabs
+		fields := strings.Split(line, "\t")
+		if len(fields) < 4 {
+			continue
+		}
+
+		// Parse timestamp
+		timestamp, err := strconv.ParseFloat(fields[0], 64)
+		if err != nil {
+			continue
+		}
+
+		entry := DiffEntry{
+			Timestamp:  timestamp,
+			ChangeType: fields[1],
+			FileType:   fields[2],
+			Path:       fields[3],
+		}
+
+		// Handle rename entries which have an additional field
+		if entry.ChangeType == "R" && len(fields) > 4 {
+			entry.NewPath = fields[4]
+		}
+
+		result.Changes = append(result.Changes, entry)
+	}
+
+	return result, nil
 }

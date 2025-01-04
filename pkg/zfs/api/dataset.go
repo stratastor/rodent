@@ -491,3 +491,25 @@ func (h *DatasetHandler) promoteClone(c *gin.Context) {
 
 	c.Status(http.StatusOK)
 }
+
+// Show differences between snapshots
+func (h *DatasetHandler) diffDataset(c *gin.Context) {
+	var req dataset.DiffConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	result, err := h.manager.Diff(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}

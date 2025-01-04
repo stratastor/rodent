@@ -227,6 +227,10 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 				h.createBookmark)
 		}
 
+		dataset.POST("/diff",
+			ValidateDiffConfig(),
+			h.diffDataset)
+
 		// Data transfer operations
 		transfer := dataset.Group("/transfer")
 		{

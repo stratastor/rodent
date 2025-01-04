@@ -678,3 +678,46 @@ func ValidateCloneConfig() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// ValidateDiffConfig validates diff operation parameters
+func ValidateDiffConfig() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req dataset.DiffConfig
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		ResetBody(c, body)
+
+		// Validate number of names
+		if len(req.Names) != 2 {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.CommandInvalidInput, "Exactly two names required"))
+			return
+		}
+
+		// Validate each name
+		for _, name := range req.Names {
+			if err := common.ValidateZFSName(name, common.TypeSnapshot); err != nil {
+				if err2 := common.ValidateZFSName(name, common.TypeFilesystem); err2 != nil {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						errors.New(errors.ZFSNameInvalid, "Invalid name format"))
+					return
+				}
+			}
+		}
+
+		c.Next()
+	}
+}

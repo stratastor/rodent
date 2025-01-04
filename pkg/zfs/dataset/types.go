@@ -214,3 +214,25 @@ type InheritConfig struct {
 	Recursive bool   `json:"recursive"`
 	Revert    bool   `json:"revert"`
 }
+
+// DiffConfig defines configuration for ZFS diff operation
+type DiffConfig struct {
+	NamesConfig      // Embed NamesConfig to use Names slice
+	Timestamps  bool `json:"timestamps,omitempty"` // Always true for API
+	Types       bool `json:"types,omitempty"`      // Always true for API
+	FileTypes   bool `json:"file_types,omitempty"` // Always true for API (-F)
+}
+
+// DiffEntry represents a single change detected by ZFS diff
+type DiffEntry struct {
+	Timestamp  float64 `json:"timestamp"`          // Unix timestamp with nanoseconds
+	ChangeType string  `json:"change_type"`        // +, -, M, R
+	FileType   string  `json:"file_type"`          // F (file), / (directory), @ (symlink), etc.
+	Path       string  `json:"path"`               // Original path
+	NewPath    string  `json:"new_path,omitempty"` // For renames (R)
+}
+
+// DiffResult represents the output of a ZFS diff operation
+type DiffResult struct {
+	Changes []DiffEntry `json:"changes"`
+}

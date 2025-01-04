@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stratastor/logger"
@@ -372,6 +373,234 @@ func TestDatasetOperations(t *testing.T) {
 			}
 		})
 
+	})
+
+	t.Run("DiffOperations", func(t *testing.T) {
+		// Create a test filesystem for diff operations
+		diffFS := poolName + "/difftest"
+		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+			NameConfig: NameConfig{
+				Name: diffFS,
+			},
+			Properties: map[string]string{
+				"compression": "on",
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create filesystem: %v", err)
+		}
+
+		// Create initial snapshot
+		snap1 := "snap1"
+		err = datasetMgr.CreateSnapshot(context.Background(), SnapshotConfig{
+			NameConfig: NameConfig{Name: diffFS},
+			SnapName:   snap1,
+		})
+		if err != nil {
+			t.Fatalf("failed to create first snapshot: %v", err)
+		}
+
+		// Create test files
+		testFile := "/" + diffFS + "/testfile"
+		if err := os.WriteFile(testFile, []byte("test data"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+
+		// Create directory structure
+		testDir := "/" + diffFS + "/dir1/subdir"
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			t.Fatalf("failed to create test directory: %v", err)
+		}
+
+		// Create symlink
+		symlink := "/" + diffFS + "/symlink"
+		if err := os.Symlink(testFile, symlink); err != nil {
+			t.Fatalf("failed to create symlink: %v", err)
+		}
+
+		// Create second snapshot
+		snap2 := "snap2"
+		err = datasetMgr.CreateSnapshot(context.Background(), SnapshotConfig{
+			NameConfig: NameConfig{Name: diffFS},
+			SnapName:   snap2,
+		})
+		if err != nil {
+			t.Fatalf("failed to create second snapshot: %v", err)
+		}
+
+		// Test various diff scenarios
+		t.Run("SnapshotDiff", func(t *testing.T) {
+			result, err := datasetMgr.Diff(context.Background(), DiffConfig{
+				NamesConfig: NamesConfig{
+					Names: []string{
+						diffFS + "@" + snap1,
+						diffFS + "@" + snap2,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("failed to get diff: %v", err)
+			}
+
+			// Verify changes are detected
+			var (
+				foundFile    bool
+				foundDir     bool
+				foundSymlink bool
+			)
+
+			for _, change := range result.Changes {
+				switch {
+				case change.Path == testFile && change.ChangeType == "+" && change.FileType == "F":
+					foundFile = true
+				case change.Path == testDir && change.ChangeType == "+" && change.FileType == "/":
+					foundDir = true
+				case change.Path == symlink && change.ChangeType == "+" && change.FileType == "@":
+					foundSymlink = true
+				}
+			}
+
+			if !foundFile {
+				t.Error("file change not detected")
+			}
+			if !foundDir {
+				t.Error("directory change not detected")
+			}
+			if !foundSymlink {
+				t.Error("symlink change not detected")
+			}
+		})
+
+		t.Run("FileModification", func(t *testing.T) {
+			// Modify test file
+			if err := os.WriteFile(testFile, []byte("modified data"), 0644); err != nil {
+				t.Fatalf("failed to modify test file: %v", err)
+			}
+
+			// Create third snapshot
+			snap3 := "snap3"
+			err = datasetMgr.CreateSnapshot(context.Background(), SnapshotConfig{
+				NameConfig: NameConfig{Name: diffFS},
+				SnapName:   snap3,
+			})
+			if err != nil {
+				t.Fatalf("failed to create third snapshot: %v", err)
+			}
+
+			// Check modification
+			result, err := datasetMgr.Diff(context.Background(), DiffConfig{
+				NamesConfig: NamesConfig{
+					Names: []string{
+						diffFS + "@" + snap2,
+						diffFS + "@" + snap3,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("failed to get diff: %v", err)
+			}
+
+			foundMod := false
+			for _, change := range result.Changes {
+				if change.Path == testFile && change.ChangeType == "M" {
+					foundMod = true
+					break
+				}
+			}
+			if !foundMod {
+				t.Error("file modification not detected")
+			}
+		})
+
+		t.Run("RenameOperation", func(t *testing.T) {
+			// Rename test file
+			newPath := "/" + diffFS + "/renamed_file"
+			if err := os.Rename(testFile, newPath); err != nil {
+				t.Fatalf("failed to rename file: %v", err)
+			}
+
+			// Create fourth snapshot
+			snap4 := "snap4"
+			err = datasetMgr.CreateSnapshot(context.Background(), SnapshotConfig{
+				NameConfig: NameConfig{Name: diffFS},
+				SnapName:   snap4,
+			})
+			if err != nil {
+				t.Fatalf("failed to create fourth snapshot: %v", err)
+			}
+
+			// Check rename
+			result, err := datasetMgr.Diff(context.Background(), DiffConfig{
+				NamesConfig: NamesConfig{
+					Names: []string{
+						diffFS + "@" + "snap3",
+						diffFS + "@" + snap4,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("failed to get diff: %v", err)
+			}
+
+			foundRename := false
+			for _, change := range result.Changes {
+				if change.ChangeType == "R" &&
+					change.Path == testFile &&
+					change.NewPath == newPath {
+					foundRename = true
+					break
+				}
+			}
+			if !foundRename {
+				t.Error("file rename not detected")
+			}
+		})
+
+		t.Run("ErrorCases", func(t *testing.T) {
+			testCases := []struct {
+				name    string
+				config  DiffConfig
+				wantErr bool
+			}{
+				{
+					name: "missing names",
+					config: DiffConfig{
+						NamesConfig: NamesConfig{Names: []string{}},
+					},
+					wantErr: true,
+				},
+				{
+					name: "single name",
+					config: DiffConfig{
+						NamesConfig: NamesConfig{
+							Names: []string{diffFS + "@" + snap1},
+						},
+					},
+					wantErr: true,
+				},
+				{
+					name: "non-existent snapshot",
+					config: DiffConfig{
+						NamesConfig: NamesConfig{
+							Names: []string{
+								diffFS + "@" + snap1,
+								diffFS + "@nonexistent",
+							},
+						},
+					},
+					wantErr: true,
+				},
+			}
+
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					_, err := datasetMgr.Diff(context.Background(), tc.config)
+					if (err != nil) != tc.wantErr {
+						t.Errorf("Diff() error = %v, wantErr %v", err, tc.wantErr)
+					}
+				})
+			}
+		})
 	})
 
 	// Clean up
