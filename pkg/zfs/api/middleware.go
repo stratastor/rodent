@@ -161,7 +161,8 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 		}
 
 		var req struct {
-			Name string `json:"name" binding:"required"`
+			Name  string   `json:"name"`
+			Names []string `json:"names"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.AbortWithStatusJSON(
@@ -172,47 +173,68 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
 		ResetBody(c, body)
 
-		name := req.Name
+		names := req.Names
+		if req.Name != "" {
+			names = append(names, req.Name)
+		}
 
-		// Validate name format
-		switch dtype {
-		case common.TypeZFSEntityMask:
-			err := common.EntityNameCheck(name)
-			if err != nil {
+		// Check if either Name or Names is provided
+		if req.Name == "" && len(names) == 0 {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Either 'name' or 'names' must be provided"))
+			return
+		}
+
+		for _, name := range req.Names {
+			if name == "" {
 				c.AbortWithStatusJSON(
 					http.StatusBadRequest,
-					err,
+					errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"),
 				)
 				return
 			}
-		case common.TypeDatasetMask:
-			err := common.DatasetNameCheck(name)
-			if err != nil {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					err,
-				)
-				return
-			}
-		case common.TypeBookmark | common.TypeSnapshot:
-			// This is the case for clone creation where the name can be either a bookmark or snapshot
-			errbm := common.ValidateZFSName(name, common.TypeBookmark)
-			errsnap := common.ValidateZFSName(name, common.TypeSnapshot)
-			if errbm != nil && errsnap != nil {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSNameInvalid, "Name expected to be either a bookmark or snapshot"),
-				)
-				return
-			}
-		default:
-			err := common.ValidateZFSName(name, dtype)
-			if err != nil {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					err,
-				)
-				return
+
+			// Validate name format
+			switch dtype {
+			case common.TypeZFSEntityMask:
+				err := common.EntityNameCheck(name)
+				if err != nil {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						err,
+					)
+					return
+				}
+			case common.TypeDatasetMask:
+				err := common.DatasetNameCheck(name)
+				if err != nil {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						err,
+					)
+					return
+				}
+			case common.TypeBookmark | common.TypeSnapshot:
+				// This is the case for clone creation where the name can be either a bookmark or snapshot
+				errbm := common.ValidateZFSName(name, common.TypeBookmark)
+				errsnap := common.ValidateZFSName(name, common.TypeSnapshot)
+				if errbm != nil && errsnap != nil {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						errors.New(errors.ZFSNameInvalid, "Name expected to be either a bookmark or snapshot"),
+					)
+					return
+				}
+			default:
+				err := common.ValidateZFSName(name, dtype)
+				if err != nil {
+					c.AbortWithStatusJSON(
+						http.StatusBadRequest,
+						err,
+					)
+					return
+				}
 			}
 		}
 		c.Next()

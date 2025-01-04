@@ -137,10 +137,12 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			property.GET("",
 				ValidatePropertyName(),
 				h.getProperty)
-			// TODO: Accommmodate multiple property values
 			property.PUT("",
 				ValidateZFSProperties(),
 				h.setProperty)
+			property.PUT("/inherit",
+				ValidateZFSProperties(),
+				h.inheritProperty)
 		}
 
 		// Filesystem operations

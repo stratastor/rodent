@@ -195,6 +195,25 @@ func (h *DatasetHandler) setProperty(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
+func (h *DatasetHandler) inheritProperty(c *gin.Context) {
+	var req dataset.InheritConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	if err := h.manager.InheritProperty(c.Request.Context(), req); err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.Status(http.StatusCreated)
+}
+
 // List all properties
 func (h *DatasetHandler) listProperties(c *gin.Context) {
 	var req dataset.NameConfig

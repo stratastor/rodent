@@ -194,6 +194,10 @@ type NameConfig struct {
 	Name string `json:"name" binding:"required"`
 }
 
+type NamesConfig struct {
+	Names []string `json:"names" binding:"required"`
+}
+
 type SetPropertyConfig struct {
 	PropertyConfig
 	Value string `json:"value" binding:"required"`
@@ -202,4 +206,11 @@ type SetPropertyConfig struct {
 type PropertyConfig struct {
 	NameConfig
 	Property string `json:"property" binding:"required"`
+}
+
+type InheritConfig struct {
+	NamesConfig
+	Property  string `json:"property" binding:"required"`
+	Recursive bool   `json:"recursive"`
+	Revert    bool   `json:"revert"`
 }

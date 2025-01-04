@@ -196,8 +196,36 @@ func (m *Manager) ListProperties(ctx context.Context, cfg NameConfig) (ListResul
 	return result, nil
 }
 
+// InheritProperty clears the specified property, causing it to be inherited from an ancestor, restored to default if no ancestor has the property set, or with the -S option reverted to the received value if one exists
+func (m *Manager) InheritProperty(ctx context.Context, cfg InheritConfig) error {
+	args := []string{"inherit"}
+
+	if cfg.Recursive {
+		args = append(args, "-r")
+	}
+	if cfg.Revert {
+		args = append(args, "-S")
+	}
+
+	args = append(args, cfg.Property)
+	for _, name := range cfg.Names {
+		args = append(args, name)
+	}
+
+	opts := command.CommandOptions{}
+
+	_, err := m.executor.Execute(ctx, opts, "zfs inherit", args...)
+	if err != nil {
+		return errors.Wrap(err, errors.ZFSDatasetSetProperty)
+	}
+
+	return nil
+}
+
 // SetProperty sets a property on a dataset
 func (m *Manager) SetProperty(ctx context.Context, cfg SetPropertyConfig) error {
+	// TODO: Accommmodate multiple property values
+	// TODO: Accommodate multiple dataset names
 	args := []string{"set", fmt.Sprintf("%s=%s", cfg.Property, cfg.Value), cfg.Name}
 
 	opts := command.CommandOptions{}

@@ -315,6 +315,29 @@ func TestDatasetAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("InheritProperty", func(t *testing.T) {
+		inheritReq := dataset.InheritConfig{
+			NamesConfig: dataset.NamesConfig{
+				Names: []string{poolName + "/fs1",
+					poolName + "/clone1"},
+			},
+			Property: "checksum",
+			// Recursive: true,
+		}
+		body, _ := json.Marshal(inheritReq)
+		req := httptest.NewRequest("PUT", dsURI+"/property/inherit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("error: %v", w.Body.String())
+			t.Errorf("inherit property returned wrong status: got %v want %v",
+				w.Code, http.StatusCreated)
+		}
+
+	})
+
 	t.Run("DestroyOperations", func(t *testing.T) {
 		// Destroy dataset
 		destroyReq := dataset.DestroyConfig{
