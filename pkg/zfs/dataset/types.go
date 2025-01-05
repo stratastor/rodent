@@ -331,3 +331,16 @@ type AllowResult struct {
 	Descendent      map[string][]string `json:"descendent,omitempty"`
 	LocalDescendent map[string][]string `json:"local_descendent,omitempty"`
 }
+
+// ShareConfig defines configuration for ZFS share operation
+type ShareConfig struct {
+	Name     string `json:"name"`
+	All      bool   `json:"all"`       // -a: Share all available ZFS filesystems
+	LoadKeys bool   `json:"load_keys"` // -l: Load keys for encrypted filesystems
+}
+
+// UnshareConfig defines configuration for ZFS unshare operation
+type UnshareConfig struct {
+	Name string `json:"name"`
+	All  bool   `json:"all"` // -a: Unshare all shared ZFS filesystems
+}

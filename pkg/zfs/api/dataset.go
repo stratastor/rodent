@@ -579,3 +579,47 @@ func (h *DatasetHandler) listPermissions(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"result": result})
 }
+
+// Share dataset
+func (h *DatasetHandler) shareDataset(c *gin.Context) {
+	var req dataset.ShareConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	err := h.manager.Share(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+// Unshare dataset
+func (h *DatasetHandler) unshareDataset(c *gin.Context) {
+	var req dataset.UnshareConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	err := h.manager.Unshare(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.Status(http.StatusOK)
+}

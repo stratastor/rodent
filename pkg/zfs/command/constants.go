@@ -45,6 +45,8 @@ var SudoRequiredCommands = map[string]bool{
 	"zfs set":          true,
 	"zfs allow":        true,
 	"zfs unallow":      true,
+	"zfs share":        true,
+	"zfs unshare":      true,
 	"zpool create":     true,
 	"zpool destroy":    true,
 	"zpool import":     true,

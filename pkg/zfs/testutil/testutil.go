@@ -149,3 +149,25 @@ func (e *TestEnv) Cleanup() {
 	// Clear the devices slice
 	e.Devices = nil
 }
+
+// checkSharingServices checks if NFS/SMB services are available
+func CheckSharingServices(t *testing.T) (hasNFS, hasSMB bool) {
+	// Check NFS
+	if _, err := exec.Command("systemctl", "is-active", "nfs-server").Output(); err == nil {
+		hasNFS = true
+	}
+
+	// Check SMB
+	if _, err := exec.Command("which", "smbd").Output(); err == nil {
+		// Also verify SMB service is running
+		if _, err := exec.Command("systemctl", "is-active", "smbd").Output(); err == nil {
+			hasSMB = true
+		}
+	}
+
+	if !hasNFS && !hasSMB {
+		t.Skip("Neither NFS nor SMB services are available")
+	}
+
+	return
+}

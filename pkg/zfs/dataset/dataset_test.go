@@ -605,6 +605,95 @@ func TestDatasetOperations(t *testing.T) {
 		})
 	})
 
+	t.Run("ShareOperations", func(t *testing.T) {
+		hasNFS, hasSMB := testutil.CheckSharingServices(t)
+		if !hasNFS && !hasSMB {
+			t.Skip("No sharing services available")
+		}
+		setNFS := "off"
+		setSMB := "off"
+		if hasNFS {
+			setNFS = "rw=192.168.1.0/24,async,root_squash,subtree_check"
+		}
+		if hasSMB {
+			setSMB = "on"
+		}
+
+		// Create test filesystem
+		shareFS := poolName + "/sharefs"
+		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+			NameConfig: NameConfig{Name: shareFS},
+			Properties: map[string]string{
+				"sharenfs": setNFS,
+				"sharesmb": setSMB,
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create filesystem: %v", err)
+		}
+
+		// Test share dataset
+		t.Run("ShareDataset", func(t *testing.T) {
+			err := datasetMgr.Share(context.Background(), ShareConfig{
+				Name:     shareFS,
+				LoadKeys: true,
+			})
+			if err != nil {
+				// This is expected as the shares are already shared via properties
+				if strings.Contains(err.Error(), "already shared") {
+					t.Skip("Filesystem already shared. Expected error")
+				}
+				t.Fatalf("failed to share dataset: %v", err)
+			}
+		})
+
+		// Test share all datasets
+		t.Run("ShareAll", func(t *testing.T) {
+			err := datasetMgr.Share(context.Background(), ShareConfig{
+				All: true,
+			})
+			if err != nil {
+				t.Fatalf("failed to share all datasets: %v", err)
+			}
+		})
+
+		// Test unshare dataset
+		t.Run("UnshareDataset", func(t *testing.T) {
+			err := datasetMgr.Unshare(context.Background(), UnshareConfig{
+				Name: shareFS,
+			})
+			if err != nil {
+				t.Fatalf("failed to unshare dataset: %v", err)
+			}
+		})
+
+		// Test unshare all datasets
+		t.Run("UnshareAll", func(t *testing.T) {
+			err := datasetMgr.Unshare(context.Background(), UnshareConfig{
+				All: true,
+			})
+			if err != nil {
+				// If there are suspended pools, it will fail
+				t.Logf("failed to unshare all datasets: %v", err)
+			}
+		})
+
+		// Test error cases
+		t.Run("ErrorCases", func(t *testing.T) {
+			// Share without dataset name or -a
+			err := datasetMgr.Share(context.Background(), ShareConfig{})
+			if err == nil {
+				t.Error("expected error when sharing without dataset name or -a")
+			}
+
+			// Unshare without dataset name or -a
+			err = datasetMgr.Unshare(context.Background(), UnshareConfig{})
+			if err == nil {
+				t.Error("expected error when unsharing without dataset name or -a")
+			}
+		})
+	})
+
 	// Clean up
 	err = poolMgr.Destroy(context.Background(), poolName, true)
 	if err != nil {
@@ -612,22 +701,6 @@ func TestDatasetOperations(t *testing.T) {
 	}
 	poolDestroyed = true
 }
-
-// 	// Additional negative test case
-// 	t.Run("VolumeWithoutSize", func(t *testing.T) {
-// 		volName := poolName + "/vol2"
-// 		err := datasetMgr.Create(context.Background(), CreateConfig{
-// 			Name: volName,
-// 			Type: "volume",
-// 			Properties: map[string]string{
-// 				"volblocksize": "8K",
-// 				// Missing volsize property
-// 			},
-// 		})
-// 		if err == nil {
-// 			t.Error("expected error when creating volume without size")
-// 		}
-// 	})
 
 func TestPermissionOperations(t *testing.T) {
 	// Setup test environment

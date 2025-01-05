@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 )
@@ -227,7 +228,7 @@ func (m *Manager) InheritProperty(ctx context.Context, cfg InheritConfig) error 
 func (m *Manager) SetProperty(ctx context.Context, cfg SetPropertyConfig) error {
 	// TODO: Accommmodate multiple property values
 	// TODO: Accommodate multiple dataset names
-	args := []string{"set", fmt.Sprintf("%s=%s", cfg.Property, cfg.Value), cfg.Name}
+	args := []string{"set", fmt.Sprintf("%s=%s", cfg.Property, shellquote.Join(cfg.Value)), cfg.Name}
 
 	opts := command.CommandOptions{}
 
@@ -260,7 +261,8 @@ func (m *Manager) CreateFilesystem(ctx context.Context, cfg FilesystemConfig) er
 	}
 
 	for k, v := range cfg.Properties {
-		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
+		quotedValue := shellquote.Join(v)
+		args = append(args, "-o", fmt.Sprintf("%s=%s", k, quotedValue))
 	}
 
 	args = append(args, cfg.Name)
@@ -314,7 +316,8 @@ func (m *Manager) CreateVolume(ctx context.Context, cfg VolumeConfig) error {
 	}
 
 	for k, v := range cfg.Properties {
-		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
+		quotedValue := shellquote.Join(v)
+		args = append(args, "-o", fmt.Sprintf("%s=%s", k, quotedValue))
 	}
 
 	args = append(args, cfg.Name)
@@ -341,7 +344,8 @@ func (m *Manager) CreateSnapshot(ctx context.Context, cfg SnapshotConfig) error 
 
 	// Add properties if specified
 	for k, v := range cfg.Properties {
-		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
+		quotedValue := shellquote.Join(v)
+		args = append(args, "-o", fmt.Sprintf("%s=%s", k, quotedValue))
 	}
 
 	// Form snapshot name as dataset@snapshot
@@ -399,7 +403,8 @@ func (m *Manager) Clone(ctx context.Context, cfg CloneConfig) error {
 
 	// Add properties if specified
 	for k, v := range cfg.Properties {
-		args = append(args, "-o", fmt.Sprintf("%s=%s", k, v))
+		quotedValue := shellquote.Join(v)
+		args = append(args, "-o", fmt.Sprintf("%s=%s", k, quotedValue))
 	}
 
 	args = append(args, cfg.Name, cfg.CloneName)
@@ -525,7 +530,7 @@ func (m *Manager) Mount(ctx context.Context, cfg MountConfig) error {
 		args = append(args, "-v")
 	}
 	if cfg.TempMountPoint != "" {
-		args = append(args, "-o", fmt.Sprintf("mountpoint=%s", cfg.TempMountPoint))
+		args = append(args, "-o", fmt.Sprintf("mountpoint='%s'", cfg.TempMountPoint))
 	}
 
 	for _, opt := range cfg.Options {
@@ -877,4 +882,60 @@ func parseAllowOutput(output string) (AllowResult, error) {
 	}
 
 	return result, nil
+}
+
+// TODO: share/unshare is a bit rough; disturbs my peace.
+// If sharenfs and sharesmb properties are set to off, it falls to being legacy which is then useless for `zfs share`
+// When sharenfs and sharesmb are set to a value, it's exposed by default and requires handling.
+// Besides, sharesmb seems to be very rudimentary and needs manual work on smb.conf anyway.
+// Share shares a ZFS dataset
+func (m *Manager) Share(ctx context.Context, cfg ShareConfig) error {
+	args := []string{"share"}
+
+	if cfg.LoadKeys {
+		args = append(args, "-l")
+	}
+
+	if cfg.All {
+		args = append(args, "-a")
+	} else if cfg.Name == "" {
+		return errors.New(errors.CommandInvalidInput,
+			"Dataset name required when not using -a flag")
+	} else {
+		args = append(args, cfg.Name)
+	}
+
+	out, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs share", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSDatasetOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSDatasetOperation)
+	}
+	return nil
+}
+
+// Unshare unshares a ZFS dataset
+func (m *Manager) Unshare(ctx context.Context, cfg UnshareConfig) error {
+	args := []string{"unshare"}
+
+	if cfg.All {
+		args = append(args, "-a")
+	} else if cfg.Name == "" {
+		return errors.New(errors.CommandInvalidInput,
+			"Dataset name or mountpoint required when not using -a flag")
+	} else {
+		args = append(args, cfg.Name)
+	}
+
+	out, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs unshare", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSDatasetOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSDatasetOperation)
+	}
+	return nil
 }

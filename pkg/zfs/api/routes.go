@@ -244,6 +244,13 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 				h.unallowPermissions)
 		}
 
+		// Share operations
+		share := dataset.Group("/share")
+		{
+			share.POST("", h.shareDataset)
+			share.DELETE("", h.unshareDataset)
+		}
+
 		// Data transfer operations
 		transfer := dataset.Group("/transfer")
 		{

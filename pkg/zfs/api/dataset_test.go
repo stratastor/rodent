@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -693,6 +694,122 @@ func TestDatasetAPI(t *testing.T) {
 				t.Errorf("remove permissions returned wrong status: got %v want %v",
 					w.Code, http.StatusNoContent)
 				t.Errorf("error: %v", w.Body.String())
+			}
+		})
+	})
+
+	t.Run("ShareOperations", func(t *testing.T) {
+		hasNFS, hasSMB := testutil.CheckSharingServices(t)
+		if !hasNFS && !hasSMB {
+			t.Skip("No sharing services available")
+		}
+		setNFS := "off"
+		setSMB := "off"
+		if hasNFS {
+			setNFS = "rw=192.168.1.0/24,async,root_squash,subtree_check"
+		}
+		if hasSMB {
+			setSMB = "on"
+		}
+
+		// Create test filesystem
+		shareFS := poolName + "/sharefs"
+		createReq := dataset.FilesystemConfig{
+			NameConfig: dataset.NameConfig{
+				Name: shareFS,
+			},
+			Properties: map[string]string{
+				"sharenfs": setNFS,
+				"sharesmb": setSMB,
+			},
+		}
+		body, _ := json.Marshal(createReq)
+		req := httptest.NewRequest("POST", dsURI+"/filesystem", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("failed to create filesystem: %v", w.Body.String())
+		}
+
+		// Test share dataset
+		t.Run("ShareDataset", func(t *testing.T) {
+			shareReq := dataset.ShareConfig{
+				Name:     shareFS,
+				LoadKeys: false,
+			}
+			body, _ := json.Marshal(shareReq)
+			req := httptest.NewRequest("POST", dsURI+"/share", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				// This is expected as the shares are already shared via properties
+				if strings.Contains(w.Body.String(), "already shared") {
+					t.Skip("Filesystem already shared. Expected error")
+				}
+				t.Errorf("share dataset returned wrong status: got %v want %v",
+					w.Code, http.StatusOK)
+				t.Errorf("error: %v", w.Body.String())
+			}
+		})
+
+		// Test unshare dataset
+		t.Run("UnshareDataset", func(t *testing.T) {
+			unshareReq := dataset.UnshareConfig{
+				Name: shareFS,
+			}
+			body, _ := json.Marshal(unshareReq)
+			req := httptest.NewRequest("DELETE", dsURI+"/share", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("unshare dataset returned wrong status: got %v want %v",
+					w.Code, http.StatusOK)
+				t.Errorf("error: %v", w.Body.String())
+			}
+		})
+
+		// Test error cases
+		t.Run("ErrorCases", func(t *testing.T) {
+			testCases := []struct {
+				name     string
+				method   string
+				body     interface{}
+				wantCode int
+			}{
+				{
+					name:     "share without dataset name or -a",
+					method:   "POST",
+					body:     dataset.ShareConfig{},
+					wantCode: http.StatusBadRequest,
+				},
+				{
+					name:     "unshare without dataset name or -a",
+					method:   "DELETE",
+					body:     dataset.UnshareConfig{},
+					wantCode: http.StatusBadRequest,
+				},
+			}
+
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					body, _ := json.Marshal(tc.body)
+					req := httptest.NewRequest(tc.method, dsURI+"/share",
+						bytes.NewBuffer(body))
+					req.Header.Set("Content-Type", "application/json")
+					w := httptest.NewRecorder()
+					router.ServeHTTP(w, req)
+
+					if w.Code != tc.wantCode {
+						t.Errorf("got status %v, want %v", w.Code, tc.wantCode)
+						t.Errorf("response: %v", w.Body.String())
+					}
+				})
 			}
 		})
 	})
