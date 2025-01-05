@@ -632,3 +632,249 @@ func (m *Manager) Diff(ctx context.Context, cfg DiffConfig) (DiffResult, error) 
 
 	return result, nil
 }
+
+// Allow grants permissions on a dataset
+func (m *Manager) Allow(ctx context.Context, cfg AllowConfig) error {
+	args := []string{"allow"}
+
+	// Handle mutually exclusive flags
+	switch {
+	case cfg.SetName != "":
+		// Permission set definition
+		if !strings.HasPrefix(cfg.SetName, "@") {
+			return errors.New(errors.ZFSNameInvalid, "Permission set name must start with @")
+		}
+		args = append(args, "-s", cfg.SetName)
+	case cfg.Create:
+		// Create-time permissions
+		args = append(args, "-c")
+	case cfg.Everyone:
+		// Everyone permissions
+		args = append(args, "-e")
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	case len(cfg.Groups) > 0:
+		// Group permissions
+		args = append(args, "-g")
+		args = append(args, strings.Join(cfg.Groups, ","))
+
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	case len(cfg.Users) > 0:
+		// User permissions
+		args = append(args, "-u")
+		args = append(args, strings.Join(cfg.Users, ","))
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	default:
+		// User/group permissions
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	}
+
+	// Add permissions
+	if len(cfg.Permissions) > 0 {
+		args = append(args, strings.Join(cfg.Permissions, ","))
+	}
+
+	// Add dataset name
+	args = append(args, cfg.Name)
+
+	// Use CommandOptions.CaptureStderr to capture stderr even on success
+	opts := command.CommandOptions{
+		CaptureStderr: true,
+	}
+
+	out, err := m.executor.Execute(ctx, opts, "zfs allow", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSDatasetOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSDatasetOperation)
+	}
+
+	// TODO: Check with upstream OpenZFS
+	// A workaround for ZFS bug where it returns success even when it fails
+	// Check stderr for error messages even with success exit code
+	if strings.Contains(string(out), "invalid user") ||
+		strings.Contains(string(out), "error:") {
+		return errors.New(errors.ZFSCommandFailed, string(out))
+	}
+
+	return nil
+}
+
+// Unallow revokes permissions on a dataset
+func (m *Manager) Unallow(ctx context.Context, cfg UnallowConfig) error {
+	args := []string{"unallow"}
+
+	// Handle flags based on configuration
+	switch {
+	case cfg.SetName != "":
+		// Permission set definition
+		if !strings.HasPrefix(cfg.SetName, "@") {
+			return errors.New(errors.ZFSNameInvalid, "Permission set name must start with @")
+		}
+		args = append(args, "-s", cfg.SetName)
+	case cfg.Create:
+		// Create-time permissions
+		args = append(args, "-c")
+	case cfg.Everyone:
+		// Everyone permissions
+		args = append(args, "-e")
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	case len(cfg.Groups) > 0:
+		// Group permissions
+		args = append(args, "-g")
+		args = append(args, strings.Join(cfg.Groups, ","))
+
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	case len(cfg.Users) > 0:
+		// User permissions
+		args = append(args, "-u")
+		args = append(args, strings.Join(cfg.Users, ","))
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	default:
+		// User/group permissions
+		if cfg.Local {
+			args = append(args, "-l")
+		}
+		if cfg.Descendent {
+			args = append(args, "-d")
+		}
+	}
+
+	if cfg.Recursive {
+		args = append(args, "-r")
+	}
+
+	// Add permissions to remove
+	if len(cfg.Permissions) > 0 {
+		args = append(args, strings.Join(cfg.Permissions, ","))
+	}
+
+	// Add dataset name
+	args = append(args, cfg.Name)
+
+	out, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs unallow", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return errors.Wrap(err, errors.ZFSDatasetOperation).
+				WithMetadata("output", string(out))
+		}
+		return errors.Wrap(err, errors.ZFSDatasetOperation)
+	}
+	return nil
+}
+
+// ListPermissions gets delegated permissions on a dataset
+func (m *Manager) ListPermissions(ctx context.Context, cfg NameConfig) (AllowResult, error) {
+	args := []string{"allow", cfg.Name}
+
+	out, err := m.executor.Execute(ctx, command.CommandOptions{}, "zfs allow", args...)
+	if err != nil {
+		return AllowResult{}, errors.Wrap(err, errors.ZFSPermissionError)
+	}
+
+	return parseAllowOutput(string(out))
+}
+
+// parseAllowOutput parses the output of zfs allow command
+func parseAllowOutput(output string) (AllowResult, error) {
+	result := AllowResult{
+		PermissionSets:  make(map[string][]string),
+		Local:           make(map[string][]string),
+		Descendent:      make(map[string][]string),
+		LocalDescendent: make(map[string][]string),
+	}
+
+	var currentSection string
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and headers
+		if line == "" || strings.HasPrefix(line, "----") {
+			continue
+		}
+
+		// Detect sections
+		switch {
+		case strings.HasPrefix(line, "Permission sets:"):
+			currentSection = "sets"
+			continue
+		case strings.HasPrefix(line, "Create time permissions:"):
+			currentSection = "create"
+			continue
+		case strings.HasPrefix(line, "Local permissions:"):
+			currentSection = "local"
+			continue
+		case strings.HasPrefix(line, "Descendent permissions:"):
+			currentSection = "descendent"
+			continue
+		case strings.HasPrefix(line, "Local+Descendent permissions:"):
+			currentSection = "local+descendent"
+			continue
+		}
+
+		// Parse section content
+		switch currentSection {
+		case "sets":
+			if parts := strings.Fields(line); len(parts) >= 2 {
+				setName := parts[0]
+				perms := strings.Split(parts[1], ",")
+				result.PermissionSets[setName] = perms
+			}
+		case "create":
+			result.CreateTime = strings.Split(line, ",")
+		case "local", "descendent", "local+descendent":
+			if parts := strings.Fields(line); len(parts) >= 2 {
+				entity := strings.Join(parts[:2], " ")
+				perms := strings.Split(parts[2], ",")
+				switch currentSection {
+				case "local":
+					result.Local[entity] = perms
+				case "descendent":
+					result.Descendent[entity] = perms
+				case "local+descendent":
+					result.LocalDescendent[entity] = perms
+				}
+			}
+		}
+	}
+
+	return result, nil
+}

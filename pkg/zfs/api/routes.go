@@ -124,6 +124,10 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			ValidateZFSEntityName(common.TypeDatasetMask),
 			h.renameDataset)
 
+		dataset.POST("/diff",
+			ValidateDiffConfig(),
+			h.diffDataset)
+
 		// Property operations
 		properties := dataset.Group("/properties",
 			ValidateZFSEntityName(common.TypeZFSEntityMask))
@@ -227,9 +231,18 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 				h.createBookmark)
 		}
 
-		dataset.POST("/diff",
-			ValidateDiffConfig(),
-			h.diffDataset)
+		// Permission operations
+		permissions := dataset.Group("/permissions",
+			ValidateZFSEntityName(common.TypeDatasetMask))
+		{
+			permissions.GET("", h.listPermissions)
+			permissions.POST("",
+				ValidatePermissionConfig(),
+				h.allowPermissions)
+			permissions.DELETE("",
+				ValidateUnallowConfig(),
+				h.unallowPermissions)
+		}
 
 		// Data transfer operations
 		transfer := dataset.Group("/transfer")

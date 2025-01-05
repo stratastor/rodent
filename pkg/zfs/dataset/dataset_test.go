@@ -3,6 +3,8 @@ package dataset
 import (
 	"context"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/stratastor/logger"
@@ -626,3 +628,279 @@ func TestDatasetOperations(t *testing.T) {
 // 			t.Error("expected error when creating volume without size")
 // 		}
 // 	})
+
+func TestPermissionOperations(t *testing.T) {
+	// Setup test environment
+	env := testutil.NewTestEnv(t, 3)
+	defer env.Cleanup()
+
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
+	poolMgr := pool.NewManager(executor)
+	datasetMgr := NewManager(executor)
+
+	// Create test user
+	testUser := "zfstest"
+	if err := exec.Command("sudo", "useradd", "-m", testUser).Run(); err != nil {
+		t.Fatalf("failed to create test user: %v", err)
+	}
+	// Clean up test user
+	defer func() {
+		if err := exec.Command("sudo", "userdel", "-r", testUser).Run(); err != nil {
+			t.Logf("failed to remove test user: %v", err)
+		}
+	}()
+
+	// Create test pool
+	poolName := testutil.GeneratePoolName()
+	err := poolMgr.Create(context.Background(), pool.CreateConfig{
+		Name: poolName,
+		VDevSpec: []pool.VDevSpec{{
+			Type:    "raidz",
+			Devices: env.GetLoopDevices(),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+
+	// Track pool state for cleanup
+	var poolDestroyed bool
+	defer func() {
+		if !poolDestroyed {
+			poolMgr.Destroy(context.Background(), poolName, true)
+		}
+	}()
+
+	fsName := poolName + "/fs1"
+	err = datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		NameConfig: NameConfig{Name: fsName},
+	})
+	if err != nil {
+		t.Fatalf("failed to create filesystem: %v", err)
+	}
+
+	t.Run("PermissionSetOperations", func(t *testing.T) {
+		// Create permission set
+		err := datasetMgr.Allow(context.Background(), AllowConfig{
+			NameConfig: NameConfig{Name: fsName},
+			SetName:    "@testset",
+			Permissions: []string{
+				"create", "destroy", "mount", "snapshot",
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create permission set: %v", err)
+		}
+
+		// Verify permission set
+		result, err := datasetMgr.ListPermissions(context.Background(), NameConfig{
+			Name: fsName,
+		})
+		if err != nil {
+			t.Fatalf("failed to list permissions: %v", err)
+		}
+
+		if perms, ok := result.PermissionSets["@testset"]; !ok {
+			t.Error("permission set not found")
+		} else {
+			expected := []string{"create", "destroy", "mount", "snapshot"}
+			for _, p := range expected {
+				found := false
+				for _, actual := range perms {
+					if actual == p {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("permission %s not found in set", p)
+				}
+			}
+		}
+	})
+
+	t.Run("UserPermissionOperations", func(t *testing.T) {
+		// Add negative test case for non-existent user
+		t.Run("NonExistentUser", func(t *testing.T) {
+			err := datasetMgr.Allow(context.Background(), AllowConfig{
+				NameConfig:  NameConfig{Name: fsName},
+				Users:       []string{"nonexistentuser"},
+				Permissions: []string{"@testset"},
+			})
+			if err == nil {
+				t.Error("expected error for non-existent user")
+			} else {
+				// Check if it's the right kind of error
+				if rerr, ok := err.(*errors.RodentError); !ok ||
+					rerr.Code != errors.ZFSCommandFailed {
+					t.Errorf("expected ZFSCommandFailed, got %v", err)
+				}
+				// Also verify the error message mentions invalid user
+				if !strings.Contains(err.Error(), "invalid user") {
+					t.Errorf("error message should mention invalid user, got: %v", err)
+				}
+			}
+		})
+
+		// Grant user permissions
+		err := datasetMgr.Allow(context.Background(), AllowConfig{
+			NameConfig: NameConfig{Name: fsName},
+			Users:      []string{testUser},
+			Permissions: []string{
+				"@testset", "rollback",
+			},
+			Local:      true,
+			Descendent: true,
+		})
+		if err != nil {
+			t.Fatalf("failed to grant user permissions: %v", err)
+		}
+
+		// Verify permissions
+		result, err := datasetMgr.ListPermissions(context.Background(), NameConfig{
+			Name: fsName,
+		})
+		if err != nil {
+			t.Fatalf("failed to list permissions: %v", err)
+		}
+
+		if perms, ok := result.LocalDescendent["user "+testUser]; !ok {
+			t.Error("user permissions not found")
+		} else {
+			expected := []string{"@testset", "rollback"}
+			for _, p := range expected {
+				found := false
+				for _, actual := range perms {
+					if actual == p {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("permission %s not found for user", p)
+				}
+			}
+		}
+	})
+
+	t.Run("CreateTimePermissions", func(t *testing.T) {
+		// Set create time permissions
+		err := datasetMgr.Allow(context.Background(), AllowConfig{
+			NameConfig:  NameConfig{Name: fsName},
+			Create:      true,
+			Permissions: []string{"destroy"},
+		})
+		if err != nil {
+			t.Fatalf("failed to set create time permissions: %v", err)
+		}
+
+		// Verify permissions
+		result, err := datasetMgr.ListPermissions(context.Background(), NameConfig{
+			Name: fsName,
+		})
+		if err != nil {
+			t.Fatalf("failed to list permissions: %v", err)
+		}
+
+		found := false
+		for _, p := range result.CreateTime {
+			if p == "destroy" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("create time permission not found")
+		}
+	})
+
+	t.Run("UnallowOperations", func(t *testing.T) {
+		// Remove permission set
+		err := datasetMgr.Unallow(context.Background(), UnallowConfig{
+			NameConfig: NameConfig{Name: fsName},
+			SetName:    "@testset",
+		})
+		if err != nil {
+			t.Fatalf("failed to remove permission set: %v", err)
+		}
+
+		// Remove user permissions
+		err = datasetMgr.Unallow(context.Background(), UnallowConfig{
+			NameConfig: NameConfig{Name: fsName},
+			Users:      []string{"testuser"},
+			Local:      true,
+			Descendent: true,
+		})
+		if err != nil {
+			t.Fatalf("failed to remove user permissions: %v", err)
+		}
+
+		// Verify permissions were removed
+		result, err := datasetMgr.ListPermissions(context.Background(), NameConfig{
+			Name: fsName,
+		})
+		if err != nil {
+			t.Fatalf("failed to list permissions: %v", err)
+		}
+
+		if _, ok := result.PermissionSets["@testset"]; ok {
+			t.Error("permission set still exists")
+		}
+		if _, ok := result.LocalDescendent["user testuser"]; ok {
+			t.Error("user permissions still exist")
+		}
+	})
+
+	t.Run("ErrorCases", func(t *testing.T) {
+		testCases := []struct {
+			name    string
+			config  AllowConfig
+			wantErr bool
+		}{
+			{
+				name: "invalid permission set name",
+				config: AllowConfig{
+					NameConfig:  NameConfig{Name: fsName},
+					SetName:     "testset", // Missing @ prefix
+					Permissions: []string{"create"},
+				},
+				wantErr: true,
+			},
+			{
+				name: "mutually exclusive flags",
+				config: AllowConfig{
+					NameConfig: NameConfig{Name: fsName},
+					Users:      []string{"user1"},
+					Groups:     []string{"group1"},
+					Everyone:   true,
+				},
+				wantErr: true,
+			},
+			{
+				name: "invalid permission name",
+				config: AllowConfig{
+					NameConfig:  NameConfig{Name: fsName},
+					Users:       []string{"testuser"},
+					Permissions: []string{"invalid_perm"},
+				},
+				wantErr: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := datasetMgr.Allow(context.Background(), tc.config)
+				if (err != nil) != tc.wantErr {
+					t.Errorf("Allow() error = %v, wantErr %v", err, tc.wantErr)
+				}
+			})
+		}
+	})
+
+	// Clean up
+	err = poolMgr.Destroy(context.Background(), poolName, true)
+	if err != nil {
+		t.Fatalf("failed to destroy pool: %v", err)
+	}
+	poolDestroyed = true
+}

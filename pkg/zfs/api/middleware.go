@@ -2,9 +2,11 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/rodent/pkg/errors"
@@ -716,6 +718,127 @@ func ValidateDiffConfig() gin.HandlerFunc {
 					return
 				}
 			}
+		}
+
+		c.Next()
+	}
+}
+
+// ValidatePermissionConfig validates ZFS permission operations
+func ValidatePermissionConfig() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req dataset.AllowConfig
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		ResetBody(c, body)
+
+		// Check mutually exclusive flags
+		if (len(req.Users) > 0 && (len(req.Groups) > 0 || req.Everyone)) ||
+			(len(req.Groups) > 0 && req.Everyone) {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.CommandInvalidInput,
+					"Users, groups, and everyone flags are mutually exclusive"))
+			return
+		}
+
+		// Validate permission set name format if present
+		if req.SetName != "" && !strings.HasPrefix(req.SetName, "@") {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ZFSNameInvalid,
+					"Permission set name must start with @"))
+			return
+		}
+
+		// Validate permissions
+		for _, perm := range req.Permissions {
+			// Check if it's a permission set reference
+			if strings.HasPrefix(perm, "@") {
+				continue
+			}
+			// Check if it's a valid permission
+			if _, ok := dataset.ZFSPermissions[perm]; !ok {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSNameInvalid,
+						fmt.Sprintf("Invalid permission: %s", perm)))
+				return
+			}
+		}
+
+		// Validate users/groups format
+		userGroupRegex := regexp.MustCompile(`^[a-zA-Z0-9_][-a-zA-Z0-9_.]*[$]?$`)
+		for _, user := range req.Users {
+			if !userGroupRegex.MatchString(user) {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSNameInvalid,
+						fmt.Sprintf("Invalid username format: %s", user)))
+				return
+			}
+		}
+		for _, group := range req.Groups {
+			if !userGroupRegex.MatchString(group) {
+				c.AbortWithStatusJSON(
+					http.StatusBadRequest,
+					errors.New(errors.ZFSNameInvalid,
+						fmt.Sprintf("Invalid group name format: %s", group)))
+				return
+			}
+		}
+
+		c.Next()
+	}
+}
+
+// ValidateUnallowConfig validates ZFS unallow operations
+func ValidateUnallowConfig() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		body, err := ReadResetBody(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			return
+		}
+
+		var req dataset.UnallowConfig
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ServerRequestValidation, err.Error()))
+			return
+		}
+		ResetBody(c, body)
+
+		// Similar checks as ValidatePermissionConfig
+		if (len(req.Users) > 0 && (len(req.Groups) > 0 || req.Everyone)) ||
+			(len(req.Groups) > 0 && req.Everyone) {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.CommandInvalidInput,
+					"Users, groups, and everyone flags are mutually exclusive"))
+			return
+		}
+
+		// Validate permission set name if present
+		if req.SetName != "" && !strings.HasPrefix(req.SetName, "@") {
+			c.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				errors.New(errors.ZFSNameInvalid,
+					"Permission set name must start with @"))
+			return
 		}
 
 		c.Next()

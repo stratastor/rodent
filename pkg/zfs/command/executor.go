@@ -40,9 +40,12 @@ const (
 
 // CommandOptions configures command execution
 type CommandOptions struct {
-	Flags         CommandFlags  // Command flags to apply
-	Timeout       time.Duration // Command-specific timeout
-	CaptureOutput bool          // Whether to capture command output
+	Flags   CommandFlags  // Command flags to apply
+	Timeout time.Duration // Command-specific timeout
+
+	// TODO: Implement these Capture* options? Not actively used in the code; everything is captured.
+	CaptureOutput bool // Whether to capture command output
+	CaptureStderr bool // Capture stderr even on success
 }
 
 func NewCommandExecutor(useSudo bool, logConfig logger.Config) *CommandExecutor {

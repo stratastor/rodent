@@ -236,3 +236,98 @@ type DiffEntry struct {
 type DiffResult struct {
 	Changes []DiffEntry `json:"changes"`
 }
+
+// Permission represents a ZFS permission
+type Permission struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // "subcommand", "other", "property"
+	Note string `json:"note,omitempty"`
+}
+
+// ZFS permissions catalog
+var ZFSPermissions = map[string]Permission{
+	// Subcommand permissions
+	"allow":    {Name: "allow", Type: "subcommand", Note: "Add any permission to the permission set"},
+	"clone":    {Name: "clone", Type: "subcommand", Note: "Clone the specified snapshot"},
+	"create":   {Name: "create", Type: "subcommand", Note: "Create descendent datasets"},
+	"destroy":  {Name: "destroy", Type: "subcommand", Note: "Destroy the specified dataset"},
+	"diff":     {Name: "diff", Type: "subcommand", Note: "Report differences between snapshot and active dataset"},
+	"hold":     {Name: "hold", Type: "subcommand", Note: "Place a user reference on the specified snapshot"},
+	"mount":    {Name: "mount", Type: "subcommand", Note: "Mount the specified dataset"},
+	"promote":  {Name: "promote", Type: "subcommand", Note: "Promote the specified clone"},
+	"receive":  {Name: "receive", Type: "subcommand", Note: "Create a snapshot with the specified data"},
+	"release":  {Name: "release", Type: "subcommand", Note: "Release a user reference from the specified snapshot"},
+	"rename":   {Name: "rename", Type: "subcommand", Note: "Rename the specified dataset"},
+	"rollback": {Name: "rollback", Type: "subcommand", Note: "Roll back the specified snapshot"},
+	"send":     {Name: "send", Type: "subcommand", Note: "Generate a send stream for the specified snapshot"},
+	"share":    {Name: "share", Type: "subcommand", Note: "Share the specified dataset"},
+	"snapshot": {Name: "snapshot", Type: "subcommand", Note: "Create a snapshot with the given name"},
+	"unmount":  {Name: "unmount", Type: "subcommand", Note: "Unmount the specified dataset"},
+	"unshare":  {Name: "unshare", Type: "subcommand", Note: "Unshare the specified dataset"},
+
+	// Other permissions
+	"groupquota": {Name: "groupquota", Type: "other", Note: "Allow manipulation of group quotas"},
+	"groupused":  {Name: "groupused", Type: "other", Note: "Allow reading of group space usage"},
+	"userprop":   {Name: "userprop", Type: "other", Note: "Permission to change user properties"},
+	"userquota":  {Name: "userquota", Type: "other", Note: "Allow manipulation of user quotas"},
+	"userused":   {Name: "userused", Type: "other", Note: "Allow reading of user space usage"},
+
+	// Property permissions (all natively supported properties)
+	"aclinherit":     {Name: "aclinherit", Type: "property", Note: "Access control list inheritance"},
+	"aclmode":        {Name: "aclmode", Type: "property", Note: "Access control list mode"},
+	"atime":          {Name: "atime", Type: "property", Note: "Update access time on read"},
+	"canmount":       {Name: "canmount", Type: "property", Note: "If filesystem can be mounted"},
+	"checksum":       {Name: "checksum", Type: "property", Note: "Data checksum"},
+	"compression":    {Name: "compression", Type: "property", Note: "Data compression"},
+	"copies":         {Name: "copies", Type: "property", Note: "Number of copies"},
+	"dedup":          {Name: "dedup", Type: "property", Note: "Deduplication"},
+	"devices":        {Name: "devices", Type: "property", Note: "Device files can be opened"},
+	"exec":           {Name: "exec", Type: "property", Note: "Execution of processes allowed"},
+	"mountpoint":     {Name: "mountpoint", Type: "property", Note: "Mountpoint"},
+	"quota":          {Name: "quota", Type: "property", Note: "Maximum size of dataset"},
+	"readonly":       {Name: "readonly", Type: "property", Note: "Read-only status"},
+	"recordsize":     {Name: "recordsize", Type: "property", Note: "Suggested block size"},
+	"refquota":       {Name: "refquota", Type: "property", Note: "Maximum size of dataset"},
+	"refreservation": {Name: "refreservation", Type: "property", Note: "Minimum guaranteed space"},
+	"reservation":    {Name: "reservation", Type: "property", Note: "Minimum guaranteed space"},
+	"setuid":         {Name: "setuid", Type: "property", Note: "Respect setuid bit"},
+	"snapdir":        {Name: "snapdir", Type: "property", Note: "If .zfs directory is visible"},
+	"sync":           {Name: "sync", Type: "property", Note: "Sync write behavior"},
+	"volsize":        {Name: "volsize", Type: "property", Note: "Volume logical size"},
+}
+
+// AllowConfig defines configuration for ZFS allow operation
+type AllowConfig struct {
+	NameConfig
+	Permissions []string `json:"permissions"`          // Individual permissions or permission sets
+	Users       []string `json:"users,omitempty"`      // Users to grant permissions (mutually exclusive with Groups and Everyone)
+	Groups      []string `json:"groups,omitempty"`     // Groups to grant permissions (mutually exclusive with Users and Everyone)
+	Everyone    bool     `json:"everyone,omitempty"`   // Grant to everyone (mutually exclusive with Users and Groups)
+	Create      bool     `json:"create,omitempty"`     // Create time permissions
+	Local       bool     `json:"local,omitempty"`      // Local permissions only
+	Descendent  bool     `json:"descendent,omitempty"` // Descendent permissions
+	SetName     string   `json:"set_name,omitempty"`   // Permission set name (must start with @)
+}
+
+// UnallowConfig defines configuration for ZFS unallow operation
+type UnallowConfig struct {
+	NameConfig
+	Permissions []string `json:"permissions,omitempty"` // Individual permissions or permission sets to remove
+	Users       []string `json:"users,omitempty"`       // Users to revoke from
+	Groups      []string `json:"groups,omitempty"`      // Groups to revoke from
+	Everyone    bool     `json:"everyone,omitempty"`    // Revoke from everyone
+	Create      bool     `json:"create,omitempty"`      // Remove create time permissions
+	Local       bool     `json:"local,omitempty"`       // Remove local permissions
+	Descendent  bool     `json:"descendent,omitempty"`  // Remove descendent permissions
+	Recursive   bool     `json:"recursive,omitempty"`   // Apply recursively
+	SetName     string   `json:"set_name,omitempty"`    // Permission set to remove
+}
+
+// AllowResult represents parsed output of zfs allow command
+type AllowResult struct {
+	PermissionSets  map[string][]string `json:"permission_sets,omitempty"`
+	CreateTime      []string            `json:"create_time,omitempty"`
+	Local           map[string][]string `json:"local,omitempty"`
+	Descendent      map[string][]string `json:"descendent,omitempty"`
+	LocalDescendent map[string][]string `json:"local_descendent,omitempty"`
+}

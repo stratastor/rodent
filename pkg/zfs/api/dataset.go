@@ -513,3 +513,69 @@ func (h *DatasetHandler) diffDataset(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"result": result})
 }
+
+// Allow permissions
+func (h *DatasetHandler) allowPermissions(c *gin.Context) {
+	var req dataset.AllowConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	err := h.manager.Allow(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.Status(http.StatusCreated)
+}
+
+// Remove permissions
+func (h *DatasetHandler) unallowPermissions(c *gin.Context) {
+	var req dataset.UnallowConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	err := h.manager.Unallow(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// List permissions
+func (h *DatasetHandler) listPermissions(c *gin.Context) {
+	var req dataset.NameConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest,
+			errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	result, err := h.manager.ListPermissions(c.Request.Context(), req)
+	if err != nil {
+		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
+			c.JSON(rerr.HTTPStatus, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}

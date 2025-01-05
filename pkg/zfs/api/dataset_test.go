@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -524,6 +525,174 @@ func TestDatasetAPI(t *testing.T) {
 						t.Errorf("response: %v", w.Body.String())
 					}
 				})
+			}
+		})
+	})
+
+	t.Run("PermissionOperations", func(t *testing.T) {
+		// Create test user first
+		testUser := "zfstest"
+		if err := exec.Command("sudo", "useradd", "-m", testUser).Run(); err != nil {
+			t.Fatalf("failed to create test user: %v", err)
+		}
+		defer func() {
+			if err := exec.Command("sudo", "userdel", "-r", testUser).Run(); err != nil {
+				t.Logf("failed to remove test user: %v", err)
+			}
+		}()
+
+		// Create test filesystem
+		baseFS := poolName + "/permtest"
+		createReq := dataset.FilesystemConfig{
+			NameConfig: dataset.NameConfig{
+				Name: baseFS,
+			},
+			Properties: map[string]string{
+				"compression": "on",
+			},
+		}
+		body, _ := json.Marshal(createReq)
+		req := httptest.NewRequest("POST", dsURI+"/filesystem", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("failed to create filesystem: %v", w.Body.String())
+		}
+
+		// Create permission set
+		t.Run("CreatePermissionSet", func(t *testing.T) {
+			allowReq := dataset.AllowConfig{
+				NameConfig:  dataset.NameConfig{Name: baseFS},
+				SetName:     "@testset",
+				Permissions: []string{"create", "destroy", "mount", "snapshot"},
+			}
+
+			body, _ := json.Marshal(allowReq)
+			req := httptest.NewRequest("POST", dsURI+"/permissions",
+				bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusCreated {
+				t.Errorf("create permission set returned wrong status: got %v want %v",
+					w.Code, http.StatusCreated)
+				t.Errorf("error: %v", w.Body.String())
+			}
+		})
+
+		// Grant user permissions
+		t.Run("GrantUserPermissions", func(t *testing.T) {
+			allowReq := dataset.AllowConfig{
+				NameConfig:  dataset.NameConfig{Name: baseFS},
+				Users:       []string{testUser},
+				Permissions: []string{"@testset", "rollback"},
+				Local:       true,
+				Descendent:  true,
+			}
+
+			body, _ := json.Marshal(allowReq)
+			req := httptest.NewRequest("POST", dsURI+"/permissions",
+				bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusCreated {
+				t.Errorf("grant permissions returned wrong status: got %v want %v",
+					w.Code, http.StatusCreated)
+				t.Errorf("error: %v", w.Body.String())
+			}
+		})
+
+		// List permissions
+		t.Run("ListPermissions", func(t *testing.T) {
+			listReq := dataset.NameConfig{
+				Name: baseFS,
+			}
+
+			body, _ := json.Marshal(listReq)
+			req := httptest.NewRequest("GET", dsURI+"/permissions",
+				bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("list permissions returned wrong status: got %v want %v",
+					w.Code, http.StatusOK)
+				t.Errorf("error: %v", w.Body.String())
+				return
+			}
+
+			var result struct {
+				Result dataset.AllowResult `json:"result"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatalf("failed to parse response: %v", err)
+			}
+
+			// Verify permission set
+			if perms, ok := result.Result.PermissionSets["@testset"]; !ok {
+				t.Error("permission set not found")
+			} else {
+				expected := []string{"create", "destroy", "mount", "snapshot"}
+				for _, p := range expected {
+					found := false
+					for _, actual := range perms {
+						if actual == p {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("permission %s not found in set", p)
+					}
+				}
+			}
+
+			// Verify user permissions
+			if perms, ok := result.Result.LocalDescendent["user "+testUser]; !ok {
+				t.Error("user permissions not found")
+			} else {
+				expected := []string{"@testset", "rollback"}
+				for _, p := range expected {
+					found := false
+					for _, actual := range perms {
+						if actual == p {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("permission %s not found for user", p)
+					}
+				}
+			}
+		})
+
+		// Remove permissions
+		t.Run("RemovePermissions", func(t *testing.T) {
+			unallowReq := dataset.UnallowConfig{
+				NameConfig: dataset.NameConfig{Name: baseFS},
+				Users:      []string{testUser},
+				Local:      true,
+				Descendent: true,
+			}
+
+			body, _ := json.Marshal(unallowReq)
+			req := httptest.NewRequest("DELETE", dsURI+"/permissions",
+				bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusNoContent {
+				t.Errorf("remove permissions returned wrong status: got %v want %v",
+					w.Code, http.StatusNoContent)
+				t.Errorf("error: %v", w.Body.String())
 			}
 		})
 	})
