@@ -12,8 +12,6 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/command"
 )
 
-// TODO: Validate dataset names with relevant functions from common/zfs_namecheck.go
-
 // TODO: When verbose and parsable flags are set on applicable operations, output should be returned to the caller
 
 // Manager handles ZFS dataset operations
