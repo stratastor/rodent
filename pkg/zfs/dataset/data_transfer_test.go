@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in> 
+ * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in>
  * Copyright 2024-2025 The StrataSTOR Authors and Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -313,6 +313,15 @@ func TestDataTransferOperations(t *testing.T) {
 				Resumable: true,
 			},
 		)
+		if err != nil {
+			if rerr, ok := err.(*errors.RodentError); ok {
+				t.Fatalf("failed remote transfer: %v\nOutput: %s\nCommand: %s",
+					rerr,
+					rerr.Metadata["output"],
+					rerr.Metadata["command"])
+			}
+			t.Fatalf("failed remote transfer: %v", err)
+		}
 
 		// Get resume token
 		token, err := datasetMgr.GetResumeToken(context.Background(), NameConfig{

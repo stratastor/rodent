@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in> 
+ * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in>
  * Copyright 2024-2025 The StrataSTOR Authors and Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -222,7 +222,7 @@ const (
 
 const (
 	// Rodent Errors (1600-1699)
-	RodentMisc = 1600 + iota // Miscelaneous program error
+	RodentMisc = 1600 + iota // Miscellaneous program error
 )
 
 var errorDefinitions = map[ErrorCode]struct {

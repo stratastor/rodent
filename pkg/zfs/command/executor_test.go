@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in> 
+ * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in>
  * Copyright 2024-2025 The StrataSTOR Authors and Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");

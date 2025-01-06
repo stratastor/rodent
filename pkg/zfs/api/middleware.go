@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in> 
+ * Copyright 2024-2025 Raamsri Kumar <raam@tinkershack.in>
  * Copyright 2024-2025 The StrataSTOR Authors and Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -283,7 +283,7 @@ func ValidatePoolName() gin.HandlerFunc {
 // ValidatePoolOperation validates common pool operation parameters
 func ValidatePoolOperation() gin.HandlerFunc {
 	// TODO: What operation to validate? Placeholder for now.
-	// Name validation already has a funciton.
+	// Name validation already has a function.
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		if name == "" {
