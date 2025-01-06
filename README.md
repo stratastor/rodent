@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/github.com/stratastor/rodent) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/stratastor/rodent/blob/master/LICENSE.txt)
+
 # Rodent [WIP]
 
 StrataSTOR Node Agent for ZFS management(primarily) but it seems as though it'll have to go beyond the call of duty to work the underlying system.
