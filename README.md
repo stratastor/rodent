@@ -336,3 +336,20 @@ Have a look at [Contributing Guide](./CONTRIBUTING.md), [Code of Conduct](./CODE
 - [OpenZFS Docs](https://openzfs.github.io/openzfs-docs/index.html)
 - [ZFS Man pages](https://openzfs.github.io/openzfs-docs/index.html)
 - [Notes](./notes)
+
+## License
+
+This project is licensed under the **Apache License 2.0**. By using this software, you are granted:
+
+- **Freedom to Use**: You can use the software for personal, academic, or commercial purposes.
+- **Freedom to Modify**: You can modify the code to suit your needs.
+- **Freedom to Distribute**: You can distribute the software, including any modifications you make.
+- **Freedom from Patent Worries**: Contributors provide a broad patent license, protecting you from patent claims related to the software.
+
+### Summary of Key Terms
+
+1. **Attribution**: You must include the original license and copyright notice in any distribution.
+2. **No Liability**: The software is provided "as is," without warranties or guarantees.
+3. **Patent Protection**: The license includes a patent grant, and your rights are terminated if you initiate patent litigation involving the software.
+
+For the full text of the license, see the [LICENSE](./LICENSE.txt) file.
