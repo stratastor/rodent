@@ -14,7 +14,7 @@ Rodent is a ZFS management agent that provides:
 
 ## Development
 
-**‼️ Care to try these only in staging environments as `sudo` priviliges are required for ZFS calls.**
+**‼️ Caution: Mind the `sudo` usage! Try these only in staging environments as `sudo` privileges are required for ZFS calls.**
 
 ### Installation
 
@@ -95,7 +95,7 @@ environment: dev
 
 ### Testing
 
-`cd` to individual modules and run individual test suite; better than running everything in one go.
+`cd` to individual modules and run necessary test suite; better than running everything in one go.
 
 ```bash
 ubuntu@staging:~/rodent$ cd pkg/zfs/dataset/
@@ -147,8 +147,9 @@ ubuntu@staging:~/rodent$ cd pkg/zfs && sudo go test -v ./...
 
 The zfs package provides core ZFS functionality:
 
-- Dataset operations (create, destroy, snapshot)
-- Pool management (import, export, status)
+- Dataset operations (create, destroy, snapshot, and others...)
+- Pool management (import, export, status, and...)
+- HTTP API handlers
 - Property handling
 - Remote transfers
 - Command execution safety
@@ -159,6 +160,148 @@ pkg/zfs/dataset/dataset.go
 
 // Pool management
 pkg/zfs/pool/pool.go
+```
+
+### HTTP API
+
+[HTTP Routes](./pkg/zfs/api/routes.go) are listed in the routes.go file and the request payload schema is scattered across [pkg/zfs/dataset/types.go](pkg/zfs/dataset/types.go), [pkg/zfs/pool/types.go](pkg/zfs/pool/types.go) and [pkg/zfs/api/types.go](pkg/zfs/api/types.go) files.
+
+🙋 TODO: API documentation
+
+Unlike Pool operations, Dataset API maynot be RESTFUL. Having dataset values with "/" in the URI params is inconvenient and may lead to confusion. Hence, we will pass information in the body to keep the URI clean and simple.
+
+Here's a gist but the recommended source of truth is the ./pkg/zfs/api/routes.go file:
+
+```go
+[GIN-debug] GET    /health                   --> github.com/stratastor/rodent/pkg/server.Start.func1 (3 handlers)
+[GIN-debug] GET    /api/v1/dataset           --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listDatasets-fm (3 handlers)       [GIN-debug] DELETE /api/v1/dataset           --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).destroyDataset-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/rename    --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).renameDataset-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/diff      --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).diffDataset-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/properties --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listProperties-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/property  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getProperty-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/dataset/property  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).setProperty-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/dataset/property/inherit --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).inheritProperty-fm (5 handle
+rs)                                                                                                                                            [GIN-debug] GET    /api/v1/dataset/filesystems --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listFilesystems-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/filesystem --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createFilesystem-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/filesystem/mount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).mountDataset-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/filesystem/unmount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unmountDataset-fm (4 handl
+ers)                                                                                                                                           [GIN-debug] GET    /api/v1/dataset/volumes   --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listVolumes-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/volume    --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createVolume-fm (6 handlers)
+[GIN-debug] GET    /api/v1/dataset/snapshots --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listSnapshots-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/snapshot  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createSnapshot-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/snapshot/rollback --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).rollbackSnapshot-fm (4 hand
+lers)
+[GIN-debug] POST   /api/v1/dataset/clone     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createClone-fm (6 handlers)
+[GIN-debug] POST   /api/v1/dataset/clone/promote --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).promoteClone-fm (4 handlers)   [GIN-debug] GET    /api/v1/dataset/bookmarks --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listBookmarks-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/bookmark  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createBookmark-fm (4 handlers)     [GIN-debug] GET    /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listPermissions-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).allowPermissions-fm (5 handlers)
+[GIN-debug] DELETE /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unallowPermissions-fm (5 handlers
+)
+[GIN-debug] POST   /api/v1/dataset/share     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).shareDataset-fm (3 handlers)
+[GIN-debug] DELETE /api/v1/dataset/share     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unshareDataset-fm (3 handlers)     [GIN-debug] POST   /api/v1/dataset/transfer/send --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).sendDataset-fm (3 handlers)
+[GIN-debug] GET    /api/v1/dataset/transfer/resume-token --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getResumeToken-fm (4 ha
+ndlers)
+
+
+[GIN-debug] POST   /api/v1/pools             --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).createPool-fm (7 handlers)
+[GIN-debug] GET    /api/v1/pools             --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).listPools-fm (3 handlers)
+[GIN-debug] DELETE /api/v1/pools/:name       --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).destroyPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/import      --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).importPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/export --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).exportPool-fm (4 handlers)
+[GIN-debug] GET    /api/v1/pools/:name/status --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getPoolStatus-fm (4 handlers)
+[GIN-debug] GET    /api/v1/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getProperty-fm (5 handl
+ers)
+[GIN-debug] PUT    /api/v1/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).setProperty-fm (6 handl
+ers)
+[GIN-debug] POST   /api/v1/pools/:name/scrub --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).scrubPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/resilver --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).resilverPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/attach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).attachDevice-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/detach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).detachDevice-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/replace --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).replaceDevice-fm (4 handlers
+)
+```
+
+[API test cases](./pkg/zfs/api/dataset_test.go) provides reference usage but perhaps `curl` commands might illustrate it cleaner.
+
+Assuming zfs pool `tpool` is already created, and available, try the following:
+
+1. Run rodent server
+
+```sh
+ubuntu@staging:~/rodent$ sudo go run main.go serve
+```
+
+2. Create the request payload with the following data:
+
+```sh
+ubuntu@staging:~/curl-test$ cat create.json
+{
+    "name": "tank/dummyds2",
+    "dry_run": false,
+    "verbose": true,
+    "parsable": true
+}
+```
+
+```sh
+ubuntu@staging:~/curl-test$ cat list.json
+{
+        "name": "tpool/ds1",
+        "type": "all",
+        "recursive": true
+}
+```
+
+3. Make the `curl` requests
+
+```sh
+ubuntu@staging:~/curl-test$ curl -s -S --json @create.json -X POST http://localhost:8042/api/v1/dataset/filesystem
+```
+
+```sh
+ubuntu@staging:~/curl-test$ curl -s -S --json @list.json -X GET http://localhost:8042/api/v1/dataset | jq
+{
+  "result": {
+    "datasets": {
+      "tpool/ds1": {
+        "name": "tpool/ds1",
+        "type": "FILESYSTEM",
+        "pool": "tpool",
+        "createtxg": "49154",
+        "properties": {
+          "available": {
+            "value": "84.6M",
+            "source": {
+              "type": "NONE",
+              "data": "-"
+            }
+          },
+          "mountpoint": {
+            "value": "/tpool/ds1",
+            "source": {
+              "type": "DEFAULT",
+              "data": "-"
+            }
+          },
+          "referenced": {
+            "value": "30.6K",
+            "source": {
+              "type": "NONE",
+              "data": "-"
+            }
+          },
+          "used": {
+            "value": "30.6K",
+            "source": {
+              "type": "NONE",
+              "data": "-"
+            }
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
 ### Common First Issues
@@ -183,13 +326,13 @@ Have a look at [Contributing Guide](./CONTRIBUTING.md), [Code of Conduct](./CODE
 - Create feature branch
 - Make changes
 - Run tests
-- Run linter
+- Run linter, go fmt
 - Commit changes
 - Submit PR
 
 ### Additional Resources
 
+- [Run-along development blog](https://puckish.life)
 - [OpenZFS Docs](https://openzfs.github.io/openzfs-docs/index.html)
 - [ZFS Man pages](https://openzfs.github.io/openzfs-docs/index.html)
-- [Run-along development blog](https://puckish.life)
 - [Notes](./notes)
