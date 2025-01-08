@@ -1,14 +1,14 @@
-[![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/github.com/stratastor/rodent) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/stratastor/rodent/blob/master/LICENSE.txt)
-
 # Rodent [WIP]
 
-StrataSTOR Node Agent for ZFS management(primarily) but it seems as though it'll have to go beyond the call of duty to work the underlying system.
+[![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/github.com/stratastor/rodent) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/stratastor/rodent/blob/master/LICENSE.txt)
+
+StrataSTOR node agent for ZFS operations(primarily).
 
 ## Overview
 
 Rodent is a ZFS management agent that provides:
 
-- RESTful API for ZFS operations
+- HTTP API for ZFS operations
 - Dataset and pool management
 - Remote data transfer capabilities
 - Health monitoring
@@ -227,41 +227,48 @@ ers)
 
 Assuming zfs pool `tpool` is already created, and available, try the following:
 
-1. Run rodent server
+### 1. Run rodent server
 
 ```sh
-ubuntu@staging:~/rodent$ sudo go run main.go serve
+sudo go run main.go serve
 ```
 
-2. Create the request payload with the following data:
+### 2. Create request data
 
 ```sh
-ubuntu@staging:~/curl-test$ cat create.json
+cat <<EOF > create.json
 {
-    "name": "tank/dummyds2",
+    "name": "tpool/ds1",
     "dry_run": false,
     "verbose": true,
     "parsable": true
 }
+EOF
 ```
 
 ```sh
-ubuntu@staging:~/curl-test$ cat list.json
+cat <<EOF > list.json
 {
-        "name": "tpool/ds1",
-        "type": "all",
-        "recursive": true
+    "name": "tpool/ds1",
+    "type": "all",
+    "recursive": true
 }
+EOF
 ```
 
-3. Make the `curl` requests
+### 3. Make the `curl` requests
 
 ```sh
-ubuntu@staging:~/curl-test$ curl -s -S --json @create.json -X POST http://localhost:8042/api/v1/dataset/filesystem
+curl -s -S --json @create.json -X POST http://localhost:8042/api/v1/dataset/filesystem | jq
 ```
 
 ```sh
-ubuntu@staging:~/curl-test$ curl -s -S --json @list.json -X GET http://localhost:8042/api/v1/dataset | jq
+curl -s -S --json @list.json -X GET http://localhost:8042/api/v1/dataset | jq
+```
+
+Response:
+
+```sh
 {
   "result": {
     "datasets": {
