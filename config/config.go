@@ -38,7 +38,7 @@ var (
 type Config struct {
 	Server struct {
 		Port      int    `mapstructure:"port"`
-		LogLevel  string `mapstructure:"logLevel"`
+		LogLevel  string `mapstructure:"log_level"`
 		Daemonize bool   `mapstructure:"daemonize"`
 	} `mapstructure:"server"`
 
@@ -54,9 +54,9 @@ type Config struct {
 	} `mapstructure:"logs"`
 
 	Logger struct {
-		LogLevel     string `mapstructure:"logLevel"`
-		EnableSentry bool   `mapstructure:"enableSentry"`
-		SentryDSN    string `mapstructure:"sentryDSN"`
+		LogLevel     string `mapstructure:"log_level"`
+		EnableSentry bool   `mapstructure:"enable_sentry"`
+		SentryDSN    string `mapstructure:"sentry_dsn"`
 	} `mapstructure:"logger"`
 
 	Environment string `mapstructure:"environment"`
