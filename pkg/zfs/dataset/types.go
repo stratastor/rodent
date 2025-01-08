@@ -77,7 +77,7 @@ type ListConfig struct {
 // Common configuration for dataset operations
 type CreateConfig struct {
 	NameConfig
-	Type       string            `json:"type" binding:"required"`
+	Type       string            `json:"type"                 binding:"required"`
 	Properties map[string]string `json:"properties,omitempty"`
 	Parents    bool              `json:"parents"`    // Create parent datasets
 	MountPoint string            `json:"mountpoint"` // Override mountpoint
@@ -112,7 +112,7 @@ type FilesystemConfig struct {
 // VolumeConfig for volume creation
 type VolumeConfig struct {
 	NameConfig
-	Size       string            `json:"size" binding:"required"` // -V size
+	Size       string            `json:"size"                 binding:"required"` // -V size
 	Properties map[string]string `json:"properties,omitempty"`
 	Sparse     bool              `json:"sparse"` //  -s  Creates a sparse volume with no reservation
 	// -b blocksize
@@ -127,7 +127,7 @@ type VolumeConfig struct {
 
 type SnapshotConfig struct {
 	NameConfig
-	SnapName   string            `json:"snap_name" binding:"required"`
+	SnapName   string            `json:"snap_name"            binding:"required"`
 	Recursive  bool              `json:"recursive"`
 	Properties map[string]string `json:"properties,omitempty"`
 }
@@ -143,7 +143,7 @@ type SnapshotInfo struct {
 // CloneConfig for clone creation
 type CloneConfig struct {
 	NameConfig
-	CloneName  string            `json:"clone_name" binding:"required"`
+	CloneName  string            `json:"clone_name"           binding:"required"`
 	Properties map[string]string `json:"properties,omitempty"`
 	Parents    bool              `json:"parents,omitempty"`
 }
@@ -157,7 +157,7 @@ type BookmarkConfig struct {
 // RenameConfig for dataset renaming
 type RenameConfig struct {
 	NameConfig
-	NewName    string `json:"new_name" binding:"required"`
+	NewName    string `json:"new_name"     binding:"required"`
 	Parents    bool   `json:"parents"`
 	Force      bool   `json:"force"`
 	Recursive  bool   `json:"recursive"`
@@ -227,7 +227,7 @@ type PropertyConfig struct {
 
 type InheritConfig struct {
 	NamesConfig
-	Property  string `json:"property" binding:"required"`
+	Property  string `json:"property"  binding:"required"`
 	Recursive bool   `json:"recursive"`
 	Revert    bool   `json:"revert"`
 }
@@ -264,23 +264,51 @@ type Permission struct {
 // ZFS permissions catalog
 var ZFSPermissions = map[string]Permission{
 	// Subcommand permissions
-	"allow":    {Name: "allow", Type: "subcommand", Note: "Add any permission to the permission set"},
-	"clone":    {Name: "clone", Type: "subcommand", Note: "Clone the specified snapshot"},
-	"create":   {Name: "create", Type: "subcommand", Note: "Create descendent datasets"},
-	"destroy":  {Name: "destroy", Type: "subcommand", Note: "Destroy the specified dataset"},
-	"diff":     {Name: "diff", Type: "subcommand", Note: "Report differences between snapshot and active dataset"},
-	"hold":     {Name: "hold", Type: "subcommand", Note: "Place a user reference on the specified snapshot"},
-	"mount":    {Name: "mount", Type: "subcommand", Note: "Mount the specified dataset"},
-	"promote":  {Name: "promote", Type: "subcommand", Note: "Promote the specified clone"},
-	"receive":  {Name: "receive", Type: "subcommand", Note: "Create a snapshot with the specified data"},
-	"release":  {Name: "release", Type: "subcommand", Note: "Release a user reference from the specified snapshot"},
+	"allow": {
+		Name: "allow",
+		Type: "subcommand",
+		Note: "Add any permission to the permission set",
+	},
+	"clone":   {Name: "clone", Type: "subcommand", Note: "Clone the specified snapshot"},
+	"create":  {Name: "create", Type: "subcommand", Note: "Create descendent datasets"},
+	"destroy": {Name: "destroy", Type: "subcommand", Note: "Destroy the specified dataset"},
+	"diff": {
+		Name: "diff",
+		Type: "subcommand",
+		Note: "Report differences between snapshot and active dataset",
+	},
+	"hold": {
+		Name: "hold",
+		Type: "subcommand",
+		Note: "Place a user reference on the specified snapshot",
+	},
+	"mount":   {Name: "mount", Type: "subcommand", Note: "Mount the specified dataset"},
+	"promote": {Name: "promote", Type: "subcommand", Note: "Promote the specified clone"},
+	"receive": {
+		Name: "receive",
+		Type: "subcommand",
+		Note: "Create a snapshot with the specified data",
+	},
+	"release": {
+		Name: "release",
+		Type: "subcommand",
+		Note: "Release a user reference from the specified snapshot",
+	},
 	"rename":   {Name: "rename", Type: "subcommand", Note: "Rename the specified dataset"},
 	"rollback": {Name: "rollback", Type: "subcommand", Note: "Roll back the specified snapshot"},
-	"send":     {Name: "send", Type: "subcommand", Note: "Generate a send stream for the specified snapshot"},
-	"share":    {Name: "share", Type: "subcommand", Note: "Share the specified dataset"},
-	"snapshot": {Name: "snapshot", Type: "subcommand", Note: "Create a snapshot with the given name"},
-	"unmount":  {Name: "unmount", Type: "subcommand", Note: "Unmount the specified dataset"},
-	"unshare":  {Name: "unshare", Type: "subcommand", Note: "Unshare the specified dataset"},
+	"send": {
+		Name: "send",
+		Type: "subcommand",
+		Note: "Generate a send stream for the specified snapshot",
+	},
+	"share": {Name: "share", Type: "subcommand", Note: "Share the specified dataset"},
+	"snapshot": {
+		Name: "snapshot",
+		Type: "subcommand",
+		Note: "Create a snapshot with the given name",
+	},
+	"unmount": {Name: "unmount", Type: "subcommand", Note: "Unmount the specified dataset"},
+	"unshare": {Name: "unshare", Type: "subcommand", Note: "Unshare the specified dataset"},
 
 	// Other permissions
 	"groupquota": {Name: "groupquota", Type: "other", Note: "Allow manipulation of group quotas"},
@@ -290,7 +318,11 @@ var ZFSPermissions = map[string]Permission{
 	"userused":   {Name: "userused", Type: "other", Note: "Allow reading of user space usage"},
 
 	// Property permissions (all natively supported properties)
-	"aclinherit":     {Name: "aclinherit", Type: "property", Note: "Access control list inheritance"},
+	"aclinherit": {
+		Name: "aclinherit",
+		Type: "property",
+		Note: "Access control list inheritance",
+	},
 	"aclmode":        {Name: "aclmode", Type: "property", Note: "Access control list mode"},
 	"atime":          {Name: "atime", Type: "property", Note: "Update access time on read"},
 	"canmount":       {Name: "canmount", Type: "property", Note: "If filesystem can be mounted"},

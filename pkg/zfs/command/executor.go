@@ -78,7 +78,12 @@ func NewCommandExecutor(useSudo bool, logConfig logger.Config) *CommandExecutor 
 	}
 }
 
-func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd string, args ...string) ([]byte, error) {
+func (e *CommandExecutor) Execute(
+	ctx context.Context,
+	opts CommandOptions,
+	cmd string,
+	args ...string,
+) ([]byte, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -190,7 +195,11 @@ func (e *CommandExecutor) Execute(ctx context.Context, opts CommandOptions, cmd 
 	}
 }
 
-func (e *CommandExecutor) buildCommandArgs(cmd string, opts CommandOptions, args ...string) []string {
+func (e *CommandExecutor) buildCommandArgs(
+	cmd string,
+	opts CommandOptions,
+	args ...string,
+) []string {
 	var cmdArgs []string
 
 	// Add sudo if required

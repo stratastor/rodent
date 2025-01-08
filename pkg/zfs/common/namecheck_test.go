@@ -186,8 +186,11 @@ func TestParseDatasetName(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "too deep nesting",
-			input:   "tank/" + strings.Repeat("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/more/", 100) + "levels",
+			name: "too deep nesting",
+			input: "tank/" + strings.Repeat(
+				"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/more/",
+				100,
+			) + "levels",
 			wantErr: true,
 		},
 		{

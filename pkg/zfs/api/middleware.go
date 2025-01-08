@@ -34,10 +34,12 @@ import (
 
 var (
 	// ZFS naming conventions
-	filesystemNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`)
-	snapshotNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
-	volumeSizeRegex     = regexp.MustCompile(`^\d+[KMGTP]?$`)
-	bookmarkNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	filesystemNameRegex = regexp.MustCompile(
+		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`,
+	)
+	snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	volumeSizeRegex   = regexp.MustCompile(`^\d+[KMGTP]?$`)
+	bookmarkNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 	poolNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
 	devicePathRegex = regexp.MustCompile(`^/dev/[a-zA-Z0-9/]+$`)
@@ -201,7 +203,11 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 		if req.Name == "" && len(names) == 0 {
 			c.AbortWithStatusJSON(
 				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Either 'name' or 'names' must be provided"))
+				errors.New(
+					errors.ServerRequestValidation,
+					"Either 'name' or 'names' must be provided",
+				),
+			)
 			return
 		}
 
@@ -241,7 +247,10 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 				if errbm != nil && errsnap != nil {
 					c.AbortWithStatusJSON(
 						http.StatusBadRequest,
-						errors.New(errors.ZFSNameInvalid, "Name expected to be either a bookmark or snapshot"),
+						errors.New(
+							errors.ZFSNameInvalid,
+							"Name expected to be either a bookmark or snapshot",
+						),
 					)
 					return
 				}

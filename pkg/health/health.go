@@ -43,7 +43,8 @@ func NewHealthChecker(cfg *config.Config) *HealthChecker {
 	clientConfig.RetryCount = 3
 	clientConfig.RetryWaitTime = 2 * time.Second
 	clientConfig.BaseURL = baseURL
-	if cfg.Server.LogLevel == "debug" && (cfg.Environment == "dev" || cfg.Environment == "development") {
+	if cfg.Server.LogLevel == "debug" &&
+		(cfg.Environment == "dev" || cfg.Environment == "development") {
 		clientConfig.Debug = true
 		clientConfig.EnableTrace = true
 	} else {

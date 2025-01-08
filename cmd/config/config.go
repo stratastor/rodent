@@ -53,7 +53,10 @@ func NewLoadConfigCmd() *cobra.Command {
 					return fmt.Errorf("failed to save default configuration: %v", err)
 				}
 				loadedPath = config.GetLoadedConfigPath()
-				fmt.Printf("No configuration found. Default configuration saved to: %s\n", loadedPath)
+				fmt.Printf(
+					"No configuration found. Default configuration saved to: %s\n",
+					loadedPath,
+				)
 			} else {
 				fmt.Printf("Configuration loaded from: %s\n", loadedPath)
 			}

@@ -130,7 +130,10 @@ func EntityNameCheck(path string) error {
 
 		// Zero-length components are not allowed
 		if start == end {
-			return errors.New(errors.ZFSNameEmptyComponent, "invalid/empty component after '/', '@' or '#': "+path)
+			return errors.New(
+				errors.ZFSNameEmptyComponent,
+				"invalid/empty component after '/', '@' or '#': "+path,
+			)
 		}
 
 		// Validate component characters
@@ -163,7 +166,10 @@ func EntityNameCheck(path string) error {
 
 			// Check next character after delimiter
 			if end+1 >= len(path) {
-				return errors.New(errors.ZFSNameEmptyComponent, "empty component after delimiter: "+path)
+				return errors.New(
+					errors.ZFSNameEmptyComponent,
+					"empty component after delimiter: "+path,
+				)
 			}
 		}
 
@@ -219,7 +225,10 @@ func DatasetNameCheck(path string) error {
 	// Dataset cannot contain '#'
 	for i := 0; i < len(path); i++ {
 		if path[i] == '#' {
-			return errors.New(errors.ZFSNameInvalidChar, "dataset cannot contain bookmark delimiter")
+			return errors.New(
+				errors.ZFSNameInvalidChar,
+				"dataset cannot contain bookmark delimiter",
+			)
 		}
 	}
 	return nil
@@ -272,7 +281,8 @@ func PoolNameCheck(name string) error {
 	}
 
 	// Must begin with a letter
-	if len(name) == 0 || !((name[0] >= 'a' && name[0] <= 'z') || (name[0] >= 'A' && name[0] <= 'Z')) {
+	if len(name) == 0 ||
+		!((name[0] >= 'a' && name[0] <= 'z') || (name[0] >= 'A' && name[0] <= 'Z')) {
 		return errors.New(errors.ZFSNameNoLetter, "name must begin with a letter")
 	}
 

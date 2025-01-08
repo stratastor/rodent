@@ -61,7 +61,10 @@ func (m *Manager) List(ctx context.Context, cfg ListConfig) (ListResult, error) 
 		case "all", "":
 			listTypes = append(listTypes, "all")
 		default:
-			return ListResult{}, errors.New(errors.ZFSNameInvalid, "List type must be one of: filesystem, snapshot, volume, bookmark, all")
+			return ListResult{}, errors.New(
+				errors.ZFSNameInvalid,
+				"List type must be one of: filesystem, snapshot, volume, bookmark, all",
+			)
 		}
 	}
 	if len(listTypes) == 0 {
@@ -243,7 +246,11 @@ func (m *Manager) InheritProperty(ctx context.Context, cfg InheritConfig) error 
 func (m *Manager) SetProperty(ctx context.Context, cfg SetPropertyConfig) error {
 	// TODO: Accommmodate multiple property values
 	// TODO: Accommodate multiple dataset names
-	args := []string{"set", fmt.Sprintf("%s=%s", cfg.Property, shellquote.Join(cfg.Value)), cfg.Name}
+	args := []string{
+		"set",
+		fmt.Sprintf("%s=%s", cfg.Property, shellquote.Join(cfg.Value)),
+		cfg.Name,
+	}
 
 	opts := command.CommandOptions{}
 

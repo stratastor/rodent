@@ -36,9 +36,13 @@ import (
 
 var (
 	// Validate snapshot names
-	snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*@[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	snapshotNameRegex = regexp.MustCompile(
+		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*@[a-zA-Z0-9][a-zA-Z0-9_.-]*$`,
+	)
 	// Validate dataset names
-	datasetNameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`)
+	datasetNameRegex = regexp.MustCompile(
+		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`,
+	)
 	propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
 
 	maxRetries    = 3
@@ -46,13 +50,13 @@ var (
 )
 
 type TransferConfig struct {
-	SendConfig    SendConfig    `json:"send" binding:"required"`
+	SendConfig    SendConfig    `json:"send"    binding:"required"`
 	ReceiveConfig ReceiveConfig `json:"receive" binding:"required"`
 }
 
 type SendConfig struct {
 	// Required parameters
-	Snapshot     string `json:"snapshot" binding:"required"`
+	Snapshot     string `json:"snapshot"      binding:"required"`
 	FromSnapshot string `json:"from_snapshot"`
 
 	// Send options
@@ -87,7 +91,7 @@ type SendConfig struct {
 }
 
 type ReceiveConfig struct {
-	Target       string            `json:"target" binding:"required"`
+	Target       string            `json:"target"                binding:"required"`
 	Force        bool              `json:"force"`         // -F: Force rollback
 	Unmounted    bool              `json:"unmounted"`     // -u: Do not mount
 	Resumable    bool              `json:"resumable"`     // -s: Allow resume
@@ -192,14 +196,21 @@ func (m *Manager) GetResumeToken(ctx context.Context, cfg NameConfig) (string, e
 
 	token := strings.TrimSpace(string(out))
 	if token == "-" {
-		return "", errors.New(errors.ZFSDatasetNoReceiveToken, "No resume token available") // No resume token available
+		return "", errors.New(
+			errors.ZFSDatasetNoReceiveToken,
+			"No resume token available",
+		) // No resume token available
 	}
 
 	return token, nil
 }
 
 // SendReceive handles data transfer on the same machine
-func (m *Manager) SendReceive(ctx context.Context, sendCfg SendConfig, recvCfg ReceiveConfig) error {
+func (m *Manager) SendReceive(
+	ctx context.Context,
+	sendCfg SendConfig,
+	recvCfg ReceiveConfig,
+) error {
 	// Validate configurations
 	if err := validateSendConfig(sendCfg); err != nil {
 		return err

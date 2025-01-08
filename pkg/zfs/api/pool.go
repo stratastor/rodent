@@ -214,7 +214,7 @@ type scrubRequest struct {
 }
 
 type attachDeviceRequest struct {
-	Device    string `json:"device" binding:"required"`
+	Device    string `json:"device"     binding:"required"`
 	NewDevice string `json:"new_device" binding:"required"`
 }
 
