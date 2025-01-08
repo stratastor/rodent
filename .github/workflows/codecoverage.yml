@@ -1,0 +1,41 @@
+name: Code Coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.1
+
+      - name: Install dependencies
+        run: |
+          go mod tidy
+          go mod download
+
+      - name: Run tests with coverage
+        run: |
+          mkdir -p coverage
+          go test -coverpkg=./pkg/zfs/api,./pkg/zfs/dataset,./pkg/zfs/pool,./pkg/zfs/common,./pkg/zfs/command -coverprofile=coverage/coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+          slug: ${{ github.repository }}
