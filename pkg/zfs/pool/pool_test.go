@@ -83,10 +83,24 @@ func TestPoolOperations(t *testing.T) {
 				t.Fatalf("failed to set property: %v", err)
 			}
 
-			prop, err := manager.GetProperty(context.Background(), poolName, "comment")
+			// Get property should return ListResult
+			result, err := manager.GetProperty(context.Background(), poolName, "comment")
 			if err != nil {
 				t.Fatalf("failed to get property: %v", err)
 			}
+
+			// Verify pool exists in result
+			pool, ok := result.Pools[poolName]
+			if !ok {
+				t.Fatal("pool not found in result")
+			}
+
+			// Verify property exists
+			prop, ok := pool.Properties["comment"]
+			if !ok {
+				t.Fatal("comment property not found")
+			}
+
 			// Compare without quotes since they're added by ZFS
 			if strings.Trim(prop.Value.(string), "'") != "test pool" {
 				t.Errorf("property value = %v, want 'test pool'", prop.Value)

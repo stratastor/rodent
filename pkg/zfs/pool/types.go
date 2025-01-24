@@ -15,29 +15,56 @@
  * limitations under the License.
  */
 
-// pkg/zfs/pool/types.go
-
 package pool
+
+// ListResult represents the output of zpool list/get commands
+type ListResult struct {
+	Pools map[string]Pool `json:"pools"`
+}
 
 // PoolStatus represents the full status of a ZPool
 type PoolStatus struct {
-	OutputVersion struct {
-		Command   string `json:"command"`
-		VersMajor int    `json:"vers_major"`
-		VersMinor int    `json:"vers_minor"`
-	} `json:"output_version"`
-	Pools map[string]*Pool `json:"pools"`
+	Pools map[string]Pool `json:"pools"`
 }
 
 // Pool represents a ZFS storage pool
 type Pool struct {
-	Name       string           `json:"name"`
-	State      string           `json:"state"`
-	GUID       string           `json:"pool_guid"`
-	TXG        string           `json:"txg"`
-	SPAVersion string           `json:"spa_version"`
-	ZPLVersion string           `json:"zpl_version"`
-	VDevs      map[string]*VDev `json:"vdevs"` // Change []VDev to map[string]*VDev
+	Name       string              `json:"name"`
+	Type       string              `json:"type,omitempty"`
+	State      string              `json:"state"`
+	GUID       string              `json:"pool_guid"`
+	TXG        string              `json:"txg"`
+	SPAVersion string              `json:"spa_version"`
+	ZPLVersion string              `json:"zpl_version"`
+	Properties map[string]Property `json:"properties,omitempty"`
+
+	// Fields from zpool status
+	Status     string           `json:"status,omitempty"`
+	Action     string           `json:"action,omitempty"`
+	MsgID      string           `json:"msgid,omitempty"`
+	MoreInfo   string           `json:"moreinfo,omitempty"`
+	ScanStats  *ScanStats       `json:"scan_stats,omitempty"`
+	VDevs      map[string]*VDev `json:"vdevs,omitempty"`
+	ErrorCount string           `json:"error_count,omitempty"`
+}
+
+// ScanStats represents pool scanning status
+type ScanStats struct {
+	Function           string `json:"function"`
+	State              string `json:"state"`
+	StartTime          string `json:"start_time"`
+	EndTime            string `json:"end_time"`
+	ToExamine          string `json:"to_examine"`
+	Examined           string `json:"examined"`
+	Skipped            string `json:"skipped"`
+	Processed          string `json:"processed"`
+	Errors             string `json:"errors"`
+	BytesPerScan       string `json:"bytes_per_scan"`
+	PassStart          string `json:"pass_start"`
+	ScrubPause         string `json:"scrub_pause"`
+	ScrubSpentPaused   string `json:"scrub_spent_paused"`
+	IssuedBytesPerScan string `json:"issued_bytes_per_scan"`
+	Issued             string `json:"issued"`
 }
 
 // Property represents a pool property with source information

@@ -35,7 +35,7 @@ func (h *PoolHandler) listPools(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"pools": pools})
+	c.JSON(http.StatusOK, pools)
 }
 
 func (h *PoolHandler) destroyPool(c *gin.Context) {
@@ -89,7 +89,7 @@ func (h *PoolHandler) getProperty(c *gin.Context) {
 	name := c.Param("name")
 	property := c.Param("property")
 
-	prop, err := h.manager.GetProperty(c.Request.Context(), name, property)
+	result, err := h.manager.GetProperty(c.Request.Context(), name, property)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errors.ErrZFSPoolPropertyNotFound) {
@@ -98,7 +98,7 @@ func (h *PoolHandler) getProperty(c *gin.Context) {
 		c.JSON(status, err)
 		return
 	}
-	c.JSON(http.StatusOK, prop)
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *PoolHandler) setProperty(c *gin.Context) {

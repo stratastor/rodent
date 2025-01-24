@@ -128,7 +128,7 @@ func (p *Manager) Import(ctx context.Context, cfg ImportConfig) error {
 }
 
 // Status gets the status of a pool
-func (p *Manager) Status(ctx context.Context, name string) (*PoolStatus, error) {
+func (p *Manager) Status(ctx context.Context, name string) (PoolStatus, error) {
 	args := []string{"status"}
 	if name != "" {
 		args = append(args, name)
@@ -143,21 +143,21 @@ func (p *Manager) Status(ctx context.Context, name string) (*PoolStatus, error) 
 	out, err := p.executor.Execute(ctx, opts, "zpool status", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return &status, errors.Wrap(err, errors.ZFSPoolStatus).
+			return status, errors.Wrap(err, errors.ZFSPoolStatus).
 				WithMetadata("output", string(out))
 		}
-		return &status, errors.Wrap(err, errors.ZFSPoolStatus)
+		return status, errors.Wrap(err, errors.ZFSPoolStatus)
 	}
 
 	if err := json.Unmarshal(out, &status); err != nil {
-		return nil, errors.Wrap(err, errors.CommandOutputParse)
+		return status, errors.Wrap(err, errors.CommandOutputParse)
 	}
 
-	return &status, nil
+	return status, nil
 }
 
 // GetProperty gets a specific property of a pool
-func (p *Manager) GetProperty(ctx context.Context, name, property string) (Property, error) {
+func (p *Manager) GetProperty(ctx context.Context, name, property string) (ListResult, error) {
 	args := []string{"get", "-H", property}
 	if name != "" {
 		args = append(args, name)
@@ -167,38 +167,22 @@ func (p *Manager) GetProperty(ctx context.Context, name, property string) (Prope
 		Flags: command.FlagJSON,
 	}
 
+	var result ListResult
+
 	out, err := p.executor.Execute(ctx, opts, "zpool get", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return Property{}, errors.Wrap(err, errors.ZFSPoolGetProperty).
+			return result, errors.Wrap(err, errors.ZFSPoolGetProperty).
 				WithMetadata("output", string(out))
 		}
-		return Property{}, errors.Wrap(err, errors.ZFSPoolGetProperty)
-	}
-
-	var result struct {
-		Pools map[string]struct {
-			Properties map[string]Property `json:"properties"`
-		} `json:"pools"`
+		return result, errors.Wrap(err, errors.ZFSPoolGetProperty)
 	}
 
 	if err := json.Unmarshal(out, &result); err != nil {
-		return Property{}, errors.Wrap(err, errors.CommandOutputParse)
+		return result, errors.Wrap(err, errors.CommandOutputParse)
 	}
 
-	poolData, ok := result.Pools[name]
-	if !ok {
-		return Property{}, errors.New(errors.ZFSPoolNotFound,
-			fmt.Sprintf("pool %s not found", name))
-	}
-
-	prop, ok := poolData.Properties[property]
-	if !ok {
-		return Property{}, errors.New(errors.ZFSPoolPropertyNotFound,
-			fmt.Sprintf("property %s not found", property))
-	}
-
-	return prop, nil
+	return result, nil
 }
 
 func (p *Manager) SetProperty(ctx context.Context, name, property, value string) error {
@@ -291,30 +275,29 @@ func (p *Manager) Scrub(ctx context.Context, name string, stop bool) error {
 }
 
 // List returns a list of all pools
-func (p *Manager) List(ctx context.Context) ([]Pool, error) {
-	args := []string{"-H", "-p", "-o", "name,size,allocated,free,state,health"}
+func (p *Manager) List(ctx context.Context) (ListResult, error) {
+	args := []string{"-H", "-p"}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,
 	}
 
+	var result ListResult
+
 	out, err := p.executor.Execute(ctx, opts, "zpool list", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return nil, errors.Wrap(err, errors.ZFSPoolList).
+			return result, errors.Wrap(err, errors.ZFSPoolList).
 				WithMetadata("output", string(out))
 		}
-		return nil, errors.Wrap(err, errors.ZFSPoolList)
+		return result, errors.Wrap(err, errors.ZFSPoolList)
 	}
 
-	var result struct {
-		Pools []Pool `json:"pools"`
-	}
 	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, errors.Wrap(err, errors.CommandOutputParse)
+		return result, errors.Wrap(err, errors.CommandOutputParse)
 	}
 
-	return result.Pools, nil
+	return result, nil
 }
 
 func (p *Manager) Resilver(ctx context.Context, name string) error {

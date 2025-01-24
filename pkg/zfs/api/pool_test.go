@@ -170,17 +170,24 @@ func TestPoolAPI(t *testing.T) {
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Errorf("get property returned wrong status: got %v want %v",
-				w.Code, http.StatusOK)
-			t.Errorf("error: %v", w.Body.String())
-		}
-
-		var prop pool.Property
-		if err := json.Unmarshal(w.Body.Bytes(), &prop); err != nil {
+		var result pool.ListResult
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
-		// Strip single quotes from the value before comparing
+
+		// Get pool from result
+		pool, ok := result.Pools[poolName]
+		if !ok {
+			t.Fatal("pool not found in result")
+		}
+
+		// Get property from pool
+		prop, ok := pool.Properties["test:comment"]
+		if !ok {
+			t.Fatal("property not found")
+		}
+
+		// Strip single quotes from value before comparing
 		gotValue := strings.Trim(prop.Value.(string), "'")
 		if gotValue != "test pool" {
 			t.Errorf("property value = %v, want 'test pool'", prop.Value)
