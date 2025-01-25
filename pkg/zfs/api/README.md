@@ -8,47 +8,47 @@ This API allows for the management of ZFS pools, datasets, snapshots, and relate
 
 ### [Datasets](./dataset_api_doc.md)
 
-- **GET /api/v1/dataset**: List datasets.
-- **DELETE /api/v1/dataset**: Destroy a dataset.
-- **POST /api/v1/dataset/rename**: Rename a dataset.
-- **POST /api/v1/dataset/diff**: Get differences between datasets.
-- **GET /api/v1/dataset/properties**: List all properties of a dataset.
-- **GET /api/v1/dataset/property**: Get a specific property of a dataset.
-- **PUT /api/v1/dataset/property**: Set a property of a dataset.
-- **PUT /api/v1/dataset/property/inherit**: Inherit a property.
-- **GET /api/v1/dataset/filesystems**: List filesystems.
-- **POST /api/v1/dataset/filesystem**: Create a filesystem.
-- **POST /api/v1/dataset/filesystem/mount**: Mount a filesystem.
-- **POST /api/v1/dataset/filesystem/unmount**: Unmount a filesystem.
-- **GET /api/v1/dataset/volumes**: List volumes.
-- **POST /api/v1/dataset/volume**: Create a volume.
-- **GET /api/v1/dataset/snapshots**: List snapshots.
-- **POST /api/v1/dataset/snapshot**: Create a snapshot.
-- **POST /api/v1/dataset/snapshot/rollback**: Roll back to a snapshot.
-- **POST /api/v1/dataset/clone**: Create a clone from a snapshot.
-- **POST /api/v1/dataset/clone/promote**: Promote a clone.
-- **GET /api/v1/dataset/bookmarks**: List bookmarks.
-- **POST /api/v1/dataset/bookmark**: Create a bookmark.
-- **POST /api/v1/dataset/transfer/send**: Send a dataset.
-- **GET /api/v1/dataset/transfer/resume-token**: Get the resume token for a transfer.
+- `GET /api/v1/dataset` (List datasets)
+- `DELETE /api/v1/dataset` (Destroy a dataset)
+- `POST /api/v1/dataset/rename` (Rename a dataset)
+- `POST /api/v1/dataset/diff` (Get differences between datasets)
+- `GET /api/v1/dataset/properties` (List all properties of a dataset)
+- `GET /api/v1/dataset/property` (Get a specific property of a dataset)
+- `PUT /api/v1/dataset/property` (Set a property of a dataset)
+- `PUT /api/v1/dataset/property/inherit` (Inherit a property)
+- `GET /api/v1/dataset/filesystems` (List filesystems)
+- `POST /api/v1/dataset/filesystem` (Create a filesystem)
+- `POST /api/v1/dataset/filesystem/mount` (Mount a filesystem)
+- `POST /api/v1/dataset/filesystem/unmount` (Unmount a filesystem)
+- `GET /api/v1/dataset/volumes` (List volumes)
+- `POST /api/v1/dataset/volume` (Create a volume)
+- `GET /api/v1/dataset/snapshots` (List snapshots)
+- `POST /api/v1/dataset/snapshot` (Create a snapshot)
+- `POST /api/v1/dataset/snapshot/rollback` (Roll back to a snapshot)
+- `POST /api/v1/dataset/clone` (Create a clone from a snapshot)
+- `POST /api/v1/dataset/clone/promote` (Promote a clone)
+- `GET /api/v1/dataset/bookmarks` (List bookmarks)
+- `POST /api/v1/dataset/bookmark` (Create a bookmark)
+- `POST /api/v1/dataset/transfer/send` (Send a dataset)
+- `GET /api/v1/dataset/transfer/resume-token` (Get the resume token for a transfer)
 
 ### [Pools](./pool_api_doc.md)
 
-- **POST /api/v1/pools**: Create a pool.
-- **GET /api/v1/pools**: List pools.
-- **DELETE /api/v1/pools/****:name**: Destroy a pool.
-- **POST /api/v1/pools/import**: Import a pool.
-- **POST /api/v1/pools/****:name****/export**: Export a pool.
-- **GET /api/v1/pools/****:name****/status**: Get the status of a pool.
-- **GET /api/v1/pools/****:name****/properties/****:property**: Get a property of a pool.
-- **PUT /api/v1/pools/****:name****/properties/****:property**: Set a property of a pool.
-- **POST /api/v1/pools/****:name****/scrub**: Scrub a pool.
-- **POST /api/v1/pools/****:name****/resilver**: Resilver a pool.
-- **POST /api/v1/pools/****:name****/devices/attach**: Attach a device to a pool.
-- **POST /api/v1/pools/****:name****/devices/detach**: Detach a device from a pool.
-- **POST /api/v1/pools/****:name****/devices/replace**: Replace a device in a pool.
+- `POST /api/v1/pools` (Create a pool)
+- `GET /api/v1/pools` (List pools)
+- `DELETE /api/v1/pools/:name` (Destroy a pool)
+- `POST /api/v1/pools/import` (Import a pool)
+- `POST /api/v1/pools/:name/export` (Export a pool)
+- `GET /api/v1/pools/:name/status` (Get the status of a pool)
+- `GET /api/v1/pools/:name/properties/:property` (Get a property of a pool)
+- `PUT /api/v1/pools/:name/properties/:property` (Set a property of a pool)
+- `POST /api/v1/pools/:name/scrub` (Scrub a pool)
+- `POST /api/v1/pools/:name/resilver` (Resilver a pool)
+- `POST /api/v1/pools/:name/devices/attach` (Attach a device to a pool)
+- `POST /api/v1/pools/:name/devices/detach` (Detach a device from a pool)
+- `POST /api/v1/pools/:name/devices/replace` (Replace a device in a pool)
 
-Gin routes with appropriate methods:
+## Gin routes with appropriate methods
 
 ```sh
 [GIN-debug] GET    /api/v1/dataset           --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listDatasets-fm (3 handlers)
