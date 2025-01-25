@@ -1,0 +1,94 @@
+# ZFS Management HTTP API Documentation
+
+## Overview
+
+This API allows for the management of ZFS pools, datasets, snapshots, and related features. The API is structured to support both RESTful operations for pools and a body-based approach for dataset operations to handle inputs with special characters that's tricky to escape.
+
+## API Endpoints
+
+### [Datasets](./dataset_api_doc.md)
+
+- **GET /api/v1/dataset**: List datasets.
+- **DELETE /api/v1/dataset**: Destroy a dataset.
+- **POST /api/v1/dataset/rename**: Rename a dataset.
+- **POST /api/v1/dataset/diff**: Get differences between datasets.
+- **GET /api/v1/dataset/properties**: List all properties of a dataset.
+- **GET /api/v1/dataset/property**: Get a specific property of a dataset.
+- **PUT /api/v1/dataset/property**: Set a property of a dataset.
+- **PUT /api/v1/dataset/property/inherit**: Inherit a property.
+- **GET /api/v1/dataset/filesystems**: List filesystems.
+- **POST /api/v1/dataset/filesystem**: Create a filesystem.
+- **POST /api/v1/dataset/filesystem/mount**: Mount a filesystem.
+- **POST /api/v1/dataset/filesystem/unmount**: Unmount a filesystem.
+- **GET /api/v1/dataset/volumes**: List volumes.
+- **POST /api/v1/dataset/volume**: Create a volume.
+- **GET /api/v1/dataset/snapshots**: List snapshots.
+- **POST /api/v1/dataset/snapshot**: Create a snapshot.
+- **POST /api/v1/dataset/snapshot/rollback**: Roll back to a snapshot.
+- **POST /api/v1/dataset/clone**: Create a clone from a snapshot.
+- **POST /api/v1/dataset/clone/promote**: Promote a clone.
+- **GET /api/v1/dataset/bookmarks**: List bookmarks.
+- **POST /api/v1/dataset/bookmark**: Create a bookmark.
+- **POST /api/v1/dataset/transfer/send**: Send a dataset.
+- **GET /api/v1/dataset/transfer/resume-token**: Get the resume token for a transfer.
+
+### [Pools](./pool_api_doc.md)
+
+- **POST /api/v1/pools**: Create a pool.
+- **GET /api/v1/pools**: List pools.
+- **DELETE /api/v1/pools/****:name**: Destroy a pool.
+- **POST /api/v1/pools/import**: Import a pool.
+- **POST /api/v1/pools/****:name****/export**: Export a pool.
+- **GET /api/v1/pools/****:name****/status**: Get the status of a pool.
+- **GET /api/v1/pools/****:name****/properties/****:property**: Get a property of a pool.
+- **PUT /api/v1/pools/****:name****/properties/****:property**: Set a property of a pool.
+- **POST /api/v1/pools/****:name****/scrub**: Scrub a pool.
+- **POST /api/v1/pools/****:name****/resilver**: Resilver a pool.
+- **POST /api/v1/pools/****:name****/devices/attach**: Attach a device to a pool.
+- **POST /api/v1/pools/****:name****/devices/detach**: Detach a device from a pool.
+- **POST /api/v1/pools/****:name****/devices/replace**: Replace a device in a pool.
+
+Gin routes with appropriate methods:
+
+```sh
+[GIN-debug] GET    /api/v1/dataset           --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listDatasets-fm (3 handlers)
+[GIN-debug] DELETE /api/v1/dataset           --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).destroyDataset-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/rename    --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).renameDataset-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/diff      --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).diffDataset-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/properties --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listProperties-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/property  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getProperty-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/dataset/property  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).setProperty-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/dataset/property/inherit --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).inheritProperty-fm (5 handlers)
+[GIN-debug] GET    /api/v1/dataset/filesystems --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listFilesystems-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/filesystem --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createFilesystem-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/filesystem/mount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).mountDataset-fm (5 handlers)[GIN-debug] POST   /api/v1/dataset/filesystem/unmount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unmountDataset-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/volumes   --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listVolumes-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/volume    --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createVolume-fm (6 handlers)
+[GIN-debug] GET    /api/v1/dataset/snapshots --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listSnapshots-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/snapshot  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createSnapshot-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/snapshot/rollback --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).rollbackSnapshot-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/clone     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createClone-fm (6 handlers)
+[GIN-debug] POST   /api/v1/dataset/clone/promote --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).promoteClone-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/bookmarks --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listBookmarks-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/bookmark  --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createBookmark-fm (4 handlers)
+[GIN-debug] GET    /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listPermissions-fm (4 handlers)
+[GIN-debug] POST   /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).allowPermissions-fm (5 handlers)
+[GIN-debug] DELETE /api/v1/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unallowPermissions-fm (5 handlers)
+[GIN-debug] POST   /api/v1/dataset/share     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).shareDataset-fm (3 handlers)
+[GIN-debug] DELETE /api/v1/dataset/share     --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unshareDataset-fm (3 handlers)
+[GIN-debug] POST   /api/v1/dataset/transfer/send --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).sendDataset-fm (3 handlers)
+[GIN-debug] GET    /api/v1/dataset/transfer/resume-token --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getResumeToken-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools             --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).createPool-fm (7 handlers)
+[GIN-debug] GET    /api/v1/pools             --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).listPools-fm (3 handlers)
+[GIN-debug] DELETE /api/v1/pools/:name       --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).destroyPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/import      --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).importPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/export --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).exportPool-fm (4 handlers)
+[GIN-debug] GET    /api/v1/pools/:name/status --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getPoolStatus-fm (4 handlers)
+[GIN-debug] GET    /api/v1/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getProperty-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).setProperty-fm (6 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/scrub --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).scrubPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/resilver --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).resilverPool-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/attach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).attachDevice-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/detach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).detachDevice-fm (4 handlers)
+[GIN-debug] POST   /api/v1/pools/:name/devices/replace --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).replaceDevice-fm (4 handlers)
+```
