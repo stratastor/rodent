@@ -71,6 +71,42 @@ var (
 	}
 )
 
+// ErrorHandler adds structured error handling
+func ErrorHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		if len(c.Errors) > 0 {
+			err := c.Errors.Last()
+
+			// Default to 500
+			status := http.StatusInternalServerError
+
+			// Convert to our error type
+			if re, ok := err.Err.(*errors.RodentError); ok {
+				// Use appropriate status code
+				if re.HTTPStatus != 0 {
+					status = re.HTTPStatus
+				}
+
+				// Return structured error response
+				c.JSON(status, re)
+			} else {
+				// Return generic error for unknown types
+				c.JSON(status, gin.H{
+					"error": err.Error(),
+				})
+			}
+		}
+	}
+}
+
+// Helper to add errors to context
+func APIError(c *gin.Context, err error) {
+	c.Error(err)
+	c.Abort()
+}
+
 // ReadResetBody reads and resets the request body so it can be re-read by subsequent handlers
 func ReadResetBody(c *gin.Context) ([]byte, error) {
 	// Read and store the raw body
@@ -95,10 +131,7 @@ func ValidateDatasetName() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		if name != "" && !filesystemNameRegex.MatchString(name) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"),
-			)
+			APIError(c, errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"))
 			return
 		}
 		c.Next()
@@ -111,8 +144,7 @@ func ValidatePropertyName() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -120,9 +152,7 @@ func ValidatePropertyName() gin.HandlerFunc {
 			Property string `json:"property" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -130,10 +160,7 @@ func ValidatePropertyName() gin.HandlerFunc {
 
 		property := req.Property
 		if property == "" || !isValidDatasetProperty(property) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"),
-			)
+			APIError(c, errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"))
 			return
 		}
 		c.Next()
@@ -145,8 +172,7 @@ func ValidateVolumeSize() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -160,10 +186,7 @@ func ValidateVolumeSize() gin.HandlerFunc {
 		ResetBody(c, body)
 
 		if !volumeSizeRegex.MatchString(req.Size) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSInvalidSize, "Invalid volume size format"),
-			)
+			APIError(c, errors.New(errors.ZFSInvalidSize, "Invalid volume size format"))
 			return
 		}
 		c.Next()
@@ -176,8 +199,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -186,9 +208,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 			Names []string `json:"names"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -201,8 +221,8 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 
 		// Check if either Name or Names is provided
 		if req.Name == "" && len(names) == 0 {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
+			APIError(
+				c,
 				errors.New(
 					errors.ServerRequestValidation,
 					"Either 'name' or 'names' must be provided",
@@ -213,10 +233,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 
 		for _, name := range req.Names {
 			if name == "" {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"),
-				)
+				APIError(c, errors.New(errors.ZFSDatasetInvalidName, "Invalid dataset name format"))
 				return
 			}
 
@@ -225,19 +242,13 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 			case common.TypeZFSEntityMask:
 				err := common.EntityNameCheck(name)
 				if err != nil {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						err,
-					)
+					APIError(c, err)
 					return
 				}
 			case common.TypeDatasetMask:
 				err := common.DatasetNameCheck(name)
 				if err != nil {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						err,
-					)
+					APIError(c, err)
 					return
 				}
 			case common.TypeBookmark | common.TypeSnapshot:
@@ -245,8 +256,8 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 				errbm := common.ValidateZFSName(name, common.TypeBookmark)
 				errsnap := common.ValidateZFSName(name, common.TypeSnapshot)
 				if errbm != nil && errsnap != nil {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
+					APIError(
+						c,
 						errors.New(
 							errors.ZFSNameInvalid,
 							"Name expected to be either a bookmark or snapshot",
@@ -257,10 +268,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 			default:
 				err := common.ValidateZFSName(name, dtype)
 				if err != nil {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						err,
-					)
+					APIError(c, err)
 					return
 				}
 			}
@@ -279,10 +287,7 @@ func ValidatePoolName() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		if name != "" && !poolNameRegex.MatchString(name) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPoolInvalidName, "Invalid pool name format"),
-			)
+			APIError(c, errors.New(errors.ZFSPoolInvalidName, "Invalid pool name format"))
 			return
 		}
 		c.Next()
@@ -296,18 +301,12 @@ func ValidatePoolOperation() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		if name == "" {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPoolInvalidName, "Pool name required"),
-			)
+			APIError(c, errors.New(errors.ZFSPoolInvalidName, "Pool name required"))
 			return
 		}
 
 		if !poolNameRegex.MatchString(name) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPoolInvalidName, "Invalid pool name format"),
-			)
+			APIError(c, errors.New(errors.ZFSPoolInvalidName, "Invalid pool name format"))
 			return
 		}
 		c.Next()
@@ -320,16 +319,13 @@ func ValidateDevicePaths() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var cfg pool.CreateConfig
 		if err := c.ShouldBindJSON(&cfg); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -338,10 +334,7 @@ func ValidateDevicePaths() gin.HandlerFunc {
 		for _, spec := range cfg.VDevSpec {
 			for _, device := range spec.Devices {
 				if !devicePathRegex.MatchString(device) {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						errors.New(errors.ZFSPoolInvalidDevice, "Invalid device path"),
-					)
+					APIError(c, errors.New(errors.ZFSPoolInvalidDevice, "Invalid device path"))
 					return
 				}
 			}
@@ -356,8 +349,7 @@ func ValidateMountPoint() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -365,9 +357,7 @@ func ValidateMountPoint() gin.HandlerFunc {
 			MountPoint string `json:"mountpoint"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -376,19 +366,13 @@ func ValidateMountPoint() gin.HandlerFunc {
 		if req.MountPoint != "" {
 			// Check format
 			if !mountPointRegex.MatchString(req.MountPoint) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSInvalidMountPoint, "Invalid mount point format"),
-				)
+				APIError(c, errors.New(errors.ZFSInvalidMountPoint, "Invalid mount point format"))
 				return
 			}
 
 			// Check restricted paths
 			if restrictedPaths[req.MountPoint] {
-				c.AbortWithStatusJSON(
-					http.StatusForbidden,
-					errors.New(errors.ZFSRestrictedMountPoint, "Mount point not allowed"),
-				)
+				APIError(c, errors.New(errors.ZFSRestrictedMountPoint, "Mount point not allowed"))
 				return
 			}
 		}
@@ -402,8 +386,7 @@ func ValidatePropertyValue() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -411,9 +394,7 @@ func ValidatePropertyValue() gin.HandlerFunc {
 			Value string `json:"value"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -421,20 +402,14 @@ func ValidatePropertyValue() gin.HandlerFunc {
 
 		// Check length
 		if len(req.Value) > maxPropertyValueLen {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
-			)
+			APIError(c, errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"))
 			return
 		}
 
 		// Special handling for quota values
 		if property := c.Param("property"); property == "quota" || property == "refquota" {
 			if !quotaRegex.MatchString(req.Value) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"),
-				)
+				APIError(c, errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"))
 				return
 			}
 		}
@@ -449,16 +424,13 @@ func EnhancedValidateDevicePaths() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var cfg pool.CreateConfig
 		if err := c.ShouldBindJSON(&cfg); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -469,29 +441,20 @@ func EnhancedValidateDevicePaths() gin.HandlerFunc {
 		for _, spec := range cfg.VDevSpec {
 			totalDevices += len(spec.Devices)
 			if totalDevices > maxDevicePaths {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSPoolTooManyDevices, "Too many devices specified"),
-				)
+				APIError(c, errors.New(errors.ZFSPoolTooManyDevices, "Too many devices specified"))
 				return
 			}
 
 			for _, device := range spec.Devices {
 				// Basic path validation
 				if !devicePathRegex.MatchString(device) {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						errors.New(errors.ZFSPoolInvalidDevice, "Invalid device path"),
-					)
+					APIError(c, errors.New(errors.ZFSPoolInvalidDevice, "Invalid device path"))
 					return
 				}
 
 				// Check restricted devices
 				if restrictedDevices[device] {
-					c.AbortWithStatusJSON(
-						http.StatusForbidden,
-						errors.New(errors.ZFSPoolRestrictedDevice, "Device not allowed"),
-					)
+					APIError(c, errors.New(errors.ZFSPoolRestrictedDevice, "Device not allowed"))
 					return
 				}
 			}
@@ -505,10 +468,7 @@ func ValidateNameLength() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		if len(name) > maxNameLength {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSNameTooLong, "Name exceeds maximum length"),
-			)
+			APIError(c, errors.New(errors.ZFSNameTooLong, "Name exceeds maximum length"))
 			return
 		}
 		c.Next()
@@ -519,10 +479,7 @@ func ValidatePoolProperty(propCtx common.PoolPropContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		property := c.Param("property")
 		if !common.IsValidPoolProperty(property, propCtx) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSPropertyError, "Invalid pool property name"),
-			)
+			APIError(c, errors.New(errors.ZFSPropertyError, "Invalid pool property name"))
 			return
 		}
 		c.Next()
@@ -541,8 +498,7 @@ func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -550,9 +506,7 @@ func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
 			Properties map[string]string `json:"properties"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -561,19 +515,13 @@ func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
 		for k, v := range req.Properties {
 			// Validate property name
 			if !common.IsValidPoolProperty(k, propCtx) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSPropertyError, "Invalid pool property name"),
-				)
+				APIError(c, errors.New(errors.ZFSPropertyError, "Invalid pool property name"))
 				return
 			}
 
 			// Validate property value
 			if len(v) > maxPropertyValueLen {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
-				)
+				APIError(c, errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"))
 				return
 			}
 
@@ -588,8 +536,7 @@ func ValidateZFSProperties() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -597,9 +544,7 @@ func ValidateZFSProperties() gin.HandlerFunc {
 			Properties map[string]string `json:"properties"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -608,29 +553,20 @@ func ValidateZFSProperties() gin.HandlerFunc {
 		for k, v := range req.Properties {
 			// Validate property name
 			if !isValidDatasetProperty(k) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"),
-				)
+				APIError(c, errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"))
 				return
 			}
 
 			// Validate property value
 			if len(v) > maxPropertyValueLen {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"),
-				)
+				APIError(c, errors.New(errors.ZFSPropertyValueTooLong, "Property value too long"))
 				return
 			}
 
 			// Special handling for quota values
 			if k == "quota" || k == "refquota" {
 				if !quotaRegex.MatchString(v) {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"),
-					)
+					APIError(c, errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"))
 					return
 				}
 			}
@@ -645,8 +581,7 @@ func ValidateBlockSize() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
@@ -654,19 +589,14 @@ func ValidateBlockSize() gin.HandlerFunc {
 			BlockSize string `json:"blocksize"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
 		ResetBody(c, body)
 
 		if req.BlockSize != "" && !volumeSizeRegex.MatchString(req.BlockSize) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSInvalidSize, "Invalid block size format"),
-			)
+			APIError(c, errors.New(errors.ZFSInvalidSize, "Invalid block size format"))
 			return
 		}
 		c.Next()
@@ -679,16 +609,13 @@ func ValidateCloneConfig() gin.HandlerFunc {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var req dataset.CloneConfig
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		// Reset the body so it can be re-read by `ShouldBindJSON` and subsequent handlers
@@ -696,10 +623,7 @@ func ValidateCloneConfig() gin.HandlerFunc {
 
 		// Validate clone name
 		if !filesystemNameRegex.MatchString(req.CloneName) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSDatasetInvalidName, "Invalid clone name format"),
-			)
+			APIError(c, errors.New(errors.ZFSDatasetInvalidName, "Invalid clone name format"))
 			return
 		}
 
@@ -712,25 +636,20 @@ func ValidateDiffConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var req dataset.DiffConfig
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		ResetBody(c, body)
 
 		// Validate number of names
 		if len(req.Names) != 2 {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.CommandInvalidInput, "Exactly two names required"))
+			APIError(c, errors.New(errors.CommandInvalidInput, "Exactly two names required"))
 			return
 		}
 
@@ -738,9 +657,7 @@ func ValidateDiffConfig() gin.HandlerFunc {
 		for _, name := range req.Names {
 			if err := common.ValidateZFSName(name, common.TypeSnapshot); err != nil {
 				if err2 := common.ValidateZFSName(name, common.TypeFilesystem); err2 != nil {
-					c.AbortWithStatusJSON(
-						http.StatusBadRequest,
-						errors.New(errors.ZFSNameInvalid, "Invalid name format"))
+					APIError(c, errors.New(errors.ZFSNameInvalid, "Invalid name format"))
 					return
 				}
 			}
@@ -755,16 +672,13 @@ func ValidatePermissionConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var req dataset.AllowConfig
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		ResetBody(c, body)
@@ -772,19 +686,19 @@ func ValidatePermissionConfig() gin.HandlerFunc {
 		// Check mutually exclusive flags
 		if (len(req.Users) > 0 && (len(req.Groups) > 0 || req.Everyone)) ||
 			(len(req.Groups) > 0 && req.Everyone) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.CommandInvalidInput,
-					"Users, groups, and everyone flags are mutually exclusive"))
+			APIError(
+				c,
+				errors.New(
+					errors.CommandInvalidInput,
+					"Users, groups, and everyone flags are mutually exclusive",
+				),
+			)
 			return
 		}
 
 		// Validate permission set name format if present
 		if req.SetName != "" && !strings.HasPrefix(req.SetName, "@") {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSNameInvalid,
-					"Permission set name must start with @"))
+			APIError(c, errors.New(errors.ZFSNameInvalid, "Permission set name must start with @"))
 			return
 		}
 
@@ -796,10 +710,10 @@ func ValidatePermissionConfig() gin.HandlerFunc {
 			}
 			// Check if it's a valid permission
 			if _, ok := dataset.ZFSPermissions[perm]; !ok {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSNameInvalid,
-						fmt.Sprintf("Invalid permission: %s", perm)))
+				APIError(
+					c,
+					errors.New(errors.ZFSNameInvalid, fmt.Sprintf("Invalid permission: %s", perm)),
+				)
 				return
 			}
 		}
@@ -808,19 +722,25 @@ func ValidatePermissionConfig() gin.HandlerFunc {
 		userGroupRegex := regexp.MustCompile(`^[a-zA-Z0-9_][-a-zA-Z0-9_.]*[$]?$`)
 		for _, user := range req.Users {
 			if !userGroupRegex.MatchString(user) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSNameInvalid,
-						fmt.Sprintf("Invalid username format: %s", user)))
+				APIError(
+					c,
+					errors.New(
+						errors.ZFSNameInvalid,
+						fmt.Sprintf("Invalid username format: %s", user),
+					),
+				)
 				return
 			}
 		}
 		for _, group := range req.Groups {
 			if !userGroupRegex.MatchString(group) {
-				c.AbortWithStatusJSON(
-					http.StatusBadRequest,
-					errors.New(errors.ZFSNameInvalid,
-						fmt.Sprintf("Invalid group name format: %s", group)))
+				APIError(
+					c,
+					errors.New(
+						errors.ZFSNameInvalid,
+						fmt.Sprintf("Invalid group name format: %s", group),
+					),
+				)
 				return
 			}
 		}
@@ -834,16 +754,13 @@ func ValidateUnallowConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := ReadResetBody(c)
 		if err != nil {
-			c.JSON(http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, "Failed to read request body"))
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
 
 		var req dataset.UnallowConfig
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ServerRequestValidation, err.Error()))
+			APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 			return
 		}
 		ResetBody(c, body)
@@ -851,19 +768,19 @@ func ValidateUnallowConfig() gin.HandlerFunc {
 		// Similar checks as ValidatePermissionConfig
 		if (len(req.Users) > 0 && (len(req.Groups) > 0 || req.Everyone)) ||
 			(len(req.Groups) > 0 && req.Everyone) {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.CommandInvalidInput,
-					"Users, groups, and everyone flags are mutually exclusive"))
+			APIError(
+				c,
+				errors.New(
+					errors.CommandInvalidInput,
+					"Users, groups, and everyone flags are mutually exclusive",
+				),
+			)
 			return
 		}
 
 		// Validate permission set name if present
 		if req.SetName != "" && !strings.HasPrefix(req.SetName, "@") {
-			c.AbortWithStatusJSON(
-				http.StatusBadRequest,
-				errors.New(errors.ZFSNameInvalid,
-					"Permission set name must start with @"))
+			APIError(c, errors.New(errors.ZFSNameInvalid, "Permission set name must start with @"))
 			return
 		}
 

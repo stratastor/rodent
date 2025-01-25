@@ -59,6 +59,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *dataset.Manager
 	// Setup router
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(ErrorHandler())
 	router.Use(gin.Recovery())
 
 	// Create handler and register routes
