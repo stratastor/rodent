@@ -32,7 +32,7 @@ func NewPoolHandler(manager *pool.Manager) *PoolHandler {
 func (h *PoolHandler) listPools(c *gin.Context) {
 	pools, err := h.manager.List(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, pools)
@@ -43,7 +43,7 @@ func (h *PoolHandler) destroyPool(c *gin.Context) {
 	force := c.Query("force") == "true"
 
 	if err := h.manager.Destroy(c.Request.Context(), name, force); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -52,12 +52,12 @@ func (h *PoolHandler) destroyPool(c *gin.Context) {
 func (h *PoolHandler) importPool(c *gin.Context) {
 	var cfg pool.ImportConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.Import(c.Request.Context(), cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -68,7 +68,7 @@ func (h *PoolHandler) exportPool(c *gin.Context) {
 	force := c.Query("force") == "true"
 
 	if err := h.manager.Export(c.Request.Context(), name, force); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -79,7 +79,7 @@ func (h *PoolHandler) getPoolStatus(c *gin.Context) {
 
 	status, err := h.manager.Status(c.Request.Context(), name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, status)
@@ -91,11 +91,7 @@ func (h *PoolHandler) getProperty(c *gin.Context) {
 
 	result, err := h.manager.GetProperty(c.Request.Context(), name, property)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, errors.ErrZFSPoolPropertyNotFound) {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, err)
+		APIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -109,12 +105,12 @@ func (h *PoolHandler) setProperty(c *gin.Context) {
 		Value string `json:"value" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.SetProperty(c.Request.Context(), name, property, req.Value); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -125,7 +121,7 @@ func (h *PoolHandler) scrubPool(c *gin.Context) {
 	stop := c.Query("stop") == "true"
 
 	if err := h.manager.Scrub(c.Request.Context(), name, stop); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -135,7 +131,7 @@ func (h *PoolHandler) resilverPool(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := h.manager.Resilver(c.Request.Context(), name); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -144,12 +140,12 @@ func (h *PoolHandler) resilverPool(c *gin.Context) {
 func (h *PoolHandler) createPool(c *gin.Context) {
 	var cfg pool.CreateConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.Create(c.Request.Context(), cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 
@@ -163,12 +159,12 @@ func (h *PoolHandler) attachDevice(c *gin.Context) {
 		NewDevice string `json:"new_device" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.AttachDevice(c.Request.Context(), pool, req.Device, req.NewDevice); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -180,12 +176,12 @@ func (h *PoolHandler) detachDevice(c *gin.Context) {
 		Device string `json:"device" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.DetachDevice(c.Request.Context(), pool, req.Device); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
@@ -198,12 +194,12 @@ func (h *PoolHandler) replaceDevice(c *gin.Context) {
 		NewDevice string `json:"new_device" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.ReplaceDevice(c.Request.Context(), pool, req.OldDevice, req.NewDevice); err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		APIError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)

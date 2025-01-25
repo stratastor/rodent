@@ -33,17 +33,13 @@ func NewDatasetHandler(manager *dataset.Manager) *DatasetHandler {
 func (h *DatasetHandler) listDatasets(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -53,7 +49,7 @@ func (h *DatasetHandler) listDatasets(c *gin.Context) {
 func (h *DatasetHandler) listAll(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
@@ -61,11 +57,7 @@ func (h *DatasetHandler) listAll(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -75,16 +67,12 @@ func (h *DatasetHandler) listAll(c *gin.Context) {
 func (h *DatasetHandler) createFilesystem(c *gin.Context) {
 	var req dataset.FilesystemConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.CreateFilesystem(c.Request.Context(), req); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -94,7 +82,7 @@ func (h *DatasetHandler) createFilesystem(c *gin.Context) {
 func (h *DatasetHandler) listFilesystems(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
@@ -102,11 +90,7 @@ func (h *DatasetHandler) listFilesystems(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -116,7 +100,7 @@ func (h *DatasetHandler) listFilesystems(c *gin.Context) {
 func (h *DatasetHandler) listVolumes(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
@@ -124,11 +108,7 @@ func (h *DatasetHandler) listVolumes(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -138,16 +118,12 @@ func (h *DatasetHandler) listVolumes(c *gin.Context) {
 func (h *DatasetHandler) createVolume(c *gin.Context) {
 	var cfg dataset.VolumeConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.CreateVolume(c.Request.Context(), cfg); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -157,16 +133,12 @@ func (h *DatasetHandler) createVolume(c *gin.Context) {
 func (h *DatasetHandler) destroyDataset(c *gin.Context) {
 	var req dataset.DestroyConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.Destroy(c.Request.Context(), req); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -176,17 +148,13 @@ func (h *DatasetHandler) destroyDataset(c *gin.Context) {
 func (h *DatasetHandler) getProperty(c *gin.Context) {
 	var req dataset.PropertyConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	prop, err := h.manager.GetProperty(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -196,16 +164,12 @@ func (h *DatasetHandler) getProperty(c *gin.Context) {
 func (h *DatasetHandler) setProperty(c *gin.Context) {
 	var req dataset.SetPropertyConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.SetProperty(c.Request.Context(), req); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -215,16 +179,12 @@ func (h *DatasetHandler) setProperty(c *gin.Context) {
 func (h *DatasetHandler) inheritProperty(c *gin.Context) {
 	var req dataset.InheritConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.InheritProperty(c.Request.Context(), req); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -235,17 +195,13 @@ func (h *DatasetHandler) inheritProperty(c *gin.Context) {
 func (h *DatasetHandler) listProperties(c *gin.Context) {
 	var req dataset.NameConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	props, err := h.manager.ListProperties(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -256,17 +212,13 @@ func (h *DatasetHandler) listProperties(c *gin.Context) {
 func (h *DatasetHandler) createSnapshot(c *gin.Context) {
 	var req dataset.SnapshotConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.CreateSnapshot(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -276,7 +228,7 @@ func (h *DatasetHandler) createSnapshot(c *gin.Context) {
 func (h *DatasetHandler) listSnapshots(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
@@ -284,11 +236,7 @@ func (h *DatasetHandler) listSnapshots(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -298,18 +246,13 @@ func (h *DatasetHandler) listSnapshots(c *gin.Context) {
 func (h *DatasetHandler) rollbackSnapshot(c *gin.Context) {
 	var req dataset.RollbackConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Rollback(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -320,18 +263,13 @@ func (h *DatasetHandler) rollbackSnapshot(c *gin.Context) {
 func (h *DatasetHandler) createClone(c *gin.Context) {
 	var req dataset.CloneConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Clone(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -342,16 +280,12 @@ func (h *DatasetHandler) createClone(c *gin.Context) {
 func (h *DatasetHandler) renameDataset(c *gin.Context) {
 	var cfg dataset.RenameConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	if err := h.manager.Rename(c.Request.Context(), cfg); err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -361,19 +295,14 @@ func (h *DatasetHandler) renameDataset(c *gin.Context) {
 func (h *DatasetHandler) sendDataset(c *gin.Context) {
 	var req dataset.TransferConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	// Execute transfer
 	err := h.manager.SendReceive(c.Request.Context(), req.SendConfig, req.ReceiveConfig)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -383,17 +312,13 @@ func (h *DatasetHandler) sendDataset(c *gin.Context) {
 func (h *DatasetHandler) getResumeToken(c *gin.Context) {
 	var req dataset.NameConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	token, err := h.manager.GetResumeToken(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -403,18 +328,13 @@ func (h *DatasetHandler) getResumeToken(c *gin.Context) {
 func (h *DatasetHandler) mountDataset(c *gin.Context) {
 	var req dataset.MountConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Mount(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -424,18 +344,13 @@ func (h *DatasetHandler) mountDataset(c *gin.Context) {
 func (h *DatasetHandler) unmountDataset(c *gin.Context) {
 	var req dataset.UnmountConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Unmount(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -447,18 +362,13 @@ func (h *DatasetHandler) createBookmark(c *gin.Context) {
 	var req dataset.BookmarkConfig
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.CreateBookmark(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -469,7 +379,7 @@ func (h *DatasetHandler) createBookmark(c *gin.Context) {
 func (h *DatasetHandler) listBookmarks(c *gin.Context) {
 	var req dataset.ListConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
@@ -477,11 +387,7 @@ func (h *DatasetHandler) listBookmarks(c *gin.Context) {
 
 	result, err := h.manager.List(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -492,17 +398,13 @@ func (h *DatasetHandler) listBookmarks(c *gin.Context) {
 func (h *DatasetHandler) promoteClone(c *gin.Context) {
 	var req dataset.NameConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.PromoteClone(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -513,18 +415,13 @@ func (h *DatasetHandler) promoteClone(c *gin.Context) {
 func (h *DatasetHandler) diffDataset(c *gin.Context) {
 	var req dataset.DiffConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	result, err := h.manager.Diff(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -535,18 +432,13 @@ func (h *DatasetHandler) diffDataset(c *gin.Context) {
 func (h *DatasetHandler) allowPermissions(c *gin.Context) {
 	var req dataset.AllowConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Allow(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -557,18 +449,13 @@ func (h *DatasetHandler) allowPermissions(c *gin.Context) {
 func (h *DatasetHandler) unallowPermissions(c *gin.Context) {
 	var req dataset.UnallowConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Unallow(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -579,18 +466,13 @@ func (h *DatasetHandler) unallowPermissions(c *gin.Context) {
 func (h *DatasetHandler) listPermissions(c *gin.Context) {
 	var req dataset.NameConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	result, err := h.manager.ListPermissions(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -601,18 +483,13 @@ func (h *DatasetHandler) listPermissions(c *gin.Context) {
 func (h *DatasetHandler) shareDataset(c *gin.Context) {
 	var req dataset.ShareConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Share(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 
@@ -623,18 +500,13 @@ func (h *DatasetHandler) shareDataset(c *gin.Context) {
 func (h *DatasetHandler) unshareDataset(c *gin.Context) {
 	var req dataset.UnshareConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest,
-			errors.New(errors.ServerRequestValidation, err.Error()))
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
 	err := h.manager.Unshare(c.Request.Context(), req)
 	if err != nil {
-		if rerr, ok := err.(*errors.RodentError); ok && rerr.HTTPStatus != 0 {
-			c.JSON(rerr.HTTPStatus, err)
-		} else {
-			c.JSON(http.StatusInternalServerError, err)
-		}
+		APIError(c, err)
 		return
 	}
 

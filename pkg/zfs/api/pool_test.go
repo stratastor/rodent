@@ -41,6 +41,7 @@ func setupPoolTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *testutil.Te
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(ErrorHandler())
 	router.Use(gin.Recovery())
 
 	handler := NewPoolHandler(poolMgr)
