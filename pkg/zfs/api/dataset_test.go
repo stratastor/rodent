@@ -135,7 +135,7 @@ func TestDatasetAPI(t *testing.T) {
 			Recursive: false,
 		}
 		body, _ = json.Marshal(listReq)
-		req = httptest.NewRequest("GET", dsURI+"/filesystems", bytes.NewBuffer(body))
+		req = httptest.NewRequest("POST", dsURI+"/filesystems/list", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -190,7 +190,7 @@ func TestDatasetAPI(t *testing.T) {
 		}
 
 		body, _ = json.Marshal(getReq)
-		req = httptest.NewRequest("GET", dsURI+"/property", bytes.NewBuffer(body))
+		req = httptest.NewRequest("POST", dsURI+"/property/fetch", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -241,7 +241,7 @@ func TestDatasetAPI(t *testing.T) {
 			Type: "volume",
 		}
 		body, _ = json.Marshal(listReq)
-		req = httptest.NewRequest("GET", dsURI+"/volumes", bytes.NewBuffer(body))
+		req = httptest.NewRequest("POST", dsURI+"/volumes/list", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -283,7 +283,7 @@ func TestDatasetAPI(t *testing.T) {
 			Name: baseFS,
 		}
 		body, _ = json.Marshal(listReq)
-		req = httptest.NewRequest("GET", dsURI+"/snapshots", bytes.NewBuffer(body))
+		req = httptest.NewRequest("POST", dsURI+"/snapshots/list", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -633,7 +633,7 @@ func TestDatasetAPI(t *testing.T) {
 			}
 
 			body, _ := json.Marshal(listReq)
-			req := httptest.NewRequest("GET", dsURI+"/permissions",
+			req := httptest.NewRequest("POST", dsURI+"/permissions/list",
 				bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()

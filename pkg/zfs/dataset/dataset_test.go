@@ -327,14 +327,14 @@ func TestDatasetOperations(t *testing.T) {
 			}
 
 			// Check volsize
-			if props.Datasets[volName].Properties["volsize"].Value != "31457280" {
-				t.Errorf("volsize = %v, want '31457280'",
+			if props.Datasets[volName].Properties["volsize"].Value != "30M" {
+				t.Errorf("volsize = %v, want '30M'",
 					props.Datasets[volName].Properties["volsize"].Value)
 			}
 
 			// Check blocksize
-			if props.Datasets[volName].Properties["volblocksize"].Value != "8192" {
-				t.Errorf("blocksize = %v, want '8192'",
+			if props.Datasets[volName].Properties["volblocksize"].Value != "8K" {
+				t.Errorf("blocksize = %v, want '8K'",
 					props.Datasets[volName].Properties["volblocksize"].Value)
 			}
 		})
@@ -362,8 +362,8 @@ func TestDatasetOperations(t *testing.T) {
 			}
 
 			reservation := props.Datasets[volName].Properties["refreservation"].Value
-			if reservation != "0" {
-				t.Errorf("refreservation = %v, want '0'", reservation)
+			if reservation != "none" {
+				t.Errorf("refreservation = %v, want 'none'", reservation)
 			}
 		})
 

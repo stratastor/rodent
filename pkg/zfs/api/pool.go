@@ -85,6 +85,17 @@ func (h *PoolHandler) getPoolStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+func (h *PoolHandler) getProperties(c *gin.Context) {
+	name := c.Param("name")
+
+	result, err := h.manager.GetProperties(c.Request.Context(), name)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *PoolHandler) getProperty(c *gin.Context) {
 	name := c.Param("name")
 	property := c.Param("property")

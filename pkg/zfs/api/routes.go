@@ -130,7 +130,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// TODO: Add appropriate validation middlewares
 
 		// Dataset operations
-		dataset.GET("", h.listDatasets)
+		dataset.POST("/list", h.listDatasets)
 
 		dataset.DELETE("",
 			ValidateZFSEntityName(common.TypeZFSEntityMask),
@@ -149,13 +149,13 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		properties := dataset.Group("/properties",
 			ValidateZFSEntityName(common.TypeZFSEntityMask))
 		{
-			properties.GET("", h.listProperties)
+			properties.POST("/list", h.listProperties)
 		}
 
 		property := dataset.Group("/property",
 			ValidateZFSEntityName(common.TypeZFSEntityMask))
 		{
-			property.GET("",
+			property.POST("/fetch",
 				ValidatePropertyName(),
 				h.getProperty)
 			property.PUT("",
@@ -169,7 +169,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Filesystem operations
 		filesystems := dataset.Group("/filesystems")
 		{
-			filesystems.GET("", h.listFilesystems)
+			filesystems.POST("/list", h.listFilesystems)
 		}
 
 		filesystem := dataset.Group("/filesystem")
@@ -194,7 +194,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Volume operations
 		volumes := dataset.Group("/volumes")
 		{
-			volumes.GET("", h.listVolumes)
+			volumes.POST("/list", h.listVolumes)
 		}
 		volume := dataset.Group("/volume")
 		{
@@ -208,7 +208,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Snapshot operations
 		snapshots := dataset.Group("/snapshots")
 		{
-			snapshots.GET("", h.listSnapshots)
+			snapshots.POST("/list", h.listSnapshots)
 		}
 		snapshot := dataset.Group("/snapshot")
 		{
@@ -239,7 +239,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Bookmark operations
 		bookmarks := dataset.Group("/bookmarks")
 		{
-			bookmarks.GET("", h.listBookmarks)
+			bookmarks.POST("/list", h.listBookmarks)
 		}
 		bookmark := dataset.Group("/bookmark")
 		{
@@ -252,7 +252,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		permissions := dataset.Group("/permissions",
 			ValidateZFSEntityName(common.TypeDatasetMask))
 		{
-			permissions.GET("", h.listPermissions)
+			permissions.POST("/list", h.listPermissions)
 			permissions.POST("",
 				ValidatePermissionConfig(),
 				h.allowPermissions)
@@ -274,7 +274,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			transfer.POST("/send",
 				h.sendDataset)
 
-			transfer.GET("/resume-token",
+			transfer.POST("/resume-token/fetch",
 				ValidateZFSEntityName(common.TypeFilesystem),
 				h.getResumeToken)
 		}
@@ -369,6 +369,9 @@ func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 		// Status and properties
 		pools.GET("/:name/status", ValidatePoolName(), h.getPoolStatus)
+		pools.GET("/:name/properties",
+			ValidatePoolName(),
+			h.getProperties)
 		pools.GET("/:name/properties/:property",
 			ValidatePoolName(),
 			ValidatePoolProperty(common.ValidPoolGetPropContext),

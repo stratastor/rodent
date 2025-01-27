@@ -18,6 +18,8 @@
 package server
 
 import (
+	"bytes"
+	"io"
 	"log/slog"
 	"time"
 
@@ -50,6 +52,14 @@ func LoggerMiddleware(l logger.Logger) gin.HandlerFunc {
 		// Store request ID in context for error correlation
 		c.Set("request_id", requestID)
 
+		bodyBytes := []byte{}
+
+		// Log request body if present
+		if c.Request.Body != nil {
+			bodyBytes, _ = io.ReadAll(c.Request.Body)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+
 		// Process request
 		c.Next()
 
@@ -73,6 +83,11 @@ func LoggerMiddleware(l logger.Logger) gin.HandlerFunc {
 
 		// Handle errors if present
 		if len(c.Errors) > 0 {
+			// Log request body if present
+			if len(bodyBytes) > 0 {
+				attrs = append(attrs, slog.String("body", string(bodyBytes)))
+			}
+
 			for _, err := range c.Errors {
 				if re, ok := err.Err.(*errors.RodentError); ok {
 					// Add RodentError fields

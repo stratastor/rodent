@@ -156,6 +156,34 @@ func (p *Manager) Status(ctx context.Context, name string) (PoolStatus, error) {
 	return status, nil
 }
 
+func (p *Manager) GetProperties(ctx context.Context, name string) (ListResult, error) {
+	args := []string{"get", "all", "-H"}
+	if name != "" {
+		args = append(args, name)
+	}
+
+	opts := command.CommandOptions{
+		Flags: command.FlagJSON,
+	}
+
+	var result ListResult
+
+	out, err := p.executor.Execute(ctx, opts, "zpool get", args...)
+	if err != nil {
+		if len(out) > 0 {
+			return result, errors.Wrap(err, errors.ZFSPoolGetProperty).
+				WithMetadata("output", string(out))
+		}
+		return result, errors.Wrap(err, errors.ZFSPoolGetProperty)
+	}
+
+	if err := json.Unmarshal(out, &result); err != nil {
+		return result, errors.Wrap(err, errors.CommandOutputParse)
+	}
+
+	return result, nil
+}
+
 // GetProperty gets a specific property of a pool
 func (p *Manager) GetProperty(ctx context.Context, name, property string) (ListResult, error) {
 	args := []string{"get", "-H", property}

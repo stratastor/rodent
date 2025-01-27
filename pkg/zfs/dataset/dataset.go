@@ -190,7 +190,7 @@ func (m *Manager) GetProperty(ctx context.Context, cfg PropertyConfig) (ListResu
 // ListProperties returns all properties of a dataset
 func (m *Manager) ListProperties(ctx context.Context, cfg NameConfig) (ListResult, error) {
 	name := cfg.Name
-	args := []string{"get", "all", "-H", "-p", name}
+	args := []string{"get", "all", "-H", name}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,
