@@ -369,14 +369,14 @@ func TestDatasetAPI(t *testing.T) {
 			Force:                      true,
 		}
 		body, _ := json.Marshal(destroyReq)
-		req := httptest.NewRequest(http.MethodDelete, dsURI, bytes.NewBuffer(body))
+		req := httptest.NewRequest(http.MethodPost, dsURI+"/delete", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusNoContent {
+		if w.Code != http.StatusOK {
 			t.Errorf("destroy dataset returned wrong status: got %v want %v",
-				w.Code, http.StatusNoContent)
+				w.Code, http.StatusOK)
 			t.Errorf("error: %v", w.Body.String())
 		}
 	})

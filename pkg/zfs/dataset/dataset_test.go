@@ -278,7 +278,7 @@ func TestDatasetOperations(t *testing.T) {
 		})
 
 		t.Run("Destroy", func(t *testing.T) {
-			err := datasetMgr.Destroy(context.Background(), DestroyConfig{
+			_, err := datasetMgr.Destroy(context.Background(), DestroyConfig{
 				NameConfig: NameConfig{
 					Name: poolName + "/fs1_renamed",
 				},

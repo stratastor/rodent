@@ -132,7 +132,7 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Dataset operations
 		dataset.POST("/list", h.listDatasets)
 
-		dataset.DELETE("",
+		dataset.POST("/delete",
 			ValidateZFSEntityName(common.TypeZFSEntityMask),
 			h.destroyDataset)
 

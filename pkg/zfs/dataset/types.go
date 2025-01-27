@@ -89,8 +89,11 @@ type DestroyConfig struct {
 	RecursiveDestroyChildren   bool `json:"recursive_destroy_children"`   // Recursively destroy all children
 	Force                      bool `json:"force"`
 	DryRun                     bool `json:"dry_run"`
-	Parsable                   bool `json:"parsable"` // -P  Print machine-parsable  verbose  information  about  the  created dataset
-	Verbose                    bool `json:"verbose"`
+}
+
+// DestroyResult represents the output of a destroy operation
+type DestroyResult struct {
+	Destroyed []string `json:"destroyed"` // List of datasets that would be/were destroyed
 }
 
 // FilesystemConfig for filesystem-specific creation

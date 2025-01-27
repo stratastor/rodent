@@ -113,12 +113,16 @@ func (m *Manager) List(ctx context.Context, cfg ListConfig) (ListResult, error) 
 }
 
 // Destroy removes a dataset
-func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) error {
-	args := []string{"destroy"}
+func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) (DestroyResult, error) {
+	args := []string{"destroy", "-p", "-v"}
+	result := DestroyResult{
+		Destroyed: make([]string, 0),
+	}
 
 	if dc.RecursiveDestroyChildren {
 		args = append(args, "-r")
-	} else if dc.RecursiveDestroyDependents {
+	}
+	if dc.RecursiveDestroyDependents {
 		args = append(args, "-R")
 	}
 	if dc.Force {
@@ -126,12 +130,6 @@ func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) error {
 	}
 	if dc.DryRun {
 		args = append(args, "-n")
-	}
-	if dc.Parsable {
-		args = append(args, "-p")
-	}
-	if dc.Verbose {
-		args = append(args, "-v")
 	}
 
 	args = append(args, dc.Name)
@@ -141,13 +139,31 @@ func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) error {
 	out, err := m.executor.Execute(ctx, opts, "zfs destroy", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return errors.Wrap(err, errors.ZFSDatasetDestroy).
+			return result, errors.Wrap(err, errors.ZFSDatasetDestroy).
 				WithMetadata("output", string(out))
 		}
-		return errors.Wrap(err, errors.ZFSDatasetDestroy)
+		return result, errors.Wrap(err, errors.ZFSDatasetDestroy)
 	}
 
-	return nil
+	// Parse output lines
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Extract dataset name from "destroy dataset" line
+		// Using Contains() instead of HasPrefix() and handling multiple spaces
+		if strings.Contains(line, "destroy") {
+			// Split on whitespace and take the last part which should be the dataset name
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				result.Destroyed = append(result.Destroyed, parts[len(parts)-1])
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // GetProperty gets a dataset property

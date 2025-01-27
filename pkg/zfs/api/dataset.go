@@ -137,12 +137,13 @@ func (h *DatasetHandler) destroyDataset(c *gin.Context) {
 		return
 	}
 
-	if err := h.manager.Destroy(c.Request.Context(), req); err != nil {
+	result, err := h.manager.Destroy(c.Request.Context(), req)
+	if err != nil {
 		APIError(c, err)
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"result": result})
 }
 
 func (h *DatasetHandler) getProperty(c *gin.Context) {
