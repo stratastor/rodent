@@ -80,6 +80,7 @@ var nativeDatasetProps = map[string]struct{}{
 	"version":              {},
 	"volblocksize":         {},
 	"volsize":              {},
+	"xattr":                {},
 	"zoned":                {},
 
 	// Feature Flags (Catch-all for dynamic properties)

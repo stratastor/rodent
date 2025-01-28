@@ -71,12 +71,13 @@ func (h *DatasetHandler) createFilesystem(c *gin.Context) {
 		return
 	}
 
-	if err := h.manager.CreateFilesystem(c.Request.Context(), req); err != nil {
+	result, err := h.manager.CreateFilesystem(c.Request.Context(), req)
+	if err != nil {
 		APIError(c, err)
 		return
 	}
 
-	c.Status(http.StatusCreated)
+	c.JSON(http.StatusCreated, gin.H{"result": result})
 }
 
 func (h *DatasetHandler) listFilesystems(c *gin.Context) {

@@ -96,6 +96,12 @@ type DestroyResult struct {
 	Destroyed []string `json:"destroyed"` // List of datasets that would be/were destroyed
 }
 
+// CreateResult represents the output of a create operation
+type CreateResult struct {
+	Created    string            `json:"created"`              // Name of the created dataset
+	Properties map[string]string `json:"properties,omitempty"` // Name and value KV of properties
+}
+
 // FilesystemConfig for filesystem-specific creation
 type FilesystemConfig struct {
 	NameConfig
@@ -108,8 +114,6 @@ type FilesystemConfig struct {
 
 	DoNotMount bool `json:"do_not_mount"` // -u  Do not mount the newly created file system
 	DryRun     bool `json:"dry_run"`
-	Parsable   bool `json:"parsable"` // -p  Print machine-parsable  verbose  information  about  the  created dataset
-	Verbose    bool `json:"verbose"`
 }
 
 // VolumeConfig for volume creation

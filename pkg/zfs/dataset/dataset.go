@@ -279,8 +279,11 @@ func (m *Manager) SetProperty(ctx context.Context, cfg SetPropertyConfig) error 
 }
 
 // CreateFilesystem creates a new ZFS filesystem
-func (m *Manager) CreateFilesystem(ctx context.Context, cfg FilesystemConfig) error {
-	args := []string{"create"}
+func (m *Manager) CreateFilesystem(
+	ctx context.Context,
+	cfg FilesystemConfig,
+) (CreateResult, error) {
+	args := []string{"create", "-P", "-v"}
 
 	if cfg.Parents {
 		args = append(args, "-p")
@@ -291,12 +294,6 @@ func (m *Manager) CreateFilesystem(ctx context.Context, cfg FilesystemConfig) er
 	if cfg.DryRun {
 		args = append(args, "-n")
 	}
-	if cfg.Parsable {
-		args = append(args, "-P")
-	}
-	if cfg.Verbose {
-		args = append(args, "-v")
-	}
 
 	for k, v := range cfg.Properties {
 		quotedValue := shellquote.Join(v)
@@ -306,17 +303,46 @@ func (m *Manager) CreateFilesystem(ctx context.Context, cfg FilesystemConfig) er
 	args = append(args, cfg.Name)
 
 	opts := command.CommandOptions{}
+	result := CreateResult{
+		Properties: make(map[string]string),
+	}
 
 	out, err := m.executor.Execute(ctx, opts, "zfs create", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return errors.Wrap(err, errors.ZFSDatasetCreate).
+			return result, errors.Wrap(err, errors.ZFSDatasetCreate).
 				WithMetadata("output", string(out))
 		}
-		return errors.Wrap(err, errors.ZFSDatasetCreate)
+		return result, errors.Wrap(err, errors.ZFSDatasetCreate)
 	}
 
-	return nil
+	// Parse output lines
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse "create dataset" line
+		if strings.Contains(line, "create") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				result.Created = parts[len(parts)-1]
+			}
+			continue
+		}
+
+		// Parse "property name value" lines
+		if strings.Contains(line, "property") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				result.Properties[parts[1]] = parts[2]
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // CreateVolume creates a new ZFS volume

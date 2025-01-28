@@ -93,7 +93,7 @@ func TestDataTransferOperations(t *testing.T) {
 	t.Run("BasicTransfer", func(t *testing.T) {
 		// Create source filesystem with data
 		srcName := srcPoolName + "/fs1"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{Name: srcName},
 			Properties: map[string]string{
 				"compression": "on",
@@ -179,7 +179,7 @@ func TestDataTransferOperations(t *testing.T) {
 	t.Run("IncrementalTransfer", func(t *testing.T) {
 		// Create source filesystem
 		srcFs := srcPoolName + "/fs2"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{Name: srcFs},
 			Properties: map[string]string{
 				"compression": "on",
@@ -265,7 +265,7 @@ func TestDataTransferOperations(t *testing.T) {
 	t.Run("ResumeTransfer", func(t *testing.T) {
 		// Create source filesystem with large data
 		srcFs := srcPoolName + "/fs3"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{Name: srcFs},
 			Properties: map[string]string{
 				"compression": "off", // Disable compression for larger transfer
@@ -359,7 +359,7 @@ func TestDataTransferOperations(t *testing.T) {
 
 		// Create source filesystem
 		srcFs := srcPoolName + "/fs4"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{Name: srcFs},
 			Properties: map[string]string{
 				"compression": "on",

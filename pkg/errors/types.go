@@ -397,7 +397,7 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSDatasetPropertyNotFound: {"Dataset property not found", DomainZFS, http.StatusNotFound},
 	ZFSDatasetClone:            {"Failed to clone dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetInvalidName:      {"Invalid dataset name", DomainZFS, http.StatusBadRequest},
-	ZFSDatasetInvalidProperty:  {"Invalid property value", DomainZFS, http.StatusBadRequest},
+	ZFSDatasetInvalidProperty:  {"Invalid property", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetRename:           {"Failed to rename dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetSnapshot:         {"Failed to create snapshot", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetOperation: {

@@ -65,7 +65,7 @@ func TestDatasetOperations(t *testing.T) {
 		fsName := poolName + "/fs1"
 
 		t.Run("Create", func(t *testing.T) {
-			err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+			_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 				NameConfig: NameConfig{
 					Name: fsName,
 				},
@@ -210,7 +210,7 @@ func TestDatasetOperations(t *testing.T) {
 
 		t.Run("Mount", func(t *testing.T) {
 			mountFS := poolName + "/mountfs"
-			err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+			_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 				NameConfig: NameConfig{
 					Name: mountFS,
 				},
@@ -397,7 +397,7 @@ func TestDatasetOperations(t *testing.T) {
 	t.Run("DiffOperations", func(t *testing.T) {
 		// Create a test filesystem for diff operations
 		diffFS := poolName + "/difftest"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{
 				Name: diffFS,
 			},
@@ -638,7 +638,7 @@ func TestDatasetOperations(t *testing.T) {
 
 		// Create test filesystem
 		shareFS := poolName + "/sharefs"
-		err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+		_, err := datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 			NameConfig: NameConfig{Name: shareFS},
 			Properties: map[string]string{
 				"sharenfs": setNFS,
@@ -762,7 +762,7 @@ func TestPermissionOperations(t *testing.T) {
 	}()
 
 	fsName := poolName + "/fs1"
-	err = datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
+	_, err = datasetMgr.CreateFilesystem(context.Background(), FilesystemConfig{
 		NameConfig: NameConfig{Name: fsName},
 	})
 	if err != nil {
