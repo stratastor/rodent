@@ -295,7 +295,7 @@ func TestDatasetOperations(t *testing.T) {
 		// Basic volume creation
 		t.Run("CreateVolume", func(t *testing.T) {
 			volName := poolName + "/vol1"
-			err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
+			_, err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
 				NameConfig: NameConfig{
 					Name: volName,
 				},
@@ -342,7 +342,7 @@ func TestDatasetOperations(t *testing.T) {
 		// Sparse volume creation
 		t.Run("CreateSparseVolume", func(t *testing.T) {
 			volName := poolName + "/vol2"
-			err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
+			_, err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
 				NameConfig: NameConfig{
 					Name: volName,
 				},
@@ -370,7 +370,7 @@ func TestDatasetOperations(t *testing.T) {
 		// Volume with parent creation
 		t.Run("CreateVolumeWithParent", func(t *testing.T) {
 			volName := poolName + "/datasets/volumes/vol3"
-			err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
+			_, err := datasetMgr.CreateVolume(context.Background(), VolumeConfig{
 				NameConfig: NameConfig{
 					Name: volName,
 				},

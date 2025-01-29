@@ -123,12 +123,13 @@ type VolumeConfig struct {
 	Properties map[string]string `json:"properties,omitempty"`
 	Sparse     bool              `json:"sparse"` //  -s  Creates a sparse volume with no reservation
 	// -b blocksize
-	// Equivalent to -o volblocksize=blocksize.  If this option is specified in conjunction with -o volblocksize, the  resulting  be‐
-	// havior is undefined
+	// Equivalent to -o volblocksize=blocksize.
+	// If this option is specified in conjunction with
+	//  -o volblocksize, the  resulting  behavior is undefined
 	BlockSize string `json:"blocksize,omitempty"`
 	Parents   bool   `json:"parents"`
 	DryRun    bool   `json:"dry_run"`
-	Parsable  bool   `json:"parsable"` // -p  Print machine-parsable  verbose  information  about  the  created dataset
+	Parsable  bool   `json:"parsable"` // -P  Print machine-parsable  verbose  information  about  the  created dataset
 	Verbose   bool   `json:"verbose"`
 }
 

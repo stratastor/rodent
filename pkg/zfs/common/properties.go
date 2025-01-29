@@ -65,6 +65,7 @@ var nativeDatasetProps = map[string]struct{}{
 	"redundant_metadata":   {},
 	"refquota":             {},
 	"refreservation":       {},
+	"relatime":             {},
 	"reservation":          {},
 	"secondarycache":       {},
 	"setuid":               {},

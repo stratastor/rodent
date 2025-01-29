@@ -123,12 +123,13 @@ func (h *DatasetHandler) createVolume(c *gin.Context) {
 		return
 	}
 
-	if err := h.manager.CreateVolume(c.Request.Context(), cfg); err != nil {
+	result, err := h.manager.CreateVolume(c.Request.Context(), cfg)
+	if err != nil {
 		APIError(c, err)
 		return
 	}
 
-	c.Status(http.StatusCreated)
+	c.JSON(http.StatusCreated, gin.H{"result": result})
 }
 
 func (h *DatasetHandler) destroyDataset(c *gin.Context) {
