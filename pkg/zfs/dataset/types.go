@@ -130,7 +130,6 @@ type VolumeConfig struct {
 	Parents   bool   `json:"parents"`
 	DryRun    bool   `json:"dry_run"`
 	Parsable  bool   `json:"parsable"` // -P  Print machine-parsable  verbose  information  about  the  created dataset
-	Verbose   bool   `json:"verbose"`
 }
 
 type SnapshotConfig struct {

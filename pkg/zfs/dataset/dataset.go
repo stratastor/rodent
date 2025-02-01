@@ -361,7 +361,7 @@ func (m *Manager) CreateFilesystem(
 
 // CreateVolume creates a new ZFS volume
 func (m *Manager) CreateVolume(ctx context.Context, cfg VolumeConfig) (CreateResult, error) {
-	args := []string{"create", "-P", "-v"}
+	args := []string{"create", "-v"}
 
 	if cfg.Size != "" {
 		args = append(args, "-V", cfg.Size)
@@ -385,6 +385,9 @@ func (m *Manager) CreateVolume(ctx context.Context, cfg VolumeConfig) (CreateRes
 	}
 	if cfg.DryRun {
 		args = append(args, "-n")
+	}
+	if cfg.Parsable {
+		args = append(args, "-P")
 	}
 
 	for k, v := range cfg.Properties {
