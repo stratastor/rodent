@@ -218,6 +218,7 @@ var anytimePoolProps = map[string]struct{}{
 	"cachefile":     {},
 	"comment":       {},
 	"multihost":     {},
+	"autotrim":      {},
 	"ashift":        {}, // Can be set anytime
 }
 
