@@ -406,14 +406,6 @@ func ValidatePropertyValue() gin.HandlerFunc {
 			return
 		}
 
-		// Special handling for quota values
-		if property := c.Param("property"); property == "quota" || property == "refquota" {
-			if !quotaRegex.MatchString(req.Value) {
-				APIError(c, errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"))
-				return
-			}
-		}
-
 		c.Next()
 	}
 }
@@ -563,13 +555,6 @@ func ValidateZFSProperties() gin.HandlerFunc {
 				return
 			}
 
-			// Special handling for quota values
-			if k == "quota" || k == "refquota" {
-				if !quotaRegex.MatchString(v) {
-					APIError(c, errors.New(errors.ZFSQuotaInvalid, "Invalid quota format"))
-					return
-				}
-			}
 		}
 		c.Next()
 	}
