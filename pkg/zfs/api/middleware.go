@@ -41,8 +41,27 @@ var (
 	volumeSizeRegex   = regexp.MustCompile(`^\d+[KMGTP]?$`)
 	bookmarkNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
-	poolNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
-	devicePathRegex = regexp.MustCompile(`^/dev/[a-zA-Z0-9/]+$`)
+	poolNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
+
+	devicePathRegex = regexp.MustCompile(
+		`^/dev/(?:` +
+			// Standard device paths
+			`[hsv]d[a-z]\d*|` +
+			// NVMe devices
+			`nvme\d+n\d+(?:p\d+)?|` +
+			// Device mapper paths
+			`mapper/[a-zA-Z0-9._-]+|` +
+			// By-id paths (includes WWN, serial numbers)
+			`disk/by-id/[a-zA-Z0-9._-]+(?:-part\d+)?|` +
+			// By-path (includes PCI paths)
+			`disk/by-path/(?:pci-)?[a-zA-Z0-9/:._-]+(?:-part\d+)?|` +
+			// By-uuid paths
+			`disk/by-uuid/[a-fA-F0-9-]+|` +
+			// By-label paths
+			`disk/by-label/[a-zA-Z0-9._-]+|` +
+			// By-partuuid paths
+			`disk/by-partuuid/[a-fA-F0-9-]+` +
+			`)$`)
 
 	// TODO: Validate property names? Track ZFS property list? Or just let ZFS handle it?
 	// propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)

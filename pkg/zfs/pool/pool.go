@@ -54,6 +54,7 @@ func buildVDevArgs(specs []VDevSpec) []string {
 // Create creates a new ZFS pool
 func (p *Manager) Create(ctx context.Context, cfg CreateConfig) error {
 	args := []string{}
+	fmt.Printf("CreateConfig: %v\n", cfg)
 
 	// Add properties
 	for k, v := range cfg.Properties {
@@ -78,6 +79,8 @@ func (p *Manager) Create(ctx context.Context, cfg CreateConfig) error {
 	opts := command.CommandOptions{
 		Flags: command.FlagForce, // if cfg.Force is true
 	}
+
+	fmt.Printf("Args: %v\n", args)
 
 	out, err := p.executor.Execute(ctx, opts, "zpool create", args...)
 	if err != nil {
