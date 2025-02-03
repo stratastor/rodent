@@ -321,8 +321,10 @@ func (p *Manager) List(ctx context.Context) (ListResult, error) {
 		return result, errors.Wrap(err, errors.ZFSPoolList)
 	}
 
-	if err := json.Unmarshal(out, &result); err != nil {
-		return result, errors.Wrap(err, errors.CommandOutputParse)
+	if len(out) > 0 {
+		if err := json.Unmarshal(out, &result); err != nil {
+			return result, errors.Wrap(err, errors.CommandOutputParse)
+		}
 	}
 
 	return result, nil

@@ -106,27 +106,27 @@ type Stats struct {
 
 // CreateConfig defines parameters for pool creation
 type CreateConfig struct {
-	Name       string
-	VDevSpec   []VDevSpec
-	Properties map[string]string
-	Features   map[string]bool
-	Force      bool
-	MountPoint string
+	Name       string            `json:"name"`
+	VDevSpec   []VDevSpec        `json:"vdev_spec"`
+	Properties map[string]string `json:"properties"`
+	Features   map[string]bool   `json:"features"`
+	Force      bool              `json:"force"`
+	MountPoint string            `json:"mount_point"`
 }
 
 // VDevSpec defines virtual device configuration for pool creation
 type VDevSpec struct {
-	Type     string     // mirror, raidz, etc.
-	Devices  []string   // Device paths
-	Children []VDevSpec // For nested vdev configurations
+	Type     string     `json:"type"`     // mirror, raidz, etc.
+	Devices  []string   `json:"devices"`  // Device paths
+	Children []VDevSpec `json:"children"` // For nested vdev configurations
 }
 
 // ImportConfig defines parameters for pool import
 type ImportConfig struct {
-	Name         string
-	Dir          string // Search directory
-	Properties   map[string]string
-	Force        bool
-	AllowDestroy bool
-	Paths        []string // Device paths to search
+	Name         string            `json:"name"`
+	Dir          string            `json:"dir"` // Search directory
+	Properties   map[string]string `json:"properties"`
+	Force        bool              `json:"force"`
+	AllowDestroy bool              `json:"allow_destroy"`
+	Paths        []string          `json:"paths"` // Device paths to search
 }
