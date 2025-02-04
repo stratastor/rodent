@@ -197,8 +197,8 @@ func TestDatasetOperations(t *testing.T) {
 
 		t.Run("Inherit", func(t *testing.T) {
 			err := datasetMgr.InheritProperty(context.Background(), InheritConfig{
-				NamesConfig: NamesConfig{
-					Names: []string{fsName},
+				NameConfig: NameConfig{
+					Name: fsName,
 				},
 				Property:  "compression",
 				Recursive: true,

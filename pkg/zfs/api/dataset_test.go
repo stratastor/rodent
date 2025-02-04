@@ -171,7 +171,7 @@ func TestDatasetAPI(t *testing.T) {
 		}
 
 		body, _ := json.Marshal(setReq)
-		req := httptest.NewRequest("PUT", dsURI+"/property", bytes.NewBuffer(body))
+		req := httptest.NewRequest("POST", dsURI+"/property", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -338,15 +338,14 @@ func TestDatasetAPI(t *testing.T) {
 
 	t.Run("InheritProperty", func(t *testing.T) {
 		inheritReq := dataset.InheritConfig{
-			NamesConfig: dataset.NamesConfig{
-				Names: []string{poolName + "/fs1",
-					poolName + "/clone1"},
+			NameConfig: dataset.NameConfig{
+				Name: poolName + "/fs1",
 			},
 			Property: "checksum",
 			// Recursive: true,
 		}
 		body, _ := json.Marshal(inheritReq)
-		req := httptest.NewRequest("PUT", dsURI+"/property/inherit", bytes.NewBuffer(body))
+		req := httptest.NewRequest("POST", dsURI+"/property/inherit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -860,7 +859,7 @@ func TestDatasetAPI(t *testing.T) {
 			},
 			{
 				name:   "invalid property value",
-				method: http.MethodPut,
+				method: http.MethodPost,
 				path:   dsURI + "/property",
 				body: dataset.SetPropertyConfig{
 					PropertyConfig: dataset.PropertyConfig{

@@ -233,7 +233,7 @@ type PropertyConfig struct {
 }
 
 type InheritConfig struct {
-	NamesConfig
+	NameConfig
 	Property  string `json:"property"  binding:"required"`
 	Recursive bool   `json:"recursive"`
 	Revert    bool   `json:"revert"`

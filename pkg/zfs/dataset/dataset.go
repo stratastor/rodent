@@ -244,9 +244,7 @@ func (m *Manager) InheritProperty(ctx context.Context, cfg InheritConfig) error 
 	}
 
 	args = append(args, cfg.Property)
-	for _, name := range cfg.Names {
-		args = append(args, name)
-	}
+	args = append(args, cfg.Name)
 
 	opts := command.CommandOptions{}
 

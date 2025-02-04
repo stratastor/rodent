@@ -158,10 +158,10 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			property.POST("/fetch",
 				ValidatePropertyName(),
 				h.getProperty)
-			property.PUT("",
+			property.POST("",
 				ValidateZFSProperties(),
 				h.setProperty)
-			property.PUT("/inherit",
+			property.POST("/inherit",
 				ValidateZFSProperties(),
 				h.inheritProperty)
 		}
