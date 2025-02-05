@@ -26,4 +26,11 @@ const (
 	UserConfigDir   = "~/.rodent"
 	ConfigFileName  = "rodent.yml"
 	StateFileName   = "rodent_state.yml"
+
+	// routes
+	APIVersion = "v1"
+	APIBase    = "/api/" + APIVersion + "/rodent"
+	APIZFS     = APIBase + "/zfs"
+	APIPool    = APIZFS + "/pool"
+	APIDataset = APIZFS + "/dataset"
 )

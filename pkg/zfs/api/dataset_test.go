@@ -30,6 +30,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
@@ -64,7 +65,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *dataset.Manager
 
 	// Create handler and register routes
 	handler := NewDatasetHandler(datasetMgr)
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group(constants.APIZFS))
 
 	cleanup := func() {
 		if err := poolMgr.Destroy(context.Background(), poolName, true); err != nil {
@@ -80,7 +81,7 @@ func TestDatasetAPI(t *testing.T) {
 	router, _, _, poolName, cleanup := setupTestRouter(t)
 	defer cleanup()
 
-	dsURI := "/api/v1/dataset"
+	dsURI := constants.APIDataset
 
 	// Create base filesystem for snapshots first
 	baseFS := poolName + "/fs1"

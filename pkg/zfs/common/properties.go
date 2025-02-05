@@ -145,11 +145,11 @@ func isUserProperty(name string) bool {
 	foundSep := false
 
 	for _, c := range name {
-		if !zpropValidChar(c) {
-			return false
-		}
 		if c == ':' {
 			foundSep = true
+		}
+		if !zpropValidChar(c) {
+			return false
 		}
 	}
 

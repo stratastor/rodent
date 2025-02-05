@@ -29,6 +29,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 	"github.com/stratastor/rodent/pkg/zfs/testutil"
@@ -45,7 +46,7 @@ func setupPoolTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *testutil.Te
 	router.Use(gin.Recovery())
 
 	handler := NewPoolHandler(poolMgr)
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group(constants.APIZFS))
 
 	cleanup := func() {
 		env.Cleanup()
@@ -86,7 +87,7 @@ func TestPoolAPI(t *testing.T) {
 	router, poolMgr, env, cleanup := setupPoolTestRouter(t)
 	defer cleanup()
 
-	poolsURI := "/api/v1/pools"
+	poolsURI := constants.APIPool
 	poolName := testutil.GeneratePoolName()
 
 	// Track pool state for cleanup

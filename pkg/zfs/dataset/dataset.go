@@ -171,7 +171,11 @@ func (m *Manager) GetProperty(ctx context.Context, cfg PropertyConfig) (ListResu
 	name := cfg.Name
 	property := cfg.Property
 
-	args := []string{"get", "-H", "-p", "-o", "value,source", property, name}
+	args := []string{"get", "-H", "-o", "value,source", property, name}
+
+	if cfg.Parsable {
+		args = append(args, "-p")
+	}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,

@@ -230,6 +230,7 @@ type SetPropertyConfig struct {
 type PropertyConfig struct {
 	NameConfig
 	Property string `json:"property" binding:"required"`
+	Parsable bool   `json:"parsable"`
 }
 
 type InheritConfig struct {

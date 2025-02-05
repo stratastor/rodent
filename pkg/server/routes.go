@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -44,7 +45,7 @@ func registerZFSRoutes(engine *gin.Engine) {
 	poolHandler := api.NewPoolHandler(poolManager)
 
 	// API group with version
-	v1 := engine.Group("/api/v1")
+	v1 := engine.Group(constants.APIZFS)
 	{
 		// Register ZFS routes
 		datasetHandler.RegisterRoutes(v1)
