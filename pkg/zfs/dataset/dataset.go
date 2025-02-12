@@ -76,8 +76,8 @@ func (m *Manager) List(ctx context.Context, cfg ListConfig) (ListResult, error) 
 	if cfg.Recursive {
 		args = append(args, "-r")
 	}
-	if cfg.Depth > 0 {
-		args = append(args, "-d", fmt.Sprintf("%d", cfg.Depth))
+	if cfg.Depth != "" {
+		args = append(args, "-d", fmt.Sprintf("%s", cfg.Depth))
 	}
 	if len(cfg.Properties) > 0 {
 		args = append(args, "-o", strings.Join(cfg.Properties, ","))

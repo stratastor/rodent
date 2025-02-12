@@ -53,7 +53,7 @@ type ListConfig struct {
 
 	// -d Recursively display any children of the dataset, limiting the recursion to depth
 	// Overrides -r
-	Depth uint `json:"depth"`
+	Depth string `json:"depth"`
 
 	// A comma-separated list of properties to display.
 	// The property must be:
