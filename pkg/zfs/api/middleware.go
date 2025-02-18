@@ -179,7 +179,13 @@ func ValidatePropertyName() gin.HandlerFunc {
 
 		property := req.Property
 		if property == "" || !isValidDatasetProperty(property) {
-			APIError(c, errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"))
+			APIError(
+				c,
+				errors.New(
+					errors.ZFSDatasetInvalidProperty,
+					fmt.Sprintf("Invalid property name [%s]", property),
+				),
+			)
 			return
 		}
 		c.Next()
@@ -564,7 +570,13 @@ func ValidateZFSProperties() gin.HandlerFunc {
 		for k, v := range req.Properties {
 			// Validate property name
 			if !isValidDatasetProperty(k) {
-				APIError(c, errors.New(errors.ZFSDatasetInvalidProperty, "Invalid property name"))
+				APIError(
+					c,
+					errors.New(
+						errors.ZFSDatasetInvalidProperty,
+						fmt.Sprintf("Invalid property name: %s", k),
+					),
+				)
 				return
 			}
 
