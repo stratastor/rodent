@@ -4,6 +4,7 @@ go 1.23.1
 
 require (
 	github.com/gin-gonic/gin v1.10.0
+	github.com/go-ldap/ldap/v3 v3.4.10
 	github.com/go-resty/resty/v2 v2.16.2
 	github.com/google/uuid v1.6.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
@@ -12,10 +13,12 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stratastor/logger v0.0.0-20241216073552-0e618b524da8
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
+	golang.org/x/text v0.21.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
@@ -24,6 +27,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/getsentry/sentry-go v0.30.0 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.7 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
@@ -55,7 +59,6 @@ require (
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

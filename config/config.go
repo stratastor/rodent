@@ -47,6 +47,13 @@ type Config struct {
 		Endpoint string `mapstructure:"endpoint"`
 	} `mapstructure:"health"`
 
+	AD struct {
+		AdminPassword string `mapstructure:"adminPassword"`
+		LDAPURL       string `mapstructure:"ldapURL"`
+		BaseDN        string `mapstructure:"baseDN"`
+		AdminDN       string `mapstructure:"adminDN"`
+	} `mapstructure:"ad"`
+
 	Logs struct {
 		Path      string `mapstructure:"path"`
 		Retention string `mapstructure:"retention"`
@@ -104,6 +111,12 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("logger.logLevel", "info")
 		viper.SetDefault("logger.enableSentry", false)
 		viper.SetDefault("logger.sentryDSN", "")
+
+		// Set defaults for AD configuration
+		viper.SetDefault("ad.adminPassword", "")
+		viper.SetDefault("ad.ldapURL", "ldaps://localhost:636")
+		viper.SetDefault("ad.baseDN", "CN=Users,DC=ad,DC=strata,DC=internal")
+		viper.SetDefault("ad.adminDN", "CN=Administrator,CN=Users,DC=ad,DC=strata,DC=internal")
 
 		// Bind environment variables
 		viper.AutomaticEnv()

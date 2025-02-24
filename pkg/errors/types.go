@@ -26,6 +26,7 @@ const (
 	DomainCommand   Domain = "CMD"
 	DomainHealth    Domain = "HEALTH"
 	DomainLifecycle Domain = "LIFECYCLE"
+	DomainAD        Domain = "AD"
 )
 
 // ErrorCode represents unique error identifiers
@@ -57,6 +58,7 @@ type RodentError struct {
 // Error code ranges:
 // 1000-1099: Configuration errors
 // 1100-1199: Server errors
+// 1200-1299: Active Directory errors
 // 1300-1399: Command execution
 // 1400-1499: Health check
 // 1500-1599: Lifecycle management
@@ -88,6 +90,34 @@ const (
 	ServerResponseError                   // Response generation error
 	ServerContextCancelled                // Context cancelled
 	ServerTLSError                        // TLS configuration error
+)
+
+const (
+	// Active Directory Errors (1200-1299)
+	ADConnectFailed      = 1200 + iota // Failed to connect to AD
+	ADSearchFailed                     // Failed to search AD
+	ADUserNotFound                     // User not found
+	ADGroupNotFound                    // Group not found
+	ADPermissionDenied                 // Permission denied
+	ADInvalidCredentials               // Invalid credentials
+	ADInvalidFilter                    // Invalid search filter
+	ADInvalidBaseDN                    // Invalid base DN
+	ADInvalidAttribute                 // Invalid attribute
+	ADInvalidGroup                     // Invalid group
+	ADInvalidUser                      // Invalid user
+
+	ADCreateUserFailed     // Failed to add user
+	ADUpdateUserFailed     // Failed to update user
+	ADDeleteUserFailed     // Failed to delete user
+	ADCreateGroupFailed    // Failed to add group
+	ADUpdateGroupFailed    // Failed to update group
+	ADDeleteGroupFailed    // Failed to delete group
+	ADCreateComputerFailed // Failed to add computer
+	ADUpdateComputerFailed // Failed to update computer
+	ADDeleteComputerFailed // Failed to delete computer
+	ADEncodePasswordFailed // Failed to encode password
+	ADSetPasswordFailed    // Failed to set password
+	ADEnableAccountFailed  // Failed to enable account
 )
 
 const (
@@ -315,6 +345,123 @@ var errorDefinitions = map[ErrorCode]struct {
 	ServerTLSError: {
 		"TLS configuration error",
 		DomainServer,
+		http.StatusInternalServerError,
+	},
+
+	// Active Directory errors
+	ADConnectFailed: {
+		"Failed to connect to Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADSearchFailed: {
+		"Failed to search Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADUserNotFound: {
+		"User not found in Active Directory",
+		DomainAD,
+		http.StatusNotFound,
+	},
+	ADGroupNotFound: {
+		"Group not found in Active Directory",
+		DomainAD,
+		http.StatusNotFound,
+	},
+	ADPermissionDenied: {
+		"Permission denied accessing Active Directory",
+		DomainAD,
+		http.StatusForbidden,
+	},
+	ADInvalidCredentials: {
+		"Invalid credentials for Active Directory",
+		DomainAD,
+		http.StatusUnauthorized,
+	},
+	ADInvalidFilter: {
+		"Invalid search filter",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADInvalidBaseDN: {
+		"Invalid base DN",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADInvalidAttribute: {
+		"Invalid attribute",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADInvalidGroup: {
+		"Invalid group",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADInvalidUser: {
+		"Invalid user",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADCreateUserFailed: {
+		"Failed to create user in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADUpdateUserFailed: {
+		"Failed to update user in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADDeleteUserFailed: {
+		"Failed to delete user from Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADCreateGroupFailed: {
+		"Failed to create group in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADUpdateGroupFailed: {
+		"Failed to update group in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADDeleteGroupFailed: {
+		"Failed to delete group from Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADCreateComputerFailed: {
+		"Failed to create computer in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADUpdateComputerFailed: {
+		"Failed to update computer in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADDeleteComputerFailed: {
+		"Failed to delete computer from Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADEncodePasswordFailed: {
+		"Failed to encode password for Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADSetPasswordFailed: {
+		"Failed to set password in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADEnableAccountFailed: {
+		"Failed to enable account in Active Directory",
+		DomainAD,
 		http.StatusInternalServerError,
 	},
 
