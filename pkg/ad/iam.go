@@ -98,7 +98,10 @@ func (c *ADClient) CreateUser(user *User) error {
 	userDN := fmt.Sprintf("CN=%s,%s", user.CN, c.userOU)
 	addReq := ldap.NewAddRequest(userDN, nil)
 	// Set required object classes.
-	addReq.Attribute("objectClass", []string{"top", "person", "organizationalPerson", "user"})
+	addReq.Attribute(
+		"objectClass",
+		[]string{"top", "person", "organizationalPerson", "user"},
+	)
 	addReq.Attribute("cn", []string{user.CN})
 	addReq.Attribute("sAMAccountName", []string{user.SAMAccountName})
 	// Use provided UPN or default to SAMAccountName@domain.
@@ -176,7 +179,10 @@ func (c *ADClient) CreateUser(user *User) error {
 
 // SearchUser returns LDAP entries for users matching the provided sAMAccountName.
 func (c *ADClient) SearchUser(sAMAccountName string) ([]*ldap.Entry, error) {
-	filter := fmt.Sprintf("(&(objectClass=user)(sAMAccountName=%s))", sAMAccountName)
+	filter := fmt.Sprintf(
+		"(&(objectClass=user)(sAMAccountName=%s))",
+		sAMAccountName,
+	)
 	searchReq := ldap.NewSearchRequest(
 		c.userOU,
 		ldap.ScopeWholeSubtree,
@@ -202,6 +208,14 @@ func (c *ADClient) SearchUser(sAMAccountName string) ([]*ldap.Entry, error) {
 			"mobile",
 			"manager",
 			"employeeID",
+			"whenCreated",
+			"whenChanged",
+			"pwdLastSet",
+			"lastLogon",
+			"lastLogoff",
+			"badPwdCount",
+			"badPasswordTime",
+			"accountExpires",
 		},
 		nil,
 	)
@@ -211,6 +225,27 @@ func (c *ADClient) SearchUser(sAMAccountName string) ([]*ldap.Entry, error) {
 			WithMetadata("sam_account_name", sAMAccountName)
 	}
 	return sr.Entries, nil
+}
+
+func (c *ADClient) GetUserGroups(sAMAccountName string) ([]string, error) {
+	filter := fmt.Sprintf("(&(objectClass=user)(sAMAccountName=%s))", sAMAccountName)
+	searchReq := ldap.NewSearchRequest(
+		c.userOU,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		filter,
+		[]string{"memberOf"},
+		nil,
+	)
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("sam_account_name", sAMAccountName)
+	}
+	if len(sr.Entries) == 0 {
+		return nil, errors.New(errors.ADUserNotFound, "Invalid user").
+			WithMetadata("sam_account_name", sAMAccountName)
+	}
+	return sr.Entries[0].GetAttributeValues("memberOf"), nil
 }
 
 // UpdateUser updates the attributes of an existing user.
@@ -282,7 +317,6 @@ type Group struct {
 	Mail           string   // group email address
 	GroupType      int      // security vs distribution group
 	Members        []string // DNs of group members
-	MemberOf       []string // DNs of parent groups
 	Scope          string   // DomainLocal, Global, Universal
 	Managed        bool     // if group is managed
 }
@@ -310,9 +344,6 @@ func (c *ADClient) CreateGroup(group *Group) error {
 	if len(group.Members) > 0 {
 		addReq.Attribute("member", group.Members)
 	}
-	if len(group.MemberOf) > 0 {
-		addReq.Attribute("memberOf", group.MemberOf)
-	}
 
 	if err := c.conn.Add(addReq); err != nil {
 		return errors.Wrap(err, errors.ADCreateGroupFailed).
@@ -330,8 +361,8 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 		filter,
 		[]string{
 			"dn", "cn", "sAMAccountName", "description",
-			"displayName", "mail", "groupType", "member",
-			"memberOf", "managedBy",
+			"displayName", "mail", "groupType",
+			"managedBy",
 		},
 		nil,
 	)
@@ -341,6 +372,27 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 			WithMetadata("sam_account_name", sAMAccountName)
 	}
 	return sr.Entries, nil
+}
+
+func (c *ADClient) GetGroupMembers(sAMAccountName string) ([]string, error) {
+	filter := fmt.Sprintf("(&(objectClass=group)(sAMAccountName=%s))", sAMAccountName)
+	searchReq := ldap.NewSearchRequest(
+		c.groupOU,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		filter,
+		[]string{"member"},
+		nil,
+	)
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("sam_account_name", sAMAccountName)
+	}
+	if len(sr.Entries) == 0 {
+		return nil, errors.New(errors.ADGroupNotFound, "Invalid group").
+			WithMetadata("sam_account_name", sAMAccountName)
+	}
+	return sr.Entries[0].GetAttributeValues("member"), nil
 }
 
 // UpdateGroup updates the attributes of an existing group.
@@ -360,16 +412,40 @@ func (c *ADClient) UpdateGroup(group *Group) error {
 	if group.GroupType != 0 {
 		modReq.Replace("groupType", []string{fmt.Sprintf("%d", group.GroupType)})
 	}
-	if len(group.Members) > 0 {
-		modReq.Replace("member", group.Members)
-	}
-	if len(group.MemberOf) > 0 {
-		modReq.Replace("memberOf", group.MemberOf)
-	}
 
 	if err := c.conn.Modify(modReq); err != nil {
 		return errors.Wrap(err, errors.ADUpdateGroupFailed).
 			WithMetadata("group_cn", group.CN)
+	}
+	return nil
+}
+
+// AddMembersToGroup adds members (user or group) to the specified group.
+func (c *ADClient) AddMembersToGroup(membersDN []string, groupCN string) error {
+	groupDN := fmt.Sprintf("CN=%s,%s", groupCN, c.groupOU)
+	modReq := ldap.NewModifyRequest(groupDN, nil)
+	modReq.Add("member", membersDN)
+
+	if err := c.conn.Modify(modReq); err != nil {
+		return errors.Wrap(err, errors.ADUpdateGroupFailed).
+			WithMetadata("group_cn", groupCN).
+			WithMetadata("action", "add_members").
+			WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
+	}
+	return nil
+}
+
+// RemoveMembersFromGroup removes members (user or group) from the specified group.
+func (c *ADClient) RemoveMembersFromGroup(membersDN []string, groupCN string) error {
+	groupDN := fmt.Sprintf("CN=%s,%s", groupCN, c.groupOU)
+	modReq := ldap.NewModifyRequest(groupDN, nil)
+	modReq.Delete("member", membersDN)
+
+	if err := c.conn.Modify(modReq); err != nil {
+		return errors.Wrap(err, errors.ADUpdateGroupFailed).
+			WithMetadata("group_cn", groupCN).
+			WithMetadata("action", "remove_members").
+			WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
 	}
 	return nil
 }
@@ -385,6 +461,16 @@ func (c *ADClient) DeleteGroup(cn string) error {
 	return nil
 }
 
+// GetUserOU returns the configured User OU for testing purposes
+func (c *ADClient) GetUserOU() string {
+	return c.userOU
+}
+
+// GetGroupOU returns the configured Group OU for testing purposes
+func (c *ADClient) GetGroupOU() string {
+	return c.groupOU
+}
+
 // Computer represents an AD computer object.
 type Computer struct {
 	CN             string
@@ -396,7 +482,6 @@ type Computer struct {
 	ServicePack    string    // installed service pack
 	LastLogon      time.Time // last logon timestamp
 	Enabled        bool      // account status
-	MemberOf       []string  // DNs of groups
 	Location       string    // physical location
 	ManagedBy      string    // DN of responsible admin
 }
@@ -423,9 +508,6 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 	}
 	if comp.ServicePack != "" {
 		addReq.Attribute("operatingSystemServicePack", []string{comp.ServicePack})
-	}
-	if len(comp.MemberOf) > 0 {
-		addReq.Attribute("memberOf", comp.MemberOf)
 	}
 	if comp.Location != "" {
 		addReq.Attribute("location", []string{comp.Location})
@@ -484,9 +566,6 @@ func (c *ADClient) UpdateComputer(comp *Computer) error {
 	if comp.ServicePack != "" {
 		modReq.Replace("operatingSystemServicePack", []string{comp.ServicePack})
 	}
-	if len(comp.MemberOf) > 0 {
-		modReq.Replace("memberOf", comp.MemberOf)
-	}
 	if comp.Location != "" {
 		modReq.Replace("location", []string{comp.Location})
 	}
@@ -530,4 +609,19 @@ func transformString(t transform.Transformer, s string) (string, error) {
 		return "", err
 	}
 	return result, nil
+}
+
+// difference returns elements in a that aren't in b
+func difference(a, b []string) []string {
+	mb := make(map[string]struct{}, len(b))
+	for _, x := range b {
+		mb[x] = struct{}{}
+	}
+	var diff []string
+	for _, x := range a {
+		if _, found := mb[x]; !found {
+			diff = append(diff, x)
+		}
+	}
+	return diff
 }

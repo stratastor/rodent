@@ -49,6 +49,7 @@ func TestUserLifecycle(t *testing.T) {
 	}
 
 	entries, err := client.SearchUser(username)
+	t.Logf("entries: %v", entries)
 	if err != nil {
 		t.Fatalf("SearchUser failed: %v", err)
 	}
@@ -147,6 +148,7 @@ func TestGroupLifecycle(t *testing.T) {
 	}
 
 	entries, err := client.SearchGroup(groupName)
+	t.Logf("entries: %v", entries)
 	if err != nil {
 		t.Fatalf("SearchGroup failed: %v", err)
 	}
@@ -172,6 +174,7 @@ func TestGroupLifecycle(t *testing.T) {
 	group.DisplayName = "Space Monkeys"
 	group.Description = "The First Rule of Project Mayhem"
 	group.Mail = "space.monkeys@paperstreet.com"
+	// group.Members = []string{"CN=testu2,CN=Users,DC=ad,DC=strata,DC=internal"}
 
 	if err := client.UpdateGroup(group); err != nil {
 		t.Fatalf("UpdateGroup failed: %v", err)
@@ -199,6 +202,109 @@ func TestGroupLifecycle(t *testing.T) {
 	// Delete and verify
 	if err := client.DeleteGroup(groupName); err != nil {
 		t.Fatalf("DeleteGroup failed: %v", err)
+	}
+}
+
+// TestGroupMembershipOperations tests group membership operations including adding/removing members
+// and retrieving group/user membership information.
+func TestGroupMembershipOperations(t *testing.T) {
+	client, err := ad.New()
+	if err != nil {
+		t.Fatalf("Failed to create ADClient: %v", err)
+	}
+	defer client.Close()
+
+	// Create a test user
+	username := randomString("TylerD")
+	user := &ad.User{
+		CN:             username,
+		SAMAccountName: username,
+		Password:       "IAmJacksPassword#42!",
+		GivenName:      "Tyler",
+		Surname:        "Durden",
+		DisplayName:    "Tyler Durden",
+		Description:    "I am Jack's complete lack of surprise",
+	}
+
+	if err := client.CreateUser(user); err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	defer client.DeleteUser(username) // Cleanup
+
+	// Create a test group
+	groupName := randomString("Mayhem")
+	group := &ad.Group{
+		CN:             groupName,
+		SAMAccountName: groupName,
+		Description:    "Project Mayhem Members",
+		DisplayName:    "Project Mayhem",
+	}
+
+	if err := client.CreateGroup(group); err != nil {
+		t.Fatalf("CreateGroup failed: %v", err)
+	}
+	defer client.DeleteGroup(groupName) // Cleanup
+
+	// Test adding member to group
+	userDN := fmt.Sprintf("CN=%s,%s", user.CN, client.GetUserOU())
+	membersDN := []string{userDN}
+
+	if err := client.AddMembersToGroup(membersDN, group.CN); err != nil {
+		t.Fatalf("AddMembersToGroup failed: %v", err)
+	}
+
+	// Verify group members
+	members, err := client.GetGroupMembers(group.SAMAccountName)
+	if err != nil {
+		t.Fatalf("GetGroupMembers failed: %v", err)
+	}
+	if len(members) != 1 {
+		t.Errorf("Expected 1 group member, got %d", len(members))
+	}
+	if members[0] != userDN {
+		t.Errorf("Expected member DN '%s', got '%s'", userDN, members[0])
+	}
+
+	// Verify user's groups
+	groups, err := client.GetUserGroups(user.SAMAccountName)
+	if err != nil {
+		t.Fatalf("GetUserGroups failed: %v", err)
+	}
+	expectedGroupDN := fmt.Sprintf("CN=%s,%s", group.CN, client.GetGroupOU())
+	found := false
+	for _, g := range groups {
+		if g == expectedGroupDN {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("User not found in group '%s'", expectedGroupDN)
+	}
+
+	// Test removing member from group
+	if err := client.RemoveMembersFromGroup(membersDN, group.CN); err != nil {
+		t.Fatalf("RemoveMembersFromGroup failed: %v", err)
+	}
+
+	// Verify member removal
+	members, err = client.GetGroupMembers(group.SAMAccountName)
+	if err != nil {
+		t.Fatalf("GetGroupMembers after removal failed: %v", err)
+	}
+	if len(members) != 0 {
+		t.Errorf("Expected 0 group members after removal, got %d", len(members))
+	}
+
+	// Verify user's groups after removal
+	groups, err = client.GetUserGroups(user.SAMAccountName)
+	if err != nil {
+		t.Fatalf("GetUserGroups after removal failed: %v", err)
+	}
+	for _, g := range groups {
+		if g == expectedGroupDN {
+			t.Errorf("User still found in group '%s' after removal", expectedGroupDN)
+		}
 	}
 }
 
