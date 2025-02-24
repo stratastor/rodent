@@ -294,9 +294,26 @@ func (c *ADClient) CreateGroup(group *Group) error {
 	addReq.Attribute("objectClass", []string{"top", "group"})
 	addReq.Attribute("cn", []string{group.CN})
 	addReq.Attribute("sAMAccountName", []string{group.SAMAccountName})
+
 	if group.Description != "" {
 		addReq.Attribute("description", []string{group.Description})
 	}
+	if group.DisplayName != "" {
+		addReq.Attribute("displayName", []string{group.DisplayName})
+	}
+	if group.Mail != "" {
+		addReq.Attribute("mail", []string{group.Mail})
+	}
+	if group.GroupType != 0 {
+		addReq.Attribute("groupType", []string{fmt.Sprintf("%d", group.GroupType)})
+	}
+	if len(group.Members) > 0 {
+		addReq.Attribute("member", group.Members)
+	}
+	if len(group.MemberOf) > 0 {
+		addReq.Attribute("memberOf", group.MemberOf)
+	}
+
 	if err := c.conn.Add(addReq); err != nil {
 		return errors.Wrap(err, errors.ADCreateGroupFailed).
 			WithMetadata("group_cn", group.CN)
@@ -311,7 +328,11 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 		c.groupOU,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		filter,
-		[]string{"dn", "cn", "sAMAccountName", "description"},
+		[]string{
+			"dn", "cn", "sAMAccountName", "description",
+			"displayName", "mail", "groupType", "member",
+			"memberOf", "managedBy",
+		},
 		nil,
 	)
 	sr, err := c.conn.Search(searchReq)
@@ -326,9 +347,26 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 func (c *ADClient) UpdateGroup(group *Group) error {
 	groupDN := fmt.Sprintf("CN=%s,%s", group.CN, c.groupOU)
 	modReq := ldap.NewModifyRequest(groupDN, nil)
+
 	if group.Description != "" {
 		modReq.Replace("description", []string{group.Description})
 	}
+	if group.DisplayName != "" {
+		modReq.Replace("displayName", []string{group.DisplayName})
+	}
+	if group.Mail != "" {
+		modReq.Replace("mail", []string{group.Mail})
+	}
+	if group.GroupType != 0 {
+		modReq.Replace("groupType", []string{fmt.Sprintf("%d", group.GroupType)})
+	}
+	if len(group.Members) > 0 {
+		modReq.Replace("member", group.Members)
+	}
+	if len(group.MemberOf) > 0 {
+		modReq.Replace("memberOf", group.MemberOf)
+	}
+
 	if err := c.conn.Modify(modReq); err != nil {
 		return errors.Wrap(err, errors.ADUpdateGroupFailed).
 			WithMetadata("group_cn", group.CN)
@@ -370,9 +408,32 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 	addReq.Attribute("objectClass", []string{"top", "person", "organizationalPerson", "computer"})
 	addReq.Attribute("cn", []string{comp.CN})
 	addReq.Attribute("sAMAccountName", []string{comp.SAMAccountName})
+
 	if comp.Description != "" {
 		addReq.Attribute("description", []string{comp.Description})
 	}
+	if comp.DNSHostName != "" {
+		addReq.Attribute("dNSHostName", []string{comp.DNSHostName})
+	}
+	if comp.OSName != "" {
+		addReq.Attribute("operatingSystem", []string{comp.OSName})
+	}
+	if comp.OSVersion != "" {
+		addReq.Attribute("operatingSystemVersion", []string{comp.OSVersion})
+	}
+	if comp.ServicePack != "" {
+		addReq.Attribute("operatingSystemServicePack", []string{comp.ServicePack})
+	}
+	if len(comp.MemberOf) > 0 {
+		addReq.Attribute("memberOf", comp.MemberOf)
+	}
+	if comp.Location != "" {
+		addReq.Attribute("location", []string{comp.Location})
+	}
+	if comp.ManagedBy != "" {
+		addReq.Attribute("managedBy", []string{comp.ManagedBy})
+	}
+
 	if err := c.conn.Add(addReq); err != nil {
 		return errors.Wrap(err, errors.ADCreateComputerFailed).
 			WithMetadata("computer_cn", comp.CN)
@@ -387,7 +448,12 @@ func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) 
 		c.baseDN,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		filter,
-		[]string{"dn", "cn", "sAMAccountName", "description"},
+		[]string{
+			"dn", "cn", "sAMAccountName", "description",
+			"dNSHostName", "operatingSystem", "operatingSystemVersion",
+			"operatingSystemServicePack", "lastLogon", "userAccountControl",
+			"memberOf", "location", "managedBy",
+		},
 		nil,
 	)
 	sr, err := c.conn.Search(searchReq)
@@ -402,9 +468,32 @@ func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) 
 func (c *ADClient) UpdateComputer(comp *Computer) error {
 	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.baseDN)
 	modReq := ldap.NewModifyRequest(computerDN, nil)
+
 	if comp.Description != "" {
 		modReq.Replace("description", []string{comp.Description})
 	}
+	if comp.DNSHostName != "" {
+		modReq.Replace("dNSHostName", []string{comp.DNSHostName})
+	}
+	if comp.OSName != "" {
+		modReq.Replace("operatingSystem", []string{comp.OSName})
+	}
+	if comp.OSVersion != "" {
+		modReq.Replace("operatingSystemVersion", []string{comp.OSVersion})
+	}
+	if comp.ServicePack != "" {
+		modReq.Replace("operatingSystemServicePack", []string{comp.ServicePack})
+	}
+	if len(comp.MemberOf) > 0 {
+		modReq.Replace("memberOf", comp.MemberOf)
+	}
+	if comp.Location != "" {
+		modReq.Replace("location", []string{comp.Location})
+	}
+	if comp.ManagedBy != "" {
+		modReq.Replace("managedBy", []string{comp.ManagedBy})
+	}
+
 	if err := c.conn.Modify(modReq); err != nil {
 		return errors.Wrap(err, errors.ADUpdateComputerFailed).
 			WithMetadata("computer_cn", comp.CN)

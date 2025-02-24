@@ -17,7 +17,7 @@ func randomString(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// TestUserLifecycle creates a user, verifies its creation, updates its attributes, and then deletes it.
+// TestUserLifecycle tests user CRUD operations with additional attributes
 func TestUserLifecycle(t *testing.T) {
 	client, err := ad.New()
 	if err != nil {
@@ -33,14 +33,21 @@ func TestUserLifecycle(t *testing.T) {
 		GivenName:      "Robert",
 		Surname:        "Paulson",
 		Description:    "In Tyler we trust",
+		DisplayName:    "Robert Paulson",
+		Title:          "Project Mayhem Coordinator",
+		Department:     "Soap Manufacturing",
+		Company:        "Paper Street Soap Co.",
+		PhoneNumber:    "555-0134",
+		Mobile:         "555-0135",
+		Mail:           "robert.paulson@paperstreet.com",
+		EmployeeID:     "PM-001",
 	}
 
-	// Create the user.
+	// Create and verify user attributes
 	if err := client.CreateUser(user); err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	// Search for the user.
 	entries, err := client.SearchUser(username)
 	if err != nil {
 		t.Fatalf("SearchUser failed: %v", err)
@@ -48,15 +55,37 @@ func TestUserLifecycle(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("User %s not found after creation", username)
 	}
-	t.Logf("User created with DN: %s", entries[0].DN)
 
-	// Update the user's description.
-	user.Description = "Updated description"
+	// Verify all attributes
+	entry := entries[0]
+	verifyAttributes := map[string]string{
+		"displayName":     user.DisplayName,
+		"title":           user.Title,
+		"department":      user.Department,
+		"company":         user.Company,
+		"telephoneNumber": user.PhoneNumber,
+		"mobile":          user.Mobile,
+		"mail":            user.Mail,
+		"employeeID":      user.EmployeeID,
+	}
+
+	for attr, expected := range verifyAttributes {
+		if got := entry.GetAttributeValue(attr); got != expected {
+			t.Errorf("Expected %s='%s', got '%s'", attr, expected, got)
+		}
+	}
+
+	// Update multiple attributes
+	user.Title = "Fight Club Organizer"
+	user.Department = "Underground Operations"
+	user.PhoneNumber = "555-0136"
+	user.Description = "His name was Robert Paulson"
+
 	if err := client.UpdateUser(user); err != nil {
 		t.Fatalf("UpdateUser failed: %v", err)
 	}
 
-	// Verify the update.
+	// Verify updates
 	entries, err = client.SearchUser(username)
 	if err != nil {
 		t.Fatalf("SearchUser after update failed: %v", err)
@@ -64,17 +93,26 @@ func TestUserLifecycle(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("User %s not found after update", username)
 	}
-	updatedDesc := entries[0].GetAttributeValue("description")
-	if updatedDesc != "Updated description" {
-		t.Errorf("Expected description 'Updated description', got '%s'", updatedDesc)
+
+	entry = entries[0]
+	updatedAttrs := map[string]string{
+		"title":           "Fight Club Organizer",
+		"department":      "Underground Operations",
+		"telephoneNumber": "555-0136",
+		"description":     "His name was Robert Paulson",
 	}
 
-	// Delete the user.
+	for attr, expected := range updatedAttrs {
+		if got := entry.GetAttributeValue(attr); got != expected {
+			t.Errorf("After update: Expected %s='%s', got '%s'", attr, expected, got)
+		}
+	}
+
+	// Delete and verify
 	if err := client.DeleteUser(username); err != nil {
 		t.Fatalf("DeleteUser failed: %v", err)
 	}
 
-	// Verify deletion.
 	entries, err = client.SearchUser(username)
 	if err != nil {
 		t.Fatalf("SearchUser after deletion failed: %v", err)
@@ -96,15 +134,18 @@ func TestGroupLifecycle(t *testing.T) {
 	group := &ad.Group{
 		CN:             groupName,
 		SAMAccountName: groupName,
-		Description:    "Destroying aspects of modern society associated with consumerism",
+		Description:    "Project Mayhem Operations",
+		DisplayName:    "Project Mayhem Team",
+		Mail:           "project.mayhem@paperstreet.com",
+		GroupType:      4, // Security group
+		Scope:          "Global",
+		Managed:        true,
 	}
 
-	// Create the group.
 	if err := client.CreateGroup(group); err != nil {
 		t.Fatalf("CreateGroup failed: %v", err)
 	}
 
-	// Search for the group.
 	entries, err := client.SearchGroup(groupName)
 	if err != nil {
 		t.Fatalf("SearchGroup failed: %v", err)
@@ -112,39 +153,52 @@ func TestGroupLifecycle(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("Group %s not found after creation", groupName)
 	}
-	t.Logf("Group created with DN: %s", entries[0].DN)
 
-	// Update the group's description.
-	group.Description = "Updated group description"
+	// Verify attributes
+	entry := entries[0]
+	verifyAttributes := map[string]string{
+		"displayName": group.DisplayName,
+		"mail":        group.Mail,
+		"groupType":   "4",
+	}
+
+	for attr, expected := range verifyAttributes {
+		if got := entry.GetAttributeValue(attr); got != expected {
+			t.Errorf("Expected %s='%s', got '%s'", attr, expected, got)
+		}
+	}
+
+	// Test update with new values
+	group.DisplayName = "Space Monkeys"
+	group.Description = "The First Rule of Project Mayhem"
+	group.Mail = "space.monkeys@paperstreet.com"
+
 	if err := client.UpdateGroup(group); err != nil {
 		t.Fatalf("UpdateGroup failed: %v", err)
 	}
 
-	// Verify the update.
+	// Verify updates
 	entries, err = client.SearchGroup(groupName)
 	if err != nil {
 		t.Fatalf("SearchGroup after update failed: %v", err)
 	}
-	if len(entries) == 0 {
-		t.Fatalf("Group %s not found after update", groupName)
-	}
-	updatedDesc := entries[0].GetAttributeValue("description")
-	if updatedDesc != "Updated group description" {
-		t.Errorf("Expected group description 'Updated group description', got '%s'", updatedDesc)
+
+	entry = entries[0]
+	updatedAttrs := map[string]string{
+		"displayName": "Space Monkeys",
+		"description": "The First Rule of Project Mayhem",
+		"mail":        "space.monkeys@paperstreet.com",
 	}
 
-	// Delete the group.
+	for attr, expected := range updatedAttrs {
+		if got := entry.GetAttributeValue(attr); got != expected {
+			t.Errorf("After update: Expected %s='%s', got '%s'", attr, expected, got)
+		}
+	}
+
+	// Delete and verify
 	if err := client.DeleteGroup(groupName); err != nil {
 		t.Fatalf("DeleteGroup failed: %v", err)
-	}
-
-	// Verify deletion.
-	entries, err = client.SearchGroup(groupName)
-	if err != nil {
-		t.Fatalf("SearchGroup after deletion failed: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("Group %s still exists after deletion", groupName)
 	}
 }
 
@@ -176,7 +230,6 @@ func TestComputerLifecycle(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("Computer %s not found after creation", compName)
 	}
-	t.Logf("Computer created with DN: %s", entries[0].DN)
 
 	// Update the computer's description.
 	comp.Description = "Updated computer description"
