@@ -7,6 +7,7 @@ package ad
 import (
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -21,8 +22,8 @@ import (
 const (
 	defaultLDAPURL = "ldaps://DC1.ad.strata.internal:636"
 	defaultBaseDN  = "DC=ad,DC=strata,DC=internal"
-	defaultUserOU  = "CN=Users," + defaultBaseDN
-	defaultGroupOU = "CN=Users," + defaultBaseDN
+	defaultUserOU  = "OU=StrataUsers," + defaultBaseDN
+	defaultGroupOU = "OU=StrataGroups," + defaultBaseDN
 	defaultAdminDN = "CN=Administrator,CN=Users," + defaultBaseDN
 )
 
@@ -54,21 +55,110 @@ func New() (*ADClient, error) {
 		conn.Close()
 		return nil, errors.Wrap(err, errors.ADInvalidCredentials)
 	}
+
+	baseDN, err := GetDefaultNamingContext(conn)
+	if err != nil {
+		return nil, err
+	}
+	userOU := "OU=StrataUsers," + baseDN
+	groupOU := "OU=StrataGroups," + baseDN
+
 	client := &ADClient{
 		ldapURL:   defaultLDAPURL,
-		baseDN:    defaultBaseDN,
-		userOU:    defaultUserOU,
-		groupOU:   defaultGroupOU,
+		baseDN:    baseDN,
+		userOU:    userOU,
+		groupOU:   groupOU,
 		adminDN:   defaultAdminDN,
 		conn:      conn,
 		tlsConfig: tlsConfig,
 	}
+	// Ensure required OUs exist
+	if err := client.EnsureOUExists(client.userOU); err != nil {
+		return nil, errors.Wrap(err, errors.ADCreateOUFailed).
+			WithMetadata("ou_dn", client.userOU)
+	}
+	if err := client.EnsureOUExists(client.groupOU); err != nil {
+		return nil, errors.Wrap(err, errors.ADCreateOUFailed).
+			WithMetadata("ou_dn", client.groupOU)
+	}
+
 	return client, nil
 }
 
 // Close terminates the LDAP connection.
 func (c *ADClient) Close() {
 	c.conn.Close()
+}
+
+func GetDefaultNamingContext(conn *ldap.Conn) (string, error) {
+	searchReq := ldap.NewSearchRequest(
+		"",
+		ldap.ScopeBaseObject,
+		ldap.NeverDerefAliases,
+		0, 0, false,
+		"(objectClass=*)",
+		[]string{"defaultNamingContext"},
+		nil,
+	)
+	sr, err := conn.Search(searchReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve RootDSE: %v", err)
+	}
+	if len(sr.Entries) == 0 {
+		return "", fmt.Errorf("no entries returned for RootDSE")
+	}
+	return sr.Entries[0].GetAttributeValue("defaultNamingContext"), nil
+}
+
+// EnsureOUExists checks if an OU exists in its parent container and creates it if missing.
+func (c *ADClient) EnsureOUExists(ouDN string) error {
+	// Split ouDN into RDN and parent DN.
+	rdnParts := strings.SplitN(ouDN, ",", 2)
+	if len(rdnParts) < 2 {
+		return fmt.Errorf("invalid OU DN: %s", ouDN)
+	}
+	rdn := rdnParts[0]      // e.g. "OU=StrataUsers"
+	parentDN := rdnParts[1] // e.g. "DC=ad,DC=strata,DC=internal"
+
+	// Build a filter to search for the OU in its parent.
+	filter := fmt.Sprintf("(%s)", rdn)
+	searchReq := ldap.NewSearchRequest(
+		parentDN,
+		ldap.ScopeSingleLevel, // only immediate children
+		ldap.NeverDerefAliases,
+		0,
+		0,
+		false,
+		filter,
+		[]string{"dn", "ou"},
+		nil,
+	)
+
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("ou_dn", ouDN).
+			WithMetadata("action", "check_exists")
+	}
+
+	// If OU doesn't exist, create it.
+	if len(sr.Entries) == 0 {
+		// Extract the OU name from the RDN.
+		rdnKV := strings.SplitN(rdn, "=", 2)
+		if len(rdnKV) != 2 {
+			return fmt.Errorf("invalid RDN for OU: %s", rdn)
+		}
+		ouName := rdnKV[1]
+		addReq := ldap.NewAddRequest(ouDN, nil)
+		addReq.Attribute("objectClass", []string{"top", "organizationalUnit"})
+		addReq.Attribute("ou", []string{ouName})
+		if err := c.conn.Add(addReq); err != nil {
+			return errors.Wrap(err, errors.ADCreateOUFailed).
+				WithMetadata("ou_dn", ouDN).
+				WithMetadata("ou_name", ouName)
+		}
+	}
+	return nil
 }
 
 // User represents a Samba AD user with common attributes.
@@ -95,6 +185,11 @@ type User struct {
 // CreateUser adds a new user and sets the password.
 // Password modifications require an encrypted connection.
 func (c *ADClient) CreateUser(user *User) error {
+	if err := c.EnsureOUExists(c.userOU); err != nil {
+		return errors.Wrap(err, errors.ADCreateUserFailed).
+			WithMetadata("user_cn", user.CN).
+			WithMetadata("ou_dn", c.userOU)
+	}
 	userDN := fmt.Sprintf("CN=%s,%s", user.CN, c.userOU)
 	addReq := ldap.NewAddRequest(userDN, nil)
 	// Set required object classes.
@@ -248,6 +343,69 @@ func (c *ADClient) GetUserGroups(sAMAccountName string) ([]string, error) {
 	return sr.Entries[0].GetAttributeValues("memberOf"), nil
 }
 
+// ListUsers retrieves all user entries in the user OU.
+func (c *ADClient) ListUsers() ([]*ldap.Entry, error) {
+	filter := "(objectClass=user)"
+	searchReq := ldap.NewSearchRequest(
+		c.userOU,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0,
+		0,
+		false,
+		filter,
+		[]string{
+			"dn",
+			"cn",
+			"sAMAccountName",
+			"userPrincipalName",
+			"givenName",
+			"sn",
+			"description",
+			"displayName",
+		},
+		nil,
+	)
+
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("scope", "all_users").
+			WithMetadata("base_dn", c.userOU)
+	}
+	return sr.Entries, nil
+}
+
+// ListGroups retrieves all group entries in the group OU.
+func (c *ADClient) ListGroups() ([]*ldap.Entry, error) {
+	filter := "(objectClass=group)"
+	searchReq := ldap.NewSearchRequest(
+		c.groupOU,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0,
+		0,
+		false,
+		filter,
+		[]string{
+			"dn",
+			"cn",
+			"sAMAccountName",
+			"description",
+			"displayName",
+		},
+		nil,
+	)
+
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("scope", "all_groups").
+			WithMetadata("base_dn", c.groupOU)
+	}
+	return sr.Entries, nil
+}
+
 // UpdateUser updates the attributes of an existing user.
 // Only non-empty fields in the provided User struct will be updated.
 func (c *ADClient) UpdateUser(user *User) error {
@@ -323,6 +481,11 @@ type Group struct {
 
 // CreateGroup creates a new group in AD.
 func (c *ADClient) CreateGroup(group *Group) error {
+	if err := c.EnsureOUExists(c.groupOU); err != nil {
+		return errors.Wrap(err, errors.ADCreateUserFailed).
+			WithMetadata("group_cn", group.CN).
+			WithMetadata("ou_dn", c.groupOU)
+	}
 	groupDN := fmt.Sprintf("CN=%s,%s", group.CN, c.groupOU)
 	addReq := ldap.NewAddRequest(groupDN, nil)
 	addReq.Attribute("objectClass", []string{"top", "group"})

@@ -118,6 +118,7 @@ const (
 	ADEncodePasswordFailed // Failed to encode password
 	ADSetPasswordFailed    // Failed to set password
 	ADEnableAccountFailed  // Failed to enable account
+	ADCreateOUFailed       // Failed to create OU
 )
 
 const (
@@ -461,6 +462,11 @@ var errorDefinitions = map[ErrorCode]struct {
 	},
 	ADEnableAccountFailed: {
 		"Failed to enable account in Active Directory",
+		DomainAD,
+		http.StatusInternalServerError,
+	},
+	ADCreateOUFailed: {
+		"Failed to create Organizational Unit in Active Directory",
 		DomainAD,
 		http.StatusInternalServerError,
 	},

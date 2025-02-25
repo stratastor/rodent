@@ -49,7 +49,6 @@ func TestUserLifecycle(t *testing.T) {
 	}
 
 	entries, err := client.SearchUser(username)
-	t.Logf("entries: %v", entries)
 	if err != nil {
 		t.Fatalf("SearchUser failed: %v", err)
 	}
@@ -109,6 +108,24 @@ func TestUserLifecycle(t *testing.T) {
 		}
 	}
 
+	entries, err = client.ListUsers()
+	if err != nil {
+		t.Fatalf("ListUsers failed: %v", err)
+	}
+
+	// Verify we got some users
+	if len(entries) == 0 {
+		t.Error("Expected at least one user, got none")
+	}
+
+	// Verify required attributes are present
+	for _, entry := range entries {
+		t.Logf("User: %v", entry.DN)
+		if entry.GetAttributeValue("sAMAccountName") == "" {
+			t.Errorf("User entry missing sAMAccountName: %v", entry.DN)
+		}
+	}
+
 	// Delete and verify
 	if err := client.DeleteUser(username); err != nil {
 		t.Fatalf("DeleteUser failed: %v", err)
@@ -148,7 +165,6 @@ func TestGroupLifecycle(t *testing.T) {
 	}
 
 	entries, err := client.SearchGroup(groupName)
-	t.Logf("entries: %v", entries)
 	if err != nil {
 		t.Fatalf("SearchGroup failed: %v", err)
 	}
@@ -196,6 +212,24 @@ func TestGroupLifecycle(t *testing.T) {
 	for attr, expected := range updatedAttrs {
 		if got := entry.GetAttributeValue(attr); got != expected {
 			t.Errorf("After update: Expected %s='%s', got '%s'", attr, expected, got)
+		}
+	}
+
+	entries, err = client.ListGroups()
+	if err != nil {
+		t.Fatalf("ListGroups failed: %v", err)
+	}
+
+	// Verify we got some users
+	if len(entries) == 0 {
+		t.Error("Expected at least one group, got none")
+	}
+
+	// Verify required attributes are present
+	for _, entry := range entries {
+		t.Logf("User: %v", entry.DN)
+		if entry.GetAttributeValue("sAMAccountName") == "" {
+			t.Errorf("User entry missing sAMAccountName: %v", entry.DN)
 		}
 	}
 
