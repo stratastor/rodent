@@ -84,7 +84,11 @@ func Start(ctx context.Context, port int) error {
 	})
 
 	registerZFSRoutes(engine)
-	registerADRoutes(engine)
+	adHandler, err := registerADRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register AD routes: %w", err)
+	}
+	defer adHandler.Close()
 
 	srv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),

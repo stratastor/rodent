@@ -5,8 +5,6 @@
 package server
 
 import (
-	"log"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
@@ -46,21 +44,17 @@ func registerZFSRoutes(engine *gin.Engine) {
 	}
 }
 
-func registerADRoutes(engine *gin.Engine) {
+func registerADRoutes(engine *gin.Engine) (adHandler *handlers.ADHandler, err error) {
 	// Add error handler middleware
 	engine.Use(ErrorHandler())
 
 	// Create AD handler
-	adHandler, err := handlers.NewADHandler()
+	adHandler, err = handlers.NewADHandler()
 	if err != nil {
 		// Log the error but don't fail startup
 		// TODO: Handle this differently?
-		log.Printf("Failed to initialize AD handler: %v", err)
-		return
+		return nil, err
 	}
-
-	// Register cleanup on server shutdown
-	defer adHandler.Close()
 
 	// API group with version
 	v1 := engine.Group(constants.APIAD)
@@ -68,4 +62,5 @@ func registerADRoutes(engine *gin.Engine) {
 		// Register AD routes
 		adHandler.RegisterRoutes(v1)
 	}
+	return adHandler, nil
 }
