@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -130,4 +131,34 @@ func logAttrs(attrs []slog.Attr) []interface{} {
 		args[i*2+1] = attr.Value.Any()
 	}
 	return args
+}
+
+// ErrorHandler adds structured error handling
+func ErrorHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		if len(c.Errors) > 0 {
+			err := c.Errors.Last()
+
+			// Default to 500
+			status := http.StatusInternalServerError
+
+			// Convert to our error type
+			if re, ok := err.Err.(*errors.RodentError); ok {
+				// Use appropriate status code
+				if re.HTTPStatus != 0 {
+					status = re.HTTPStatus
+				}
+
+				// Return structured error response
+				c.JSON(status, re)
+			} else {
+				// Return generic error for unknown types
+				c.JSON(status, gin.H{
+					"error": err.Error(),
+				})
+			}
+		}
+	}
 }

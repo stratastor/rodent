@@ -33,4 +33,6 @@ const (
 	APIZFS     = APIBase + "/zfs"
 	APIPool    = APIZFS + "/pool"
 	APIDataset = APIZFS + "/dataset"
+
+	APIAD = APIBase + "/ad"
 )

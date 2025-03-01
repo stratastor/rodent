@@ -30,7 +30,7 @@ import (
 
 func registerZFSRoutes(engine *gin.Engine) {
 	// Add error handler middleware
-	engine.Use(api.ErrorHandler())
+	engine.Use(ErrorHandler())
 
 	cfg := config.GetConfig()
 	// Create command executor with sudo support
