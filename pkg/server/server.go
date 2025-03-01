@@ -84,6 +84,7 @@ func Start(ctx context.Context, port int) error {
 	})
 
 	registerZFSRoutes(engine)
+	registerADRoutes(engine)
 
 	srv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
