@@ -39,3 +39,5 @@ strata.yaml
 # artifacts from pprof tooling
 *.prof
 *.test
+
+./scripts/traefik/certs

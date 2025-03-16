@@ -35,4 +35,7 @@ const (
 	APIDataset = APIZFS + "/dataset"
 
 	APIAD = APIBase + "/ad"
+
+	// config
+	DefaultTraefikCertDir = "/home/ubuntu/rodent/scripts/traefik/certs"
 )

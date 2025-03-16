@@ -11,17 +11,19 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/httpclient"
 )
 
 const (
 	// DefaultToggleBaseURL is the default URL for the Toggle API
-	DefaultToggleBaseURL = "https://toggle.stratastor.com"
+	DefaultToggleBaseURL = "https://strata.foo"
 
 	// DefaultRetryInterval is the interval between retry attempts
 	DefaultRetryInterval = 1 * time.Minute
@@ -72,15 +74,7 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 		return fmt.Errorf("failed to extract organization ID from JWT: %w", err)
 	}
 
-	// Get hostname for registration
-	hostname, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("failed to get hostname: %w", err)
-	}
-
-	payload := map[string]string{
-		"hostname": hostname,
-	}
+	payload := map[string]string{}
 
 	registerPath := fmt.Sprintf("/api/v1/toggle/organizations/%s/rodent-nodes", orgID)
 
@@ -102,8 +96,41 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 			resp.StatusCode(), resp.String())
 	}
 
+	// Parse the response which now contains certificate information
+	var regResponse struct {
+		Message     string    `json:"message"`
+		Domain      string    `json:"domain"`
+		Certificate string    `json:"certificate"`
+		PrivateKey  string    `json:"private_key"`
+		ExpiresOn   time.Time `json:"expires_on"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &regResponse); err != nil {
+		return fmt.Errorf("failed to parse registration response: %w", err)
+	}
+
+	// Ensure certificate directory exists
+	certDir := constants.DefaultTraefikCertDir
+	if err := os.MkdirAll(certDir, 0755); err != nil {
+		return fmt.Errorf("failed to create certificate directory: %w", err)
+	}
+
+	// Write certificate to file
+	certFile := filepath.Join(certDir, regResponse.Domain+".pem")
+	if err := os.WriteFile(certFile, []byte(regResponse.Certificate), 0644); err != nil {
+		return fmt.Errorf("failed to write certificate file: %w", err)
+	}
+
+	// Write private key to file
+	keyFile := filepath.Join(certDir, regResponse.Domain+".key")
+	if err := os.WriteFile(keyFile, []byte(regResponse.PrivateKey), 0600); err != nil {
+		return fmt.Errorf("failed to write private key file: %w", err)
+	}
+
 	c.logger.Info("Successfully registered with Toggle service",
-		"orgID", orgID, "hostname", hostname)
+		"orgID", orgID, "domain", regResponse.Domain,
+		"certFile", certFile, "keyFile", keyFile, "expiresOn", regResponse.ExpiresOn)
+
 	return nil
 }
 
