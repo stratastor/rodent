@@ -136,13 +136,25 @@ func (c *Client) Status(ctx context.Context) ([]services.ServiceStatus, error) {
 
 	// Parse the systemctl output for status info
 	state := "unknown"
-	status := string(output)
+	statusFull := string(output)
+	status := "Unknown status"
 
-	if strings.Contains(status, "Active: active (running)") {
+	// Extract just the "Active:" line for the status
+	lines := strings.Split(statusFull, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Active:") {
+			status = strings.TrimPrefix(line, "Active:")
+			status = strings.TrimSpace(status)
+			break
+		}
+	}
+
+	if strings.Contains(statusFull, "Active: active (running)") {
 		state = "running"
-	} else if strings.Contains(status, "Active: inactive (dead)") {
+	} else if strings.Contains(statusFull, "Active: inactive (dead)") {
 		state = "stopped"
-	} else if strings.Contains(status, "Active: failed") {
+	} else if strings.Contains(statusFull, "Active: failed") {
 		state = "failed"
 	}
 
