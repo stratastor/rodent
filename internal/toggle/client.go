@@ -6,18 +6,17 @@ package toggle
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
-	"github.com/stratastor/rodent/internal/constants"
+	"github.com/stratastor/rodent/internal/services/clients"
 	"github.com/stratastor/rodent/pkg/httpclient"
 )
 
@@ -57,6 +56,14 @@ func NewClient(jwt string, l logger.Logger) *Client {
 	clientCfg.RetryCount = 3
 	clientCfg.RetryWaitTime = 5 * time.Second
 	clientCfg.BearerToken = jwt
+	clientCfg.TLSConfig = &tls.Config{
+		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS12,
+	}
+
+	if cfg.Environment != "prod" && cfg.Environment != "production" {
+		clientCfg.TLSConfig = nil
+	}
 
 	return &Client{
 		httpClient: httpclient.NewClient(clientCfg),
@@ -91,6 +98,13 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 		return fmt.Errorf("registration request failed: %w", err)
 	}
 
+	if resp != nil {
+		if resp.StatusCode() == http.StatusFound {
+			c.logger.Info("Node already registered with Toggle service", "orgID", orgID)
+			return nil
+		}
+	}
+
 	if resp.StatusCode() != http.StatusCreated {
 		return fmt.Errorf("registration failed with status %d: %s",
 			resp.StatusCode(), resp.String())
@@ -109,27 +123,26 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 		return fmt.Errorf("failed to parse registration response: %w", err)
 	}
 
-	// Ensure certificate directory exists
-	certDir := constants.DefaultTraefikCertDir
-	if err := os.MkdirAll(certDir, 0755); err != nil {
-		return fmt.Errorf("failed to create certificate directory: %w", err)
+	// Use the services package to manage Traefik certificates
+	traefikSvc, err := clients.NewTraefikClient(c.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create Traefik service client: %w", err)
 	}
 
-	// Write certificate to file
-	certFile := filepath.Join(certDir, regResponse.Domain+".pem")
-	if err := os.WriteFile(certFile, []byte(regResponse.Certificate), 0644); err != nil {
-		return fmt.Errorf("failed to write certificate file: %w", err)
-	}
-
-	// Write private key to file
-	keyFile := filepath.Join(certDir, regResponse.Domain+".key")
-	if err := os.WriteFile(keyFile, []byte(regResponse.PrivateKey), 0600); err != nil {
-		return fmt.Errorf("failed to write private key file: %w", err)
+	// Install certificate and update Traefik configuration
+	err = traefikSvc.InstallCertificate(ctx, clients.CertificateData{
+		Domain:      regResponse.Domain,
+		Certificate: regResponse.Certificate,
+		PrivateKey:  regResponse.PrivateKey,
+		ExpiresOn:   regResponse.ExpiresOn,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to install certificate: %w", err)
 	}
 
 	c.logger.Info("Successfully registered with Toggle service",
 		"orgID", orgID, "domain", regResponse.Domain,
-		"certFile", certFile, "keyFile", keyFile, "expiresOn", regResponse.ExpiresOn)
+		"expiresOn", regResponse.ExpiresOn)
 
 	return nil
 }

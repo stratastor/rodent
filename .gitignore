@@ -28,8 +28,8 @@ _gitignore/
 
 # app config
 .env
-*config.yml
-*config.yaml
+config.yml
+config.yaml
 *rodent.yml
 rodent.yml
 rodent.yaml
