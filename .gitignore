@@ -41,3 +41,4 @@ strata.yaml
 *.test
 
 ./scripts/traefik/certs
+./scripts/traefik/tls

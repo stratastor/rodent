@@ -58,6 +58,8 @@ type Config struct {
 		BaseURL string `mapstructure:"baseURL"` // Optional base URL for Toggle service
 	}
 
+	StrataSecure bool `mapstructure:"strataSecure"`
+
 	Environment string `mapstructure:"environment"`
 }
 
@@ -109,6 +111,13 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("ad.ldapURL", "ldaps://localhost:636")
 		viper.SetDefault("ad.baseDN", "CN=Users,DC=ad,DC=strata,DC=internal")
 		viper.SetDefault("ad.adminDN", "CN=Administrator,CN=Users,DC=ad,DC=strata,DC=internal")
+
+		// Set defaults for Toggle configuration
+		viper.SetDefault("toggle.jwt", "")
+		viper.SetDefault("toggle.baseURL", "")
+
+		// Set defaults for StrataSecure
+		viper.SetDefault("strataSecure", true)
 
 		// Bind environment variables
 		viper.AutomaticEnv()

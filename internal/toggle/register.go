@@ -16,6 +16,13 @@ import (
 func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 	cfg := config.GetConfig()
 
+	if !cfg.StrataSecure {
+		if l != nil {
+			l.Info("StrataSecure is disabled, skipping registration")
+		}
+		return
+	}
+
 	// Skip if JWT is not configured
 	if cfg.Toggle.JWT == "" {
 		if l != nil {
