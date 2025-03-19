@@ -5,10 +5,14 @@
 package server
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/constants"
+	svcAPI "github.com/stratastor/rodent/internal/services/api"
+	svcManager "github.com/stratastor/rodent/internal/services/manager"
 	"github.com/stratastor/rodent/pkg/ad/handlers"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
@@ -63,4 +67,32 @@ func registerADRoutes(engine *gin.Engine) (adHandler *handlers.ADHandler, err er
 		adHandler.RegisterRoutes(v1)
 	}
 	return adHandler, nil
+}
+
+func registerServiceRoutes(engine *gin.Engine) (serviceHandler *svcAPI.ServiceHandler, err error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "services")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create service manager
+	serviceManager, err := svcManager.NewServiceManager(l)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service manager: %w", err)
+	}
+
+	// Create service handler
+	serviceHandler = svcAPI.NewServiceHandler(serviceManager)
+
+	// API group with version
+	v1 := engine.Group(constants.APIServices)
+	{
+		// Register service routes
+		serviceHandler.RegisterRoutes(v1)
+	}
+	return serviceHandler, nil
 }

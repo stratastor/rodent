@@ -78,6 +78,13 @@ func Start(ctx context.Context, port int) error {
 	}
 	defer adHandler.Close()
 
+	// Register service routes
+	serviceHandler, err := registerServiceRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register service routes: %w", err)
+	}
+	defer serviceHandler.Close()
+
 	toggle.StartRegistrationProcess(ctx, l)
 
 	srv = &http.Server{

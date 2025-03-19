@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"text/template"
 	"time"
 
@@ -90,28 +89,15 @@ func (c *Client) Name() string {
 }
 
 // Status returns the current status of Traefik with detailed information
-func (c *Client) Status(ctx context.Context) (string, error) {
-	// Check if Traefik container is running via Docker
-	status, err := c.dockerSvc.ComposeStatus(ctx, c.composeFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to get Traefik status: %w", err)
-	}
-
+func (c *Client) Status(ctx context.Context) ([]services.ServiceStatus, error) {
 	// Get detailed container information if running
-	if strings.Contains(status, "running") {
-		containers, err := c.dockerSvc.GetServiceContainerDetails(ctx, c.composeFile, "traefik")
-		if err != nil {
-			c.logger.Warn("Failed to get detailed container status", "err", err)
-			return status, nil
-		}
-
-		if len(containers) > 0 {
-			container := containers[0]
-			return fmt.Sprintf("%s (ID: %s, Image: %s)", status, container.ID, container.Image), nil
-		}
+	containers, err := c.dockerSvc.ComposeStatus(ctx, c.composeFile, "traefik")
+	if err != nil {
+		c.logger.Warn("Failed to get detailed container status", "err", err)
+		return []services.ServiceStatus{}, nil
 	}
 
-	return status, nil
+	return containers, nil
 }
 
 // Start starts the Traefik service

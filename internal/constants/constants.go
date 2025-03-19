@@ -23,6 +23,9 @@ const (
 
 	APIAD = APIBase + "/ad"
 
+	// APIServices is the base path for service management API endpoints
+	APIServices = APIBase + "/services"
+
 	// config
 	DefaultTraefikCertDir = "/home/ubuntu/rodent/scripts/traefik/certs"
 	DefaultTraefikTLSPath = "/home/ubuntu/rodent/scripts/traefik/tls.yml"

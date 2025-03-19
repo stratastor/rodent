@@ -14,7 +14,7 @@ type Service interface {
 	Name() string
 
 	// Status returns the current status of the service
-	Status(ctx context.Context) (string, error)
+	Status(ctx context.Context) ([]ServiceStatus, error)
 
 	// Start starts the service
 	Start(ctx context.Context) error
@@ -24,4 +24,13 @@ type Service interface {
 
 	// Restart restarts the service
 	Restart(ctx context.Context) error
+}
+
+type ServiceStatus interface {
+	InstanceGist() string
+	InstanceName() string
+	InstanceService() string
+	InstanceStatus() string
+	InstanceHealth() string
+	InstanceState() string
 }

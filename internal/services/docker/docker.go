@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/services"
 	"github.com/stratastor/rodent/internal/services/command"
 )
 
@@ -31,10 +32,48 @@ type ContainerStatus struct {
 	Service string `json:"Service"`
 }
 
+// Verify that ContainerStatus implements ServiceStatus interface
+var _ services.ServiceStatus = (*ContainerStatus)(nil)
+
+func (c ContainerStatus) String() string {
+	return fmt.Sprintf(
+		"%s (%s) is %s [%s]",
+		c.Name,
+		c.Service,
+		c.State,
+		c.Status,
+	)
+}
+
+func (c ContainerStatus) InstanceGist() string {
+	return c.String()
+}
+
+func (c ContainerStatus) InstanceName() string {
+	return c.Name
+}
+
+func (c ContainerStatus) InstanceService() string {
+	return c.Service
+}
+
+func (c ContainerStatus) InstanceStatus() string {
+	return c.Status
+}
+
+func (c ContainerStatus) InstanceHealth() string {
+	return c.Health
+}
+
+func (c ContainerStatus) InstanceState() string {
+	return c.State
+}
+
 // Client handles interactions with Docker
 type Client struct {
-	logger    logger.Logger
-	dockerBin string
+	logger     logger.Logger
+	dockerBin  string
+	controlSvc string
 }
 
 // NewClient creates a new Docker client
@@ -46,12 +85,18 @@ func NewClient(logger logger.Logger) (*Client, error) {
 	// Check if docker is installed
 	dockerBin, err := exec.LookPath("docker")
 	if err != nil {
-		return nil, fmt.Errorf("docker is not installed or not in PATH: %w", err)
+		return nil, fmt.Errorf("docker is not available or not in PATH: %w", err)
+	}
+
+	controlBin, err := exec.LookPath("systemctl")
+	if err != nil {
+		return nil, fmt.Errorf("systemctl is not available or not in PATH: %w", err)
 	}
 
 	return &Client{
-		logger:    logger,
-		dockerBin: dockerBin,
+		logger:     logger,
+		dockerBin:  dockerBin,
+		controlSvc: controlBin,
 	}, nil
 }
 
@@ -66,30 +111,53 @@ func (c *Client) Name() string {
 }
 
 // Status returns the current status of Docker
-func (c *Client) Status(ctx context.Context) (string, error) {
+func (c *Client) Status(ctx context.Context) ([]services.ServiceStatus, error) {
+	// Execute systemctl to get Docker service status
 	output, err := command.ExecCommand(
 		ctx,
 		c.logger,
-		c.dockerBin,
-		"info",
-		"--format",
-		"{{json .}}",
+		c.controlSvc,
+		"status",
+		"docker.service",
+		"--no-pager",
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to get Docker status: %w", err)
+		c.logger.Warn("Failed to get Docker service status", "err", err)
+		// If systemctl fails, return an error status
+		return []services.ServiceStatus{
+			ContainerStatus{
+				Name:    "docker",
+				Service: "docker.service",
+				State:   "error",
+				Status:  fmt.Sprintf("Error checking status: %v", err),
+			},
+		}, nil
 	}
 
-	var info map[string]interface{}
-	if err := json.Unmarshal(output, &info); err != nil {
-		return "", fmt.Errorf("failed to parse Docker info: %w", err)
+	// Parse the systemctl output for status info
+	state := "unknown"
+	status := string(output)
+
+	if strings.Contains(status, "Active: active (running)") {
+		state = "running"
+	} else if strings.Contains(status, "Active: inactive (dead)") {
+		state = "stopped"
+	} else if strings.Contains(status, "Active: failed") {
+		state = "failed"
 	}
 
-	version, ok := info["ServerVersion"].(string)
-	if !ok {
-		return "", fmt.Errorf("failed to get Docker server version")
+	dockerStatus := ContainerStatus{
+		Name:    "docker",
+		Service: "docker.service",
+		State:   state,
+		Status:  status,
 	}
 
-	return fmt.Sprintf("running (version: %s)", version), nil
+	// Convert to []services.ServiceStatus
+	serviceStatuses := make([]services.ServiceStatus, 1)
+	serviceStatuses[0] = dockerStatus
+
+	return serviceStatuses, nil
 }
 
 // Start is a no-op for Docker as it should be managed by systemd
@@ -156,59 +224,12 @@ func (c *Client) ComposeRestart(ctx context.Context, composeFilePath string) err
 	return nil
 }
 
-// ComposeStatus returns detailed status information for a docker-compose service
-func (c *Client) ComposeStatus(ctx context.Context, composeFilePath string) (string, error) {
-	// First check if any containers are running
-	output, err := command.ExecCommand(
-		ctx,
-		c.logger,
-		c.dockerBin,
-		"compose",
-		"-f",
-		composeFilePath,
-		"ps",
-		"--format",
-		"json",
-	)
-
-	if err != nil {
-		return "", fmt.Errorf("failed to check docker-compose status: %w", err)
-	}
-
-	// No output means no containers
-	if len(output) == 0 {
-		return "stopped", nil
-	}
-
-	// Parse JSON output (potentially multiple JSON objects)
-	jsonLines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(jsonLines) == 0 {
-		return "stopped", nil
-	}
-
-	// Parse the first container's status
-	var container ContainerStatus
-	if err := json.Unmarshal([]byte(jsonLines[0]), &container); err != nil {
-		return "", fmt.Errorf("failed to parse container status: %w", err)
-	}
-
-	if container.State == "running" {
-		statusInfo := fmt.Sprintf("running (%s)", container.Status)
-		if container.Health != "" {
-			statusInfo += fmt.Sprintf(" [health: %s]", container.Health)
-		}
-		return statusInfo, nil
-	}
-
-	return container.State, nil
-}
-
-// GetServiceContainerDetails returns detailed information about containers of a service
-func (c *Client) GetServiceContainerDetails(
+// ComposeStatus returns detailed information about containers of a service
+func (c *Client) ComposeStatus(
 	ctx context.Context,
 	composeFilePath string,
 	serviceName string,
-) ([]ContainerStatus, error) {
+) ([]services.ServiceStatus, error) {
 	output, err := command.ExecCommand(
 		ctx,
 		c.logger,
@@ -237,14 +258,20 @@ func (c *Client) GetServiceContainerDetails(
 		return nil, nil
 	}
 
-	var containers []ContainerStatus
+	var containerStatuses []ContainerStatus
 	for _, line := range jsonLines {
 		var container ContainerStatus
 		if err := json.Unmarshal([]byte(line), &container); err != nil {
 			return nil, fmt.Errorf("failed to parse container status: %w", err)
 		}
-		containers = append(containers, container)
+		containerStatuses = append(containerStatuses, container)
 	}
 
-	return containers, nil
+	// Convert to []services.ServiceStatus
+	serviceStatuses := make([]services.ServiceStatus, len(containerStatuses))
+	for i, container := range containerStatuses {
+		serviceStatuses[i] = container
+	}
+
+	return serviceStatuses, nil
 }
