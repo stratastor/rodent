@@ -1,0 +1,47 @@
+services:
+  traefik:
+    image: traefik:v3.3
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls=true"
+      {{- if .EnableTLS }}
+      - "--entrypoints.websecure.http.tls.certResolver=default"
+      - "--entrypoints.websecure.http.tls.domains[0].main={{.Domain}}"
+      {{- end }}
+      - "--log.level=DEBUG"
+      - "--accessLog=true"
+      - "--accessLog.format=json"
+      - "--accessLog.fields.defaultMode=keep"
+      - "--accessLog.fields.headers.defaultMode=keep"
+      - "--accessLog.fields.headers.names.Content-Security-Policy=drop"
+      - "--accessLog.fields.headers.names.Permissions-Policy=drop"
+      - "--api.insecure={{if .TraefikApiInsecure}}true{{else}}false{{end}}"
+      - "--api.dashboard={{if .TraefikDashboard}}true{{else}}false{{end}}"
+    ports:
+      - "{{.TraefikHttpPort}}:80"
+      - "{{.TraefikHttpsPort}}:443"
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    networks:
+      - dev_rodent
+    environment:
+      - DOMAIN={{.Domain}}
+      - SCHEME={{if .EnableTLS}}https{{else}}http{{end}}
+      - ENABLE_TLS={{if .EnableTLS}}true{{else}}false{{end}}
+      - CORS_ALLOWED_ORIGINS={{.CorsAllowedOrigins}}
+
+networks:
+  dev_rodent:
+    external: true
+    name: dev_rodent_external

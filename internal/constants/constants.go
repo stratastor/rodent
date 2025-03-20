@@ -26,11 +26,25 @@ const (
 	// APIServices is the base path for service management API endpoints
 	APIServices = APIBase + "/services"
 
-	// config
-	DefaultTraefikCertDir = "/home/ubuntu/rodent/scripts/traefik/certs"
-	DefaultTraefikTLSPath = "/home/ubuntu/rodent/scripts/traefik/tls.yml"
+	// Updated path constants
 
-	// Docker compose file paths
-	DefaultDockerComposeDir   = "/home/ubuntu/rodent/scripts"
-	DefaultTraefikComposePath = "/home/ubuntu/rodent/scripts/traefik/dc-traefik.yml"
+	// Template paths - relative paths
+	// Base paths - these should be set at runtime based on executable location
+	TemplatesBasePath = "internal/templates"
+	ScriptsBasePath   = "/home/ubuntu/rodent/scripts"
+
+	// Traefik paths
+	TraefikTemplateDir = TemplatesBasePath + "/traefik"
+	TraefikConfigDir   = ScriptsBasePath + "/traefik"
+
+	// Template file names (no paths needed as they are embedded)
+	TraefikComposeTemplate = "dc-traefik.yml.tmpl"
+	TraefikConfigTemplate  = "config.yml.tmpl"
+	TraefikTLSTemplate     = "tls.yml.tmpl"
+
+	// Runtime paths for files
+	DefaultTraefikCertDir     = ScriptsBasePath + "/traefik/certs"
+	DefaultTraefikTLSPath     = ScriptsBasePath + "/traefik/tls.yml"
+	DefaultTraefikComposePath = ScriptsBasePath + "/traefik/dc-traefik.yml"
+	DefaultTraefikConfigPath  = ScriptsBasePath + "/traefik/config.yml"
 )

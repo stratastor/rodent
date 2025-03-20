@@ -6,7 +6,21 @@ package services
 
 import (
 	"context"
+	"time"
 )
+
+// CertificateData contains information about a TLS certificate
+type CertificateData struct {
+	Domain      string    `yaml:"domain"`
+	Certificate string    `yaml:"certificate"`
+	PrivateKey  string    `yaml:"privateKey"`
+	ExpiresOn   time.Time `yaml:"expiresOn"`
+}
+
+// CertificateInstaller represents services that can install TLS certificates
+type CertificateInstaller interface {
+	InstallCertificate(ctx context.Context, data CertificateData) error
+}
 
 // Service represents a generic service interface
 type Service interface {

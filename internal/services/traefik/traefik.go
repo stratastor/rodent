@@ -5,49 +5,21 @@
 package traefik
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
-	"text/template"
 	"time"
 
 	"github.com/stratastor/logger"
+	rodentCfg "github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/internal/services"
+	"github.com/stratastor/rodent/internal/services/config"
 	"github.com/stratastor/rodent/internal/services/docker"
+	"github.com/stratastor/rodent/internal/templates"
+	tglClient "github.com/stratastor/rodent/internal/toggle/client"
 )
-
-// TLS configuration template
-const tlsConfigTemplate = `# TLS Configuration
-tls:
-  certificates:
-    - certFile: /certs/{{.Domain}}.pem
-      keyFile: /certs/{{.Domain}}.key
-      
-  options:
-    default:
-      minVersion: VersionTLS12
-      maxVersion: VersionTLS13
-      sniStrict: true
-      cipherSuites:
-        # TLS 1.3 ciphers
-        - TLS_AES_256_GCM_SHA384
-        - TLS_AES_128_GCM_SHA256
-        - TLS_CHACHA20_POLY1305_SHA256
-        # TLS 1.2 ciphers (only GCM and CHACHA20)
-        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
-        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
-  stores:
-    default:
-      defaultCertificate:
-        certFile: /certs/{{.Domain}}.pem
-        keyFile: /certs/{{.Domain}}.key
-`
 
 // CertificateData contains information about a TLS certificate
 type CertificateData struct {
@@ -57,11 +29,26 @@ type CertificateData struct {
 	ExpiresOn   time.Time `yaml:"expiresOn"`
 }
 
+// TraefikConfig contains configuration data for Traefik
+type TraefikConfig struct {
+	Domain              string
+	EnableTLS           bool
+	CertificateData     *CertificateData
+	CorsAllowedOrigins  string
+	TraefikApiInsecure  bool
+	TraefikDashboard    bool
+	TraefikHttpPort     int
+	TraefikHttpsPort    int
+	EnableToggleReports bool
+}
+
 // Client handles interactions with Traefik
 type Client struct {
-	logger      logger.Logger
-	dockerSvc   *docker.Client
-	composeFile string
+	logger        logger.Logger
+	dockerSvc     *docker.Client
+	composeFile   string
+	configManager *config.ServiceConfigManager
+	toggleClient  *tglClient.Client // Optional, for reporting
 }
 
 // NewClient creates a new Traefik client
@@ -76,11 +63,76 @@ func NewClient(logger logger.Logger) (*Client, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	return &Client{
-		logger:      logger,
-		dockerSvc:   dockerSvc,
-		composeFile: constants.DefaultTraefikComposePath,
-	}, nil
+	// Create config manager
+	configManager := config.NewServiceConfigManager(logger)
+
+	// Get embedded templates
+	composeTemplate, err := templates.GetTraefikTemplate(constants.TraefikComposeTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load compose template: %w", err)
+	}
+
+	configTemplate, err := templates.GetTraefikTemplate(constants.TraefikConfigTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config template: %w", err)
+	}
+
+	tlsTemplate, err := templates.GetTraefikTemplate(constants.TraefikTLSTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load TLS template: %w", err)
+	}
+
+	// Output paths should still be resolved since they're written to disk
+	composePath := common.ResolvePath(constants.DefaultTraefikComposePath)
+	configPath := common.ResolvePath(constants.DefaultTraefikConfigPath)
+	tlsPath := common.ResolvePath(constants.DefaultTraefikTLSPath)
+
+	// Register templates with embedded content
+	configManager.RegisterTemplate("traefik-compose", &config.ConfigTemplate{
+		Name:        "traefik-compose",
+		Content:     composeTemplate,
+		OutputPath:  composePath,
+		Permissions: 0644,
+		BackupPath:  composePath + ".bak",
+	})
+
+	configManager.RegisterTemplate("traefik-config", &config.ConfigTemplate{
+		Name:        "traefik-config",
+		Content:     configTemplate,
+		OutputPath:  configPath,
+		Permissions: 0644,
+		BackupPath:  configPath + ".bak",
+	})
+
+	configManager.RegisterTemplate("traefik-tls", &config.ConfigTemplate{
+		Name:        "traefik-tls",
+		Content:     tlsTemplate,
+		OutputPath:  tlsPath,
+		Permissions: 0644,
+		BackupPath:  tlsPath + ".bak",
+	})
+
+	// Create client
+	client := &Client{
+		logger:        logger,
+		dockerSvc:     dockerSvc,
+		composeFile:   constants.DefaultTraefikComposePath,
+		configManager: configManager,
+	}
+
+	// Optional: Register state callback for reporting to Toggle
+	cfg := rodentCfg.GetConfig()
+	if cfg.StrataSecure && cfg.Toggle.JWT != "" {
+		toggleClient, err := tglClient.NewClient(logger, cfg.Toggle.JWT, cfg.Toggle.BaseURL)
+		if err != nil {
+			logger.Warn("Failed to create Toggle client, service reporting disabled", "err", err)
+		} else {
+			client.toggleClient = toggleClient
+			configManager.RegisterStateCallback(client.reportConfigChange)
+		}
+	}
+
+	return client, nil
 }
 
 // Name returns the name of the service
@@ -122,16 +174,42 @@ func (c *Client) InstallCertificate(ctx context.Context, certData CertificateDat
 	if err := services.WriteFileWithPerms(certFile, []byte(certData.Certificate), 0644); err != nil {
 		return fmt.Errorf("failed to write certificate file: %w", err)
 	}
+	c.logger.Debug("Wrote certificate to file", "file", certFile)
 
 	// Write private key to file
 	keyFile := filepath.Join(constants.DefaultTraefikCertDir, certData.Domain+".key")
 	if err := services.WriteFileWithPerms(keyFile, []byte(certData.PrivateKey), 0600); err != nil {
 		return fmt.Errorf("failed to write private key file: %w", err)
 	}
+	c.logger.Debug("Wrote private key to file", "file", keyFile)
 
-	// Update TLS configuration
-	if err := c.updateTLSConfig(certData); err != nil {
+	// Update TLS configuration using config manager
+	traefikConfig := TraefikConfig{
+		Domain:              certData.Domain,
+		EnableTLS:           true,
+		CertificateData:     &certData,
+		CorsAllowedOrigins:  fmt.Sprintf("https://%s", certData.Domain),
+		TraefikApiInsecure:  false, // Secure defaults
+		TraefikDashboard:    false, // Disable dashboard by default
+		TraefikHttpPort:     80,    // Default ports
+		TraefikHttpsPort:    443,
+		EnableToggleReports: c.toggleClient != nil,
+	}
+
+	// Update both TLS config and docker-compose file
+	if err := c.configManager.UpdateConfig(ctx, "traefik-tls", certData); err != nil {
 		return fmt.Errorf("failed to update TLS configuration: %w", err)
+	}
+
+	// Update docker-compose with the new domain and TLS settings
+	if err := c.configManager.UpdateConfig(ctx, "traefik-compose", traefikConfig); err != nil {
+		return fmt.Errorf("failed to update docker-compose configuration: %w", err)
+	}
+
+	// Update main traefik config with CORS settings, etc.
+	if err := c.configManager.UpdateConfig(ctx, "traefik-config", traefikConfig); err != nil {
+		c.logger.Warn("Failed to update Traefik config", "err", err)
+		// Continue despite config update failure
 	}
 
 	c.logger.Info("Successfully installed certificate",
@@ -141,7 +219,6 @@ func (c *Client) InstallCertificate(ctx context.Context, certData CertificateDat
 		"expiresOn", certData.ExpiresOn)
 
 	// Restart Traefik to apply changes
-	// Note: In production this could be optional or delayed
 	err := c.Restart(ctx)
 	if err != nil {
 		c.logger.Warn("Failed to restart Traefik after certificate installation", "err", err)
@@ -150,26 +227,21 @@ func (c *Client) InstallCertificate(ctx context.Context, certData CertificateDat
 	return nil
 }
 
-// updateTLSConfig updates the Traefik TLS configuration file
-func (c *Client) updateTLSConfig(certData CertificateData) error {
-	// Create a template
-	tmpl, err := template.New("tlsConfig").Parse(tlsConfigTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse TLS config template: %w", err)
+// reportConfigChange reports configuration changes to the Toggle service
+func (c *Client) reportConfigChange(
+	ctx context.Context,
+	serviceName string,
+	state config.ServiceState,
+) error {
+	if c.toggleClient == nil {
+		return nil // Toggle reporting disabled
 	}
 
-	// Render the template with certificate data
-	var tlsConfig bytes.Buffer
-	if err := tmpl.Execute(&tlsConfig, certData); err != nil {
-		return fmt.Errorf("failed to render TLS config template: %w", err)
-	}
-
-	// Write the rendered template to the TLS config file using the common function
-	if err := services.WriteFileWithPerms(constants.DefaultTraefikTLSPath, tlsConfig.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write TLS config file: %w", err)
-	}
-
-	c.logger.Info("Updated Traefik TLS configuration", "path", constants.DefaultTraefikTLSPath)
-
-	return nil
+	// Report to Toggle service
+	return c.toggleClient.ReportServiceConfigChange(ctx, serviceName, tglClient.ConfigChangeData{
+		ServiceName: serviceName,
+		ConfigPath:  state.ConfigPath,
+		UpdatedAt:   state.UpdatedAt,
+		Status:      state.Status,
+	})
 }
