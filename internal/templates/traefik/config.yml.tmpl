@@ -65,7 +65,7 @@ http:
   routers:
     # Handles backend data processing endpoints
     rodent:
-      rule: "{{if .Domain}}Host(`*.{{.Domain}}`, `{{.Domain}}`){{else}}Host(`*.strata.host`, `strata.host`){{end}} && PathPrefix(`/api/v1/rodent`)"
+      rule: "{{if .Domain}}Host(`{{.Domain}}`){{else}}Host(`*.strata.host`, `strata.host`){{end}} && PathPrefix(`/api/v1/rodent`)"
       service: "rodent"
       middlewares:
         - "cors-headers"

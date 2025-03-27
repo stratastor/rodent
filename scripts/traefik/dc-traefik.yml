@@ -30,8 +30,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik:/etc/traefik/dynamic:ro
-      - ./traefik/certs:/certs:ro
+      - .:/etc/traefik/dynamic:ro
+      - ./certs:/certs:ro
     networks:
       - dev_rodent
     environment:
