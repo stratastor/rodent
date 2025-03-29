@@ -80,20 +80,23 @@ func RegisterNode(
 		"orgID", orgID, "domain", regResponse.Domain,
 		"expiresOn", regResponse.ExpiresOn)
 
-	traefikSvc, err := traefik.NewClient(c.Logger)
-	if err != nil {
-		return fmt.Errorf("failed to create Traefik client: %w", err)
-	}
-	if err := traefikSvc.InstallCertificate(ctx, traefik.CertificateData{
-		Domain:      regResponse.Domain,
-		Certificate: regResponse.Certificate,
-		PrivateKey:  regResponse.PrivateKey,
-		ExpiresOn:   regResponse.ExpiresOn,
-	}); err != nil {
-		return fmt.Errorf("failed to install certificate: %w", err)
-	}
+	cfg := config.GetConfig()
+	if !cfg.Development.Enabled {
+		traefikSvc, err := traefik.NewClient(c.Logger)
+		if err != nil {
+			return fmt.Errorf("failed to create Traefik client: %w", err)
+		}
+		if err := traefikSvc.InstallCertificate(ctx, traefik.CertificateData{
+			Domain:      regResponse.Domain,
+			Certificate: regResponse.Certificate,
+			PrivateKey:  regResponse.PrivateKey,
+			ExpiresOn:   regResponse.ExpiresOn,
+		}); err != nil {
+			return fmt.Errorf("failed to install certificate: %w", err)
+		}
 
-	c.Logger.Info("Certificate installed successfully")
+		c.Logger.Info("Certificate installed successfully")
+	}
 	return nil
 }
 

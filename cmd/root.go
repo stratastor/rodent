@@ -19,6 +19,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/stratastor/rodent/cmd/config"
 	"github.com/stratastor/rodent/cmd/health"
 	"github.com/stratastor/rodent/cmd/logs"
@@ -32,6 +33,8 @@ func NewRootCmd() *cobra.Command {
 		Use:   "rodent",
 		Short: "Rodent: StrataSTOR Node Agent",
 	}
+	rootCmd.PersistentFlags().Bool("dev", false, "Enable development mode")
+	viper.BindPFlag("development.enabled", rootCmd.PersistentFlags().Lookup("dev"))
 
 	rootCmd.AddCommand(serve.NewServeCmd())
 	rootCmd.AddCommand(version.NewVersionCmd())

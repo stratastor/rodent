@@ -60,6 +60,10 @@ type Config struct {
 
 	StrataSecure bool `mapstructure:"strataSecure"`
 
+	Development struct {
+		Enabled bool `mapstructure:"enabled"`
+	} `mapstructure:"development"`
+
 	Environment string `mapstructure:"environment"`
 }
 
@@ -118,6 +122,8 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Set defaults for StrataSecure
 		viper.SetDefault("strataSecure", true)
+
+		viper.SetDefault("development.enabled", false)
 
 		// Bind environment variables
 		viper.AutomaticEnv()
