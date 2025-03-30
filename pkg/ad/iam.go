@@ -27,6 +27,42 @@ const (
 	defaultAdminDN = "CN=Administrator,CN=Users," + defaultBaseDN
 )
 
+var (
+	getUserAttrsString = []string{
+		"dn",
+		"cn",
+		"sAMAccountName",
+		"userPrincipalName",
+		"givenName",
+		"sn",
+		"description",
+		"mail",
+		"displayName",
+		"title",
+		"department",
+		"company",
+		"telephoneNumber",
+		"mobile",
+		"manager",
+		"employeeID",
+		"whenCreated",
+		"whenChanged",
+		"pwdLastSet",
+		"lastLogon",
+		"lastLogoff",
+		"badPwdCount",
+		"badPasswordTime",
+		"accountExpires",
+		"memberOf",
+	}
+
+	getGroupAttrsString = []string{
+		"dn", "cn", "sAMAccountName", "description",
+		"displayName", "mail", "groupType",
+		"managedBy", "member",
+	}
+)
+
 // ADClient is a client for performing LDAP operations against Samba AD DC.
 type ADClient struct {
 	ldapURL   string
@@ -286,32 +322,7 @@ func (c *ADClient) SearchUser(sAMAccountName string) ([]*ldap.Entry, error) {
 		0,
 		false,
 		filter,
-		[]string{
-			"dn",
-			"cn",
-			"sAMAccountName",
-			"userPrincipalName",
-			"givenName",
-			"sn",
-			"description",
-			"mail",
-			"displayName",
-			"title",
-			"department",
-			"company",
-			"telephoneNumber",
-			"mobile",
-			"manager",
-			"employeeID",
-			"whenCreated",
-			"whenChanged",
-			"pwdLastSet",
-			"lastLogon",
-			"lastLogoff",
-			"badPwdCount",
-			"badPasswordTime",
-			"accountExpires",
-		},
+		getUserAttrsString,
 		nil,
 	)
 	sr, err := c.conn.Search(searchReq)
@@ -354,16 +365,7 @@ func (c *ADClient) ListUsers() ([]*ldap.Entry, error) {
 		0,
 		false,
 		filter,
-		[]string{
-			"dn",
-			"cn",
-			"sAMAccountName",
-			"userPrincipalName",
-			"givenName",
-			"sn",
-			"description",
-			"displayName",
-		},
+		getUserAttrsString,
 		nil,
 	)
 
@@ -387,13 +389,7 @@ func (c *ADClient) ListGroups() ([]*ldap.Entry, error) {
 		0,
 		false,
 		filter,
-		[]string{
-			"dn",
-			"cn",
-			"sAMAccountName",
-			"description",
-			"displayName",
-		},
+		getGroupAttrsString,
 		nil,
 	)
 
@@ -522,11 +518,7 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 		c.groupOU,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		filter,
-		[]string{
-			"dn", "cn", "sAMAccountName", "description",
-			"displayName", "mail", "groupType",
-			"managedBy",
-		},
+		getGroupAttrsString,
 		nil,
 	)
 	sr, err := c.conn.Search(searchReq)
