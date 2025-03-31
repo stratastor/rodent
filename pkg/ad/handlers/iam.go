@@ -379,6 +379,7 @@ type ComputerRequest struct {
 	ServicePack    string `json:"service_pack"` // installed service pack
 	Location       string `json:"location"`     // physical location
 	ManagedBy      string `json:"managed_by"`   // DN of responsible admin
+	Enabled        bool   `json:"enabled"`
 }
 
 // toADComputer converts API request to AD Computer model
@@ -393,6 +394,7 @@ func (r *ComputerRequest) toADComputer() *ad.Computer {
 		ServicePack:    r.ServicePack,
 		Location:       r.Location,
 		ManagedBy:      r.ManagedBy,
+		Enabled:        r.Enabled,
 	}
 }
 
@@ -434,6 +436,16 @@ func (h *ADHandler) GetComputer(c *gin.Context) {
 	}
 
 	// TODO: entries must be destructured; ldap.Entry to a json friendly struct
+	c.JSON(http.StatusOK, entries)
+}
+
+func (h *ADHandler) ListComputers(c *gin.Context) {
+	entries, err := h.client.ListComputers()
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, entries)
 }
 

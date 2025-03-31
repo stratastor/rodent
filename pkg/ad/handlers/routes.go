@@ -37,6 +37,7 @@ func (h *ADHandler) RegisterRoutes(router *gin.RouterGroup) {
 	// Computer operations
 	computers := router.Group("/computers")
 	{
+		computers.GET("", h.ListComputers)
 		computers.POST("", h.CreateComputer)
 		computers.GET("/:computername", h.GetComputer)
 		computers.PUT("/:computername", h.UpdateComputer)

@@ -20,11 +20,13 @@ import (
 // Default configuration constants.
 // These may be overridden by values loaded from config.
 const (
-	defaultLDAPURL = "ldaps://DC1.ad.strata.internal:636"
-	defaultBaseDN  = "DC=ad,DC=strata,DC=internal"
-	defaultUserOU  = "OU=StrataUsers," + defaultBaseDN
-	defaultGroupOU = "OU=StrataGroups," + defaultBaseDN
-	defaultAdminDN = "CN=Administrator,CN=Users," + defaultBaseDN
+	defaultLDAPURL      = "ldaps://DC1.ad.strata.internal:636"
+	defaultBaseDNString = "ad.strata.internal"
+	defaultBaseDN       = "DC=ad,DC=strata,DC=internal"
+	defaultUserOU       = "OU=StrataUsers," + defaultBaseDN
+	defaultGroupOU      = "OU=StrataGroups," + defaultBaseDN
+	defaultComputerOU   = "OU=StrataComputers," + defaultBaseDN
+	defaultAdminDN      = "CN=Administrator,CN=Users," + defaultBaseDN
 )
 
 var (
@@ -54,24 +56,83 @@ var (
 		"badPasswordTime",
 		"accountExpires",
 		"memberOf",
+		"userAccountControl",
 	}
 
 	getGroupAttrsString = []string{
 		"dn", "cn", "sAMAccountName", "description",
 		"displayName", "mail", "groupType",
-		"managedBy", "member",
+		"managedBy", "member", "userAccountControl",
+	}
+
+	getComputerAttrsString = []string{
+		"dn", "cn", "sAMAccountName", "description",
+		"dNSHostName", "operatingSystem", "operatingSystemVersion",
+		"operatingSystemServicePack", "lastLogon", "userAccountControl",
+		"memberOf", "location", "managedBy",
 	}
 )
 
 // ADClient is a client for performing LDAP operations against Samba AD DC.
 type ADClient struct {
-	ldapURL   string
-	baseDN    string
-	userOU    string
-	groupOU   string
-	adminDN   string
-	conn      *ldap.Conn
-	tlsConfig *tls.Config
+	ldapURL    string
+	baseDN     string
+	userOU     string
+	groupOU    string
+	computerOU string
+	adminDN    string
+	conn       *ldap.Conn
+	tlsConfig  *tls.Config
+}
+
+// User represents a Samba AD user with common attributes.
+type User struct {
+	CN                string // Common Name; used to form the DN.
+	SAMAccountName    string
+	UserPrincipalName string
+	GivenName         string
+	Surname           string
+	Description       string
+	Password          string // Plaintext password (only used when creating/updating)
+	Mail              string // email address
+	DisplayName       string // full name for display
+	Title             string // job title
+	Department        string // organizational department
+	Company           string // company name
+	PhoneNumber       string // telephoneNumber attribute
+	Mobile            string // mobile number
+	Manager           string // DN of manager
+	EmployeeID        string // employee identifier
+	Enabled           bool   // account status
+}
+
+// Group represents an AD group. Extend with additional fields as needed.
+type Group struct {
+	CN             string
+	SAMAccountName string
+	Description    string
+	DisplayName    string   // friendly name
+	Mail           string   // group email address
+	GroupType      int      // security vs distribution group
+	Members        []string // DNs of group members
+	Scope          string   // DomainLocal, Global, Universal
+	Managed        bool     // if group is managed
+}
+
+// Computer represents an AD computer object.
+type Computer struct {
+	CN             string
+	SAMAccountName string
+	Description    string
+	DNSHostName    string    // FQDN
+	Password       string    // Plaintext password (only used when creating/updating)
+	OSName         string    // operating system name
+	OSVersion      string    // OS version
+	ServicePack    string    // installed service pack
+	LastLogon      time.Time // last logon timestamp
+	Enabled        bool      // account status
+	Location       string    // physical location
+	ManagedBy      string    // DN of responsible admin
 }
 
 // New initializes a new ADClient. It reads admin credentials from the app
@@ -98,15 +159,17 @@ func New() (*ADClient, error) {
 	}
 	userOU := "OU=StrataUsers," + baseDN
 	groupOU := "OU=StrataGroups," + baseDN
+	computerOU := defaultComputerOU
 
 	client := &ADClient{
-		ldapURL:   defaultLDAPURL,
-		baseDN:    baseDN,
-		userOU:    userOU,
-		groupOU:   groupOU,
-		adminDN:   defaultAdminDN,
-		conn:      conn,
-		tlsConfig: tlsConfig,
+		ldapURL:    defaultLDAPURL,
+		baseDN:     baseDN,
+		userOU:     userOU,
+		groupOU:    groupOU,
+		computerOU: computerOU,
+		adminDN:    defaultAdminDN,
+		conn:       conn,
+		tlsConfig:  tlsConfig,
 	}
 	// Ensure required OUs exist
 	if err := client.EnsureOUExists(client.userOU); err != nil {
@@ -116,6 +179,10 @@ func New() (*ADClient, error) {
 	if err := client.EnsureOUExists(client.groupOU); err != nil {
 		return nil, errors.Wrap(err, errors.ADCreateOUFailed).
 			WithMetadata("ou_dn", client.groupOU)
+	}
+	if err := client.EnsureOUExists(client.computerOU); err != nil {
+		return nil, errors.Wrap(err, errors.ADCreateOUFailed).
+			WithMetadata("ou_dn", client.computerOU)
 	}
 
 	return client, nil
@@ -195,27 +262,6 @@ func (c *ADClient) EnsureOUExists(ouDN string) error {
 		}
 	}
 	return nil
-}
-
-// User represents a Samba AD user with common attributes.
-type User struct {
-	CN                string // Common Name; used to form the DN.
-	SAMAccountName    string
-	UserPrincipalName string
-	GivenName         string
-	Surname           string
-	Description       string
-	Password          string // Plaintext password (only used when creating/updating)
-	Mail              string // email address
-	DisplayName       string // full name for display
-	Title             string // job title
-	Department        string // organizational department
-	Company           string // company name
-	PhoneNumber       string // telephoneNumber attribute
-	Mobile            string // mobile number
-	Manager           string // DN of manager
-	EmployeeID        string // employee identifier
-	Enabled           bool   // account status
 }
 
 // CreateUser adds a new user and sets the password.
@@ -299,11 +345,15 @@ func (c *ADClient) CreateUser(user *User) error {
 	}
 
 	// Enable account (userAccountControl=512).
-	modEnableReq := ldap.NewModifyRequest(userDN, nil)
-	modEnableReq.Replace("userAccountControl", []string{"512"})
-	if err := c.conn.Modify(modEnableReq); err != nil {
-		return errors.Wrap(err, errors.ADEnableAccountFailed).
-			WithMetadata("user_cn", user.CN)
+	if user.Enabled {
+		// 512 = NORMAL_ACCOUNT
+		// 512 + 32 = NORMAL_ACCOUNT and password not required
+		modEnableReq := ldap.NewModifyRequest(userDN, nil)
+		modEnableReq.Replace("userAccountControl", []string{"512"})
+		if err := c.conn.Modify(modEnableReq); err != nil {
+			return errors.Wrap(err, errors.ADEnableAccountFailed).
+				WithMetadata("user_cn", user.CN)
+		}
 	}
 	return nil
 }
@@ -402,6 +452,29 @@ func (c *ADClient) ListGroups() ([]*ldap.Entry, error) {
 	return sr.Entries, nil
 }
 
+func (c *ADClient) ListComputers() ([]*ldap.Entry, error) {
+	filter := "(objectClass=computer)"
+	searchReq := ldap.NewSearchRequest(
+		c.computerOU,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0,
+		0,
+		false,
+		filter,
+		getComputerAttrsString,
+		nil,
+	)
+
+	sr, err := c.conn.Search(searchReq)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ADSearchFailed).
+			WithMetadata("scope", "all_computers").
+			WithMetadata("base_dn", c.baseDN)
+	}
+	return sr.Entries, nil
+}
+
 // UpdateUser updates the attributes of an existing user.
 // Only non-empty fields in the provided User struct will be updated.
 func (c *ADClient) UpdateUser(user *User) error {
@@ -444,10 +517,19 @@ func (c *ADClient) UpdateUser(user *User) error {
 	if user.EmployeeID != "" {
 		modReq.Replace("employeeID", []string{user.EmployeeID})
 	}
+	if user.Enabled {
+		// 512 = NORMAL_ACCOUNT
+		// 512 + 32 = NORMAL_ACCOUNT and password not required
+		modReq.Replace("userAccountControl", []string{"512"})
+	} else if !user.Enabled {
+		// Disable account (userAccountControl=514).
+		modReq.Replace("userAccountControl", []string{"514"})
+	}
 	if err := c.conn.Modify(modReq); err != nil {
 		return errors.Wrap(err, errors.ADUpdateUserFailed).
 			WithMetadata("user_cn", user.CN)
 	}
+	// Enable account (userAccountControl=512).
 	return nil
 }
 
@@ -460,19 +542,6 @@ func (c *ADClient) DeleteUser(cn string) error {
 			WithMetadata("user_cn", cn)
 	}
 	return nil
-}
-
-// Group represents an AD group. Extend with additional fields as needed.
-type Group struct {
-	CN             string
-	SAMAccountName string
-	Description    string
-	DisplayName    string   // friendly name
-	Mail           string   // group email address
-	GroupType      int      // security vs distribution group
-	Members        []string // DNs of group members
-	Scope          string   // DomainLocal, Global, Universal
-	Managed        bool     // if group is managed
 }
 
 // CreateGroup creates a new group in AD.
@@ -626,24 +695,14 @@ func (c *ADClient) GetGroupOU() string {
 	return c.groupOU
 }
 
-// Computer represents an AD computer object.
-type Computer struct {
-	CN             string
-	SAMAccountName string
-	Description    string
-	DNSHostName    string    // FQDN
-	OSName         string    // operating system name
-	OSVersion      string    // OS version
-	ServicePack    string    // installed service pack
-	LastLogon      time.Time // last logon timestamp
-	Enabled        bool      // account status
-	Location       string    // physical location
-	ManagedBy      string    // DN of responsible admin
-}
-
 // CreateComputer creates a new computer object in AD.
 func (c *ADClient) CreateComputer(comp *Computer) error {
-	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.baseDN)
+	if err := c.EnsureOUExists(c.computerOU); err != nil {
+		return errors.Wrap(err, errors.ADCreateComputerFailed).
+			WithMetadata("computer_cn", comp.CN).
+			WithMetadata("ou_dn", c.computerOU)
+	}
+	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.computerOU)
 	addReq := ldap.NewAddRequest(computerDN, nil)
 	addReq.Attribute("objectClass", []string{"top", "person", "organizationalPerson", "computer"})
 	addReq.Attribute("cn", []string{comp.CN})
@@ -673,8 +732,35 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 
 	if err := c.conn.Add(addReq); err != nil {
 		return errors.Wrap(err, errors.ADCreateComputerFailed).
+			WithMetadata("computer_cn", comp.CN).
+			WithMetadata("ou_dn", c.computerOU)
+	}
+
+	// Set password if provided.
+	if comp.Password != "" {
+		quotedPwd := fmt.Sprintf("\"%s\"", comp.Password)
+		utf16Pwd, err := encodePassword(quotedPwd)
+		if err != nil {
+			return errors.Wrap(err, errors.ADEncodePasswordFailed)
+		}
+		modPwdReq := ldap.NewModifyRequest(computerDN, nil)
+		modPwdReq.Replace("unicodePwd", []string{utf16Pwd})
+		if err := c.conn.Modify(modPwdReq); err != nil {
+			return errors.Wrap(err, errors.ADSetPasswordFailed).
+				WithMetadata("computer_cn", comp.CN)
+		}
+	}
+
+	// Enable the computer account (userAccountControl=4096 for enabled computer)
+	// 4096 = WORKSTATION_TRUST_ACCOUNT
+	// 4096 + 32 = WORKSTATION_TRUST_ACCOUNT and password not required
+	modEnableReq := ldap.NewModifyRequest(computerDN, nil)
+	modEnableReq.Replace("userAccountControl", []string{"4128"})
+	if err := c.conn.Modify(modEnableReq); err != nil {
+		return errors.Wrap(err, errors.ADEnableAccountFailed).
 			WithMetadata("computer_cn", comp.CN)
 	}
+
 	return nil
 }
 
@@ -682,15 +768,10 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) {
 	filter := fmt.Sprintf("(&(objectClass=computer)(sAMAccountName=%s))", sAMAccountName)
 	searchReq := ldap.NewSearchRequest(
-		c.baseDN,
+		c.computerOU,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		filter,
-		[]string{
-			"dn", "cn", "sAMAccountName", "description",
-			"dNSHostName", "operatingSystem", "operatingSystemVersion",
-			"operatingSystemServicePack", "lastLogon", "userAccountControl",
-			"memberOf", "location", "managedBy",
-		},
+		getComputerAttrsString,
 		nil,
 	)
 	sr, err := c.conn.Search(searchReq)
@@ -703,7 +784,7 @@ func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) 
 
 // UpdateComputer updates the attributes of an existing computer object.
 func (c *ADClient) UpdateComputer(comp *Computer) error {
-	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.baseDN)
+	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.computerOU)
 	modReq := ldap.NewModifyRequest(computerDN, nil)
 
 	if comp.Description != "" {
@@ -737,7 +818,7 @@ func (c *ADClient) UpdateComputer(comp *Computer) error {
 
 // DeleteComputer removes a computer object identified by its Common Name.
 func (c *ADClient) DeleteComputer(cn string) error {
-	computerDN := fmt.Sprintf("CN=%s,%s", cn, c.baseDN)
+	computerDN := fmt.Sprintf("CN=%s,%s", cn, c.computerOU)
 	delReq := ldap.NewDelRequest(computerDN, nil)
 	if err := c.conn.Del(delReq); err != nil {
 		return errors.Wrap(err, errors.ADDeleteComputerFailed).
