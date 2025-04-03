@@ -52,7 +52,7 @@ func RegisterNode(
 	}
 
 	if resp != nil {
-		if resp.StatusCode() == http.StatusFound {
+		if resp.StatusCode() == http.StatusOK {
 			c.Logger.Info("Node already registered with Toggle service", "orgID", orgID)
 			return nil
 		}

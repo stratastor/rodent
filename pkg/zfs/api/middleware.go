@@ -37,9 +37,7 @@ var (
 	filesystemNameRegex = regexp.MustCompile(
 		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`,
 	)
-	snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
-	volumeSizeRegex   = regexp.MustCompile(`^\d+[KMGTP]?$`)
-	bookmarkNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	volumeSizeRegex = regexp.MustCompile(`^\d+[KMGTP]?$`)
 
 	poolNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
 
@@ -66,7 +64,6 @@ var (
 	// TODO: Validate property names? Track ZFS property list? Or just let ZFS handle it?
 	// propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
 
-	quotaRegex      = regexp.MustCompile(`^\d+[KMGTP]?(:|$)`)
 	mountPointRegex = regexp.MustCompile(`^/[a-zA-Z0-9/._-]*$`)
 
 	// Size limits

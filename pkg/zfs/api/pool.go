@@ -216,9 +216,9 @@ func (h *PoolHandler) replaceDevice(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-type scrubRequest struct {
-	Stop bool `json:"stop"`
-}
+// type scrubRequest struct {
+// 	Stop bool `json:"stop"`
+// }
 
 type attachDeviceRequest struct {
 	Device    string `json:"device"     binding:"required"`

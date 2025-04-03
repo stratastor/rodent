@@ -46,24 +46,6 @@ func (h *DatasetHandler) listDatasets(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"result": result})
 }
 
-func (h *DatasetHandler) listAll(c *gin.Context) {
-	var req dataset.ListConfig
-	if err := c.ShouldBindJSON(&req); err != nil {
-		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
-		return
-	}
-
-	req.Type = "all"
-
-	result, err := h.manager.List(c.Request.Context(), req)
-	if err != nil {
-		APIError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"result": result})
-}
-
 func (h *DatasetHandler) createFilesystem(c *gin.Context) {
 	var req dataset.FilesystemConfig
 	if err := c.ShouldBindJSON(&req); err != nil {

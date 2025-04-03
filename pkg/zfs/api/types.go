@@ -48,45 +48,6 @@ type PoolHandler struct {
 	manager *pool.Manager
 }
 
-// Request types
-
-type createFilesystemRequest struct {
-	Name       string            `json:"name"       binding:"required"`
-	Properties map[string]string `json:"properties"`
-	Parents    bool              `json:"parents"`
-	MountPoint string            `json:"mountpoint"`
-}
-
-type createVolumeRequest struct {
-	Name       string            `json:"name"       binding:"required"`
-	Size       string            `json:"size"       binding:"required"`
-	Properties map[string]string `json:"properties"`
-	Sparse     bool              `json:"sparse"`
-	BlockSize  string            `json:"blocksize"`
-}
-
-type createSnapshotRequest struct {
-	Name       string            `json:"name"       binding:"required"`
-	Recursive  bool              `json:"recursive"`
-	Properties map[string]string `json:"properties"`
-}
-
-type createCloneRequest struct {
-	Name         string            `json:"name"          binding:"required"`
-	Properties   map[string]string `json:"properties"`
-	CreateParent bool              `json:"create_parent"`
-}
-
-type rollbackRequest struct {
-	Force     bool `json:"force"`
-	Recursive bool `json:"recursive"`
-}
-
-type mountRequest struct {
-	MountPoint string   `json:"mountpoint,omitempty"`
-	Options    []string `json:"options,omitempty"`
-}
-
 // Response types match dataset package types
 type Property = dataset.Property
 type Dataset = dataset.Dataset
