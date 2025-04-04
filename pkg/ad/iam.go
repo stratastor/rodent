@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -81,8 +82,10 @@ type ADClient struct {
 	groupOU    string
 	computerOU string
 	adminDN    string
+	adminPwd   string
 	conn       *ldap.Conn
 	tlsConfig  *tls.Config
+	mu         sync.RWMutex
 }
 
 // User represents a Samba AD user with common attributes.
@@ -168,6 +171,7 @@ func New() (*ADClient, error) {
 		groupOU:    groupOU,
 		computerOU: computerOU,
 		adminDN:    defaultAdminDN,
+		adminPwd:   cfg.AD.AdminPassword,
 		conn:       conn,
 		tlsConfig:  tlsConfig,
 	}
@@ -191,6 +195,94 @@ func New() (*ADClient, error) {
 // Close terminates the LDAP connection.
 func (c *ADClient) Close() {
 	c.conn.Close()
+}
+
+// Reconnect re-establishes the LDAP connection
+func (c *ADClient) Reconnect() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Close existing connection if present
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
+
+	// Re-establish connection
+	conn, err := ldap.DialURL(c.ldapURL, ldap.DialWithTLSConfig(c.tlsConfig))
+	if err != nil {
+		return errors.Wrap(err, errors.ADConnectFailed)
+	}
+
+	// Re-bind as administrator
+	if err := conn.Bind(c.adminDN, c.adminPwd); err != nil {
+		conn.Close()
+		return errors.Wrap(err, errors.ADInvalidCredentials)
+	}
+
+	c.conn = conn
+	return nil
+}
+
+// isConnectionError detects if the error is related to connection issues
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection closed") ||
+		strings.Contains(errStr, "Network Error") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "EOF") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "connection reset")
+}
+
+// withLDAPRetry executes LDAP operations with automatic reconnection
+func (c *ADClient) withLDAPRetry(op func() error) error {
+	var lastErr error
+	maxRetries := 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Add exponential backoff for retries
+			delay := time.Duration(100*(1<<attempt)) * time.Millisecond // 100ms, 200ms, 400ms
+			time.Sleep(delay)
+		}
+
+		// Check connection status
+		c.mu.RLock()
+		connOK := c.conn != nil
+		c.mu.RUnlock()
+
+		if !connOK {
+			if err := c.Reconnect(); err != nil {
+				return err
+			}
+		}
+
+		// Try the operation
+		err := op()
+		if err == nil {
+			return nil // Success
+		}
+
+		lastErr = err
+
+		// If it's a connection error, reconnect and retry
+		if isConnectionError(err) {
+			if err := c.Reconnect(); err != nil {
+				return err // Failed to reconnect
+			}
+			continue
+		}
+
+		// Not a connection error, return immediately
+		return err
+	}
+
+	return lastErr
 }
 
 func GetDefaultNamingContext(conn *ldap.Conn) (string, error) {
@@ -237,31 +329,41 @@ func (c *ADClient) EnsureOUExists(ouDN string) error {
 		nil,
 	)
 
-	sr, err := c.conn.Search(searchReq)
-	if err != nil {
-		return errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("ou_dn", ouDN).
-			WithMetadata("action", "check_exists")
-	}
+	return c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		sr, err := c.conn.Search(searchReq)
+		c.mu.RUnlock()
 
-	// If OU doesn't exist, create it.
-	if len(sr.Entries) == 0 {
-		// Extract the OU name from the RDN.
-		rdnKV := strings.SplitN(rdn, "=", 2)
-		if len(rdnKV) != 2 {
-			return fmt.Errorf("invalid RDN for OU: %s", rdn)
-		}
-		ouName := rdnKV[1]
-		addReq := ldap.NewAddRequest(ouDN, nil)
-		addReq.Attribute("objectClass", []string{"top", "organizationalUnit"})
-		addReq.Attribute("ou", []string{ouName})
-		if err := c.conn.Add(addReq); err != nil {
-			return errors.Wrap(err, errors.ADCreateOUFailed).
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
 				WithMetadata("ou_dn", ouDN).
-				WithMetadata("ou_name", ouName)
+				WithMetadata("action", "check_exists")
 		}
-	}
-	return nil
+
+		// If OU doesn't exist, create it.
+		if len(sr.Entries) == 0 {
+			// Extract the OU name from the RDN.
+			rdnKV := strings.SplitN(rdn, "=", 2)
+			if len(rdnKV) != 2 {
+				return fmt.Errorf("invalid RDN for OU: %s", rdn)
+			}
+			ouName := rdnKV[1]
+			addReq := ldap.NewAddRequest(ouDN, nil)
+			addReq.Attribute("objectClass", []string{"top", "organizationalUnit"})
+			addReq.Attribute("ou", []string{ouName})
+
+			c.mu.Lock()
+			err := c.conn.Add(addReq)
+			c.mu.Unlock()
+
+			if err != nil {
+				return errors.Wrap(err, errors.ADCreateOUFailed).
+					WithMetadata("ou_dn", ouDN).
+					WithMetadata("ou_name", ouName)
+			}
+		}
+		return nil
+	})
 }
 
 // CreateUser adds a new user and sets the password.
@@ -324,9 +426,20 @@ func (c *ADClient) CreateUser(user *User) error {
 		addReq.Attribute("employeeID", []string{user.EmployeeID})
 	}
 
-	if err := c.conn.Add(addReq); err != nil {
-		return errors.Wrap(err, errors.ADCreateUserFailed).
-			WithMetadata("user_cn", user.CN)
+	// Create the user
+	err := c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Add(addReq); err != nil {
+			return errors.Wrap(err, errors.ADCreateUserFailed).
+				WithMetadata("user_cn", user.CN)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
 
 	// Set password if provided.
@@ -336,25 +449,43 @@ func (c *ADClient) CreateUser(user *User) error {
 		if err != nil {
 			return errors.Wrap(err, errors.ADEncodePasswordFailed)
 		}
+
 		modPwdReq := ldap.NewModifyRequest(userDN, nil)
 		modPwdReq.Replace("unicodePwd", []string{utf16Pwd})
-		if err := c.conn.Modify(modPwdReq); err != nil {
-			return errors.Wrap(err, errors.ADSetPasswordFailed).
-				WithMetadata("user_cn", user.CN)
+
+		err = c.withLDAPRetry(func() error {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+
+			if err := c.conn.Modify(modPwdReq); err != nil {
+				return errors.Wrap(err, errors.ADSetPasswordFailed).
+					WithMetadata("user_cn", user.CN)
+			}
+			return nil
+		})
+
+		if err != nil {
+			return err
 		}
 	}
 
-	// Enable account (userAccountControl=512).
+	// Enable account if requested
 	if user.Enabled {
-		// 512 = NORMAL_ACCOUNT
-		// 512 + 32 = NORMAL_ACCOUNT and password not required
 		modEnableReq := ldap.NewModifyRequest(userDN, nil)
 		modEnableReq.Replace("userAccountControl", []string{"512"})
-		if err := c.conn.Modify(modEnableReq); err != nil {
-			return errors.Wrap(err, errors.ADEnableAccountFailed).
-				WithMetadata("user_cn", user.CN)
-		}
+
+		return c.withLDAPRetry(func() error {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+
+			if err := c.conn.Modify(modEnableReq); err != nil {
+				return errors.Wrap(err, errors.ADEnableAccountFailed).
+					WithMetadata("user_cn", user.CN)
+			}
+			return nil
+		})
 	}
+
 	return nil
 }
 
@@ -375,12 +506,26 @@ func (c *ADClient) SearchUser(sAMAccountName string) ([]*ldap.Entry, error) {
 		getUserAttrsString,
 		nil,
 	)
-	sr, err := c.conn.Search(searchReq)
+
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("sam_account_name", sAMAccountName)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
 func (c *ADClient) GetUserGroups(sAMAccountName string) ([]string, error) {
@@ -392,16 +537,32 @@ func (c *ADClient) GetUserGroups(sAMAccountName string) ([]string, error) {
 		[]string{"memberOf"},
 		nil,
 	)
-	sr, err := c.conn.Search(searchReq)
+
+	var groups []string
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+
+		if len(sr.Entries) == 0 {
+			return errors.New(errors.ADUserNotFound, "Invalid user").
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+
+		groups = sr.Entries[0].GetAttributeValues("memberOf")
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("sam_account_name", sAMAccountName)
+		return nil, err
 	}
-	if len(sr.Entries) == 0 {
-		return nil, errors.New(errors.ADUserNotFound, "Invalid user").
-			WithMetadata("sam_account_name", sAMAccountName)
-	}
-	return sr.Entries[0].GetAttributeValues("memberOf"), nil
+
+	return groups, nil
 }
 
 // ListUsers retrieves all user entries in the user OU.
@@ -419,13 +580,26 @@ func (c *ADClient) ListUsers() ([]*ldap.Entry, error) {
 		nil,
 	)
 
-	sr, err := c.conn.Search(searchReq)
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("scope", "all_users").
+				WithMetadata("base_dn", c.userOU)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("scope", "all_users").
-			WithMetadata("base_dn", c.userOU)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
 // ListGroups retrieves all group entries in the group OU.
@@ -443,15 +617,29 @@ func (c *ADClient) ListGroups() ([]*ldap.Entry, error) {
 		nil,
 	)
 
-	sr, err := c.conn.Search(searchReq)
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("scope", "all_groups").
+				WithMetadata("base_dn", c.groupOU)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("scope", "all_groups").
-			WithMetadata("base_dn", c.groupOU)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
+// ListComputers retrieves all computer entries in the computer OU.
 func (c *ADClient) ListComputers() ([]*ldap.Entry, error) {
 	filter := "(objectClass=computer)"
 	searchReq := ldap.NewSearchRequest(
@@ -466,13 +654,26 @@ func (c *ADClient) ListComputers() ([]*ldap.Entry, error) {
 		nil,
 	)
 
-	sr, err := c.conn.Search(searchReq)
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("scope", "all_computers").
+				WithMetadata("base_dn", c.baseDN)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("scope", "all_computers").
-			WithMetadata("base_dn", c.baseDN)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
 // UpdateUser updates the attributes of an existing user.
@@ -518,39 +719,49 @@ func (c *ADClient) UpdateUser(user *User) error {
 		modReq.Replace("employeeID", []string{user.EmployeeID})
 	}
 	if user.Enabled {
-		// 512 = NORMAL_ACCOUNT
-		// 512 + 32 = NORMAL_ACCOUNT and password not required
 		modReq.Replace("userAccountControl", []string{"512"})
 	} else if !user.Enabled {
-		// Disable account (userAccountControl=514).
 		modReq.Replace("userAccountControl", []string{"514"})
 	}
-	if err := c.conn.Modify(modReq); err != nil {
-		return errors.Wrap(err, errors.ADUpdateUserFailed).
-			WithMetadata("user_cn", user.CN)
-	}
-	// Enable account (userAccountControl=512).
-	return nil
+
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modReq); err != nil {
+			return errors.Wrap(err, errors.ADUpdateUserFailed).
+				WithMetadata("user_cn", user.CN)
+		}
+		return nil
+	})
 }
 
 // DeleteUser removes a user identified by their Common Name.
 func (c *ADClient) DeleteUser(cn string) error {
 	userDN := fmt.Sprintf("CN=%s,%s", cn, c.userOU)
 	delReq := ldap.NewDelRequest(userDN, nil)
-	if err := c.conn.Del(delReq); err != nil {
-		return errors.Wrap(err, errors.ADDeleteUserFailed).
-			WithMetadata("user_cn", cn)
-	}
-	return nil
+
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Del(delReq); err != nil {
+			return errors.Wrap(err, errors.ADDeleteUserFailed).
+				WithMetadata("user_cn", cn)
+		}
+		return nil
+	})
 }
 
 // CreateGroup creates a new group in AD.
 func (c *ADClient) CreateGroup(group *Group) error {
+	// EnsureOUExists already uses withLDAPRetry
 	if err := c.EnsureOUExists(c.groupOU); err != nil {
 		return errors.Wrap(err, errors.ADCreateUserFailed).
 			WithMetadata("group_cn", group.CN).
 			WithMetadata("ou_dn", c.groupOU)
 	}
+
 	groupDN := fmt.Sprintf("CN=%s,%s", group.CN, c.groupOU)
 	addReq := ldap.NewAddRequest(groupDN, nil)
 	addReq.Attribute("objectClass", []string{"top", "group"})
@@ -573,11 +784,16 @@ func (c *ADClient) CreateGroup(group *Group) error {
 		addReq.Attribute("member", group.Members)
 	}
 
-	if err := c.conn.Add(addReq); err != nil {
-		return errors.Wrap(err, errors.ADCreateGroupFailed).
-			WithMetadata("group_cn", group.CN)
-	}
-	return nil
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Add(addReq); err != nil {
+			return errors.Wrap(err, errors.ADCreateGroupFailed).
+				WithMetadata("group_cn", group.CN)
+		}
+		return nil
+	})
 }
 
 // SearchGroup returns LDAP entries for groups matching the provided sAMAccountName.
@@ -590,14 +806,29 @@ func (c *ADClient) SearchGroup(sAMAccountName string) ([]*ldap.Entry, error) {
 		getGroupAttrsString,
 		nil,
 	)
-	sr, err := c.conn.Search(searchReq)
+
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("sam_account_name", sAMAccountName)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
+// GetGroupMembers returns the members of a group
 func (c *ADClient) GetGroupMembers(sAMAccountName string) ([]string, error) {
 	filter := fmt.Sprintf("(&(objectClass=group)(sAMAccountName=%s))", sAMAccountName)
 	searchReq := ldap.NewSearchRequest(
@@ -607,16 +838,32 @@ func (c *ADClient) GetGroupMembers(sAMAccountName string) ([]string, error) {
 		[]string{"member"},
 		nil,
 	)
-	sr, err := c.conn.Search(searchReq)
+
+	var members []string
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+
+		if len(sr.Entries) == 0 {
+			return errors.New(errors.ADGroupNotFound, "Invalid group").
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+
+		members = sr.Entries[0].GetAttributeValues("member")
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("sam_account_name", sAMAccountName)
+		return nil, err
 	}
-	if len(sr.Entries) == 0 {
-		return nil, errors.New(errors.ADGroupNotFound, "Invalid group").
-			WithMetadata("sam_account_name", sAMAccountName)
-	}
-	return sr.Entries[0].GetAttributeValues("member"), nil
+
+	return members, nil
 }
 
 // UpdateGroup updates the attributes of an existing group.
@@ -637,52 +884,73 @@ func (c *ADClient) UpdateGroup(group *Group) error {
 		modReq.Replace("groupType", []string{fmt.Sprintf("%d", group.GroupType)})
 	}
 
-	if err := c.conn.Modify(modReq); err != nil {
-		return errors.Wrap(err, errors.ADUpdateGroupFailed).
-			WithMetadata("group_cn", group.CN)
-	}
-	return nil
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modReq); err != nil {
+			return errors.Wrap(err, errors.ADUpdateGroupFailed).
+				WithMetadata("group_cn", group.CN)
+		}
+		return nil
+	})
 }
 
-// AddMembersToGroup adds members (user or group) to the specified group.
+// AddMembersToGroup adds members to a group.
 func (c *ADClient) AddMembersToGroup(membersDN []string, groupCN string) error {
 	groupDN := fmt.Sprintf("CN=%s,%s", groupCN, c.groupOU)
 	modReq := ldap.NewModifyRequest(groupDN, nil)
 	modReq.Add("member", membersDN)
 
-	if err := c.conn.Modify(modReq); err != nil {
-		return errors.Wrap(err, errors.ADUpdateGroupFailed).
-			WithMetadata("group_cn", groupCN).
-			WithMetadata("action", "add_members").
-			WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
-	}
-	return nil
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modReq); err != nil {
+			return errors.Wrap(err, errors.ADUpdateGroupFailed).
+				WithMetadata("group_cn", groupCN).
+				WithMetadata("action", "add_members").
+				WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
+		}
+		return nil
+	})
 }
 
-// RemoveMembersFromGroup removes members (user or group) from the specified group.
+// RemoveMembersFromGroup removes members from a group.
 func (c *ADClient) RemoveMembersFromGroup(membersDN []string, groupCN string) error {
 	groupDN := fmt.Sprintf("CN=%s,%s", groupCN, c.groupOU)
 	modReq := ldap.NewModifyRequest(groupDN, nil)
 	modReq.Delete("member", membersDN)
 
-	if err := c.conn.Modify(modReq); err != nil {
-		return errors.Wrap(err, errors.ADUpdateGroupFailed).
-			WithMetadata("group_cn", groupCN).
-			WithMetadata("action", "remove_members").
-			WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
-	}
-	return nil
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modReq); err != nil {
+			return errors.Wrap(err, errors.ADUpdateGroupFailed).
+				WithMetadata("group_cn", groupCN).
+				WithMetadata("action", "remove_members").
+				WithMetadata("members_count", fmt.Sprintf("%d", len(membersDN)))
+		}
+		return nil
+	})
 }
 
-// DeleteGroup removes a group identified by its Common Name.
+// DeleteGroup removes a group.
 func (c *ADClient) DeleteGroup(cn string) error {
 	groupDN := fmt.Sprintf("CN=%s,%s", cn, c.groupOU)
 	delReq := ldap.NewDelRequest(groupDN, nil)
-	if err := c.conn.Del(delReq); err != nil {
-		return errors.Wrap(err, errors.ADDeleteGroupFailed).
-			WithMetadata("group_cn", cn)
-	}
-	return nil
+
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Del(delReq); err != nil {
+			return errors.Wrap(err, errors.ADDeleteGroupFailed).
+				WithMetadata("group_cn", cn)
+		}
+		return nil
+	})
 }
 
 // GetUserOU returns the configured User OU for testing purposes
@@ -764,7 +1032,7 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 	return nil
 }
 
-// SearchComputer returns LDAP entries for computers matching the provided sAMAccountName.
+// SearchComputer returns LDAP entries for computers matching the sAMAccountName.
 func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) {
 	filter := fmt.Sprintf("(&(objectClass=computer)(sAMAccountName=%s))", sAMAccountName)
 	searchReq := ldap.NewSearchRequest(
@@ -774,12 +1042,26 @@ func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) 
 		getComputerAttrsString,
 		nil,
 	)
-	sr, err := c.conn.Search(searchReq)
+
+	var entries []*ldap.Entry
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return errors.Wrap(err, errors.ADSearchFailed).
+				WithMetadata("sam_account_name", sAMAccountName)
+		}
+		entries = sr.Entries
+		return nil
+	})
+
 	if err != nil {
-		return nil, errors.Wrap(err, errors.ADSearchFailed).
-			WithMetadata("sam_account_name", sAMAccountName)
+		return nil, err
 	}
-	return sr.Entries, nil
+
+	return entries, nil
 }
 
 // UpdateComputer updates the attributes of an existing computer object.
