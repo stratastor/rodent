@@ -963,75 +963,6 @@ func (c *ADClient) GetGroupOU() string {
 	return c.groupOU
 }
 
-// CreateComputer creates a new computer object in AD.
-func (c *ADClient) CreateComputer(comp *Computer) error {
-	if err := c.EnsureOUExists(c.computerOU); err != nil {
-		return errors.Wrap(err, errors.ADCreateComputerFailed).
-			WithMetadata("computer_cn", comp.CN).
-			WithMetadata("ou_dn", c.computerOU)
-	}
-	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.computerOU)
-	addReq := ldap.NewAddRequest(computerDN, nil)
-	addReq.Attribute("objectClass", []string{"top", "person", "organizationalPerson", "computer"})
-	addReq.Attribute("cn", []string{comp.CN})
-	addReq.Attribute("sAMAccountName", []string{comp.SAMAccountName})
-
-	if comp.Description != "" {
-		addReq.Attribute("description", []string{comp.Description})
-	}
-	if comp.DNSHostName != "" {
-		addReq.Attribute("dNSHostName", []string{comp.DNSHostName})
-	}
-	if comp.OSName != "" {
-		addReq.Attribute("operatingSystem", []string{comp.OSName})
-	}
-	if comp.OSVersion != "" {
-		addReq.Attribute("operatingSystemVersion", []string{comp.OSVersion})
-	}
-	if comp.ServicePack != "" {
-		addReq.Attribute("operatingSystemServicePack", []string{comp.ServicePack})
-	}
-	if comp.Location != "" {
-		addReq.Attribute("location", []string{comp.Location})
-	}
-	if comp.ManagedBy != "" {
-		addReq.Attribute("managedBy", []string{comp.ManagedBy})
-	}
-
-	if err := c.conn.Add(addReq); err != nil {
-		return errors.Wrap(err, errors.ADCreateComputerFailed).
-			WithMetadata("computer_cn", comp.CN).
-			WithMetadata("ou_dn", c.computerOU)
-	}
-
-	// Set password if provided.
-	if comp.Password != "" {
-		quotedPwd := fmt.Sprintf("\"%s\"", comp.Password)
-		utf16Pwd, err := encodePassword(quotedPwd)
-		if err != nil {
-			return errors.Wrap(err, errors.ADEncodePasswordFailed)
-		}
-		modPwdReq := ldap.NewModifyRequest(computerDN, nil)
-		modPwdReq.Replace("unicodePwd", []string{utf16Pwd})
-		if err := c.conn.Modify(modPwdReq); err != nil {
-			return errors.Wrap(err, errors.ADSetPasswordFailed).
-				WithMetadata("computer_cn", comp.CN)
-		}
-	}
-
-	// Enable the computer account (userAccountControl=4096 for enabled computer)
-	// 4096 = WORKSTATION_TRUST_ACCOUNT
-	// 4096 + 32 = WORKSTATION_TRUST_ACCOUNT and password not required
-	modEnableReq := ldap.NewModifyRequest(computerDN, nil)
-	modEnableReq.Replace("userAccountControl", []string{"4128"})
-	if err := c.conn.Modify(modEnableReq); err != nil {
-		return errors.Wrap(err, errors.ADEnableAccountFailed).
-			WithMetadata("computer_cn", comp.CN)
-	}
-
-	return nil
-}
-
 // SearchComputer returns LDAP entries for computers matching the sAMAccountName.
 func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) {
 	filter := fmt.Sprintf("(&(objectClass=computer)(sAMAccountName=%s))", sAMAccountName)
@@ -1064,6 +995,104 @@ func (c *ADClient) SearchComputer(sAMAccountName string) ([]*ldap.Entry, error) 
 	return entries, nil
 }
 
+// CreateComputer creates a new computer object in AD.
+func (c *ADClient) CreateComputer(comp *Computer) error {
+	if err := c.EnsureOUExists(c.computerOU); err != nil {
+		return errors.Wrap(err, errors.ADCreateComputerFailed).
+			WithMetadata("computer_cn", comp.CN).
+			WithMetadata("ou_dn", c.computerOU)
+	}
+
+	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.computerOU)
+	addReq := ldap.NewAddRequest(computerDN, nil)
+	addReq.Attribute("objectClass", []string{"top", "person", "organizationalPerson", "computer"})
+	addReq.Attribute("cn", []string{comp.CN})
+	addReq.Attribute("sAMAccountName", []string{comp.SAMAccountName})
+
+	if comp.Description != "" {
+		addReq.Attribute("description", []string{comp.Description})
+	}
+	if comp.DNSHostName != "" {
+		addReq.Attribute("dNSHostName", []string{comp.DNSHostName})
+	}
+	if comp.OSName != "" {
+		addReq.Attribute("operatingSystem", []string{comp.OSName})
+	}
+	if comp.OSVersion != "" {
+		addReq.Attribute("operatingSystemVersion", []string{comp.OSVersion})
+	}
+	if comp.ServicePack != "" {
+		addReq.Attribute("operatingSystemServicePack", []string{comp.ServicePack})
+	}
+	if comp.Location != "" {
+		addReq.Attribute("location", []string{comp.Location})
+	}
+	if comp.ManagedBy != "" {
+		addReq.Attribute("managedBy", []string{comp.ManagedBy})
+	}
+
+	// Create the computer object
+	err := c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Add(addReq); err != nil {
+			return errors.Wrap(err, errors.ADCreateComputerFailed).
+				WithMetadata("computer_cn", comp.CN).
+				WithMetadata("ou_dn", c.computerOU)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Set password if provided
+	if comp.Password != "" {
+		quotedPwd := fmt.Sprintf("\"%s\"", comp.Password)
+		utf16Pwd, err := encodePassword(quotedPwd)
+		if err != nil {
+			return errors.Wrap(err, errors.ADEncodePasswordFailed)
+		}
+
+		modPwdReq := ldap.NewModifyRequest(computerDN, nil)
+		modPwdReq.Replace("unicodePwd", []string{utf16Pwd})
+
+		err = c.withLDAPRetry(func() error {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+
+			if err := c.conn.Modify(modPwdReq); err != nil {
+				return errors.Wrap(err, errors.ADSetPasswordFailed).
+					WithMetadata("computer_cn", comp.CN)
+			}
+			return nil
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// Enable the computer account (userAccountControl=4096 for enabled computer)
+	// 4096 = WORKSTATION_TRUST_ACCOUNT
+	// 4096 + 32 = WORKSTATION_TRUST_ACCOUNT and password not required
+	modEnableReq := ldap.NewModifyRequest(computerDN, nil)
+	modEnableReq.Replace("userAccountControl", []string{"4128"})
+
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modEnableReq); err != nil {
+			return errors.Wrap(err, errors.ADEnableAccountFailed).
+				WithMetadata("computer_cn", comp.CN)
+		}
+		return nil
+	})
+}
+
 // UpdateComputer updates the attributes of an existing computer object.
 func (c *ADClient) UpdateComputer(comp *Computer) error {
 	computerDN := fmt.Sprintf("CN=%s,%s", comp.CN, c.computerOU)
@@ -1091,22 +1120,33 @@ func (c *ADClient) UpdateComputer(comp *Computer) error {
 		modReq.Replace("managedBy", []string{comp.ManagedBy})
 	}
 
-	if err := c.conn.Modify(modReq); err != nil {
-		return errors.Wrap(err, errors.ADUpdateComputerFailed).
-			WithMetadata("computer_cn", comp.CN)
-	}
-	return nil
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Modify(modReq); err != nil {
+			return errors.Wrap(err, errors.ADUpdateComputerFailed).
+				WithMetadata("computer_cn", comp.CN)
+		}
+		return nil
+	})
 }
 
 // DeleteComputer removes a computer object identified by its Common Name.
 func (c *ADClient) DeleteComputer(cn string) error {
 	computerDN := fmt.Sprintf("CN=%s,%s", cn, c.computerOU)
 	delReq := ldap.NewDelRequest(computerDN, nil)
-	if err := c.conn.Del(delReq); err != nil {
-		return errors.Wrap(err, errors.ADDeleteComputerFailed).
-			WithMetadata("computer_cn", cn)
-	}
-	return nil
+
+	return c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if err := c.conn.Del(delReq); err != nil {
+			return errors.Wrap(err, errors.ADDeleteComputerFailed).
+				WithMetadata("computer_cn", cn)
+		}
+		return nil
+	})
 }
 
 // encodePassword converts a plaintext password (with quotes) into a UTF-16LE
@@ -1127,19 +1167,4 @@ func transformString(t transform.Transformer, s string) (string, error) {
 		return "", err
 	}
 	return result, nil
-}
-
-// difference returns elements in a that aren't in b
-func difference(a, b []string) []string {
-	mb := make(map[string]struct{}, len(b))
-	for _, x := range b {
-		mb[x] = struct{}{}
-	}
-	var diff []string
-	for _, x := range a {
-		if _, found := mb[x]; !found {
-			diff = append(diff, x)
-		}
-	}
-	return diff
 }
