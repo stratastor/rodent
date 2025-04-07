@@ -5,6 +5,7 @@
 package facl
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/stratastor/rodent/pkg/errors"
@@ -29,6 +30,13 @@ func parseGetfaclOutput(output string, aclType ACLType) ([]ACLEntry, error) {
 		var entry ACLEntry
 		var err error
 
+		// Handle default ACL entries
+		isDefault := false
+		if strings.HasPrefix(line, "default:") {
+			isDefault = true
+			line = strings.TrimPrefix(line, "default:")
+		}
+
 		// Parse based on ACL type
 		if aclType == ACLTypePOSIX {
 			entry, err = parsePOSIXACLEntry(line)
@@ -38,6 +46,11 @@ func parseGetfaclOutput(output string, aclType ACLType) ([]ACLEntry, error) {
 
 		if err != nil {
 			return nil, err
+		}
+
+		// Mark as default if needed
+		if isDefault {
+			entry.IsDefault = true
 		}
 
 		entries = append(entries, entry)
@@ -61,14 +74,18 @@ func parsePOSIXACLEntry(line string) (ACLEntry, error) {
 	// Parse entry type and principal
 	switch parts[0] {
 	case "user":
-		entry.Type = EntryUser
 		if len(parts) >= 3 && parts[1] != "" {
-			entry.Principal = parts[1]
+			entry.Type = EntryUser
+			entry.Principal = unescapePrincipal(parts[1])
+		} else {
+			entry.Type = EntryOwner // user:: is the owner
 		}
 	case "group":
-		entry.Type = EntryGroup
 		if len(parts) >= 3 && parts[1] != "" {
-			entry.Principal = parts[1]
+			entry.Type = EntryGroup
+			entry.Principal = unescapePrincipal(parts[1])
+		} else {
+			entry.Type = EntryOwnerGroup // group:: is the owning group
 		}
 	case "owner":
 		entry.Type = EntryOwner
@@ -224,5 +241,26 @@ func parseFlags(flags string) []ACLFlags {
 		}
 	}
 
+	return result
+}
+
+// unescapePrincipal handles escaped characters in principal names
+func unescapePrincipal(principal string) string {
+	// Handle octal escape sequences like \040 (space)
+	result := ""
+	i := 0
+	for i < len(principal) {
+		if i+3 < len(principal) && principal[i] == '\\' {
+			// Try to parse as octal
+			octalStr := principal[i+1 : i+4]
+			if val, err := strconv.ParseInt(octalStr, 8, 32); err == nil {
+				result += string(rune(val))
+				i += 4
+				continue
+			}
+		}
+		result += string(principal[i])
+		i++
+	}
 	return result
 }

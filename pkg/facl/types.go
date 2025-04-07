@@ -80,6 +80,7 @@ type ACLEntry struct {
 	Permissions []PermissionType `json:"permissions"`
 	Flags       []ACLFlags       `json:"flags,omitempty"` // NFSv4 only
 	Access      AccessType       `json:"access"`          // NFSv4 only
+	IsDefault   bool             `json:"is_default"`      // Whether this is a default ACL
 }
 
 // ACLConfig holds the complete ACL configuration for a path
@@ -124,32 +125,47 @@ func FormatFlags(flags []ACLFlags) string {
 
 // String formats an ACL entry as a string in getfacl/setfacl format
 func (e ACLEntry) String() string {
+	prefix := ""
+	if e.IsDefault {
+		prefix = "default:"
+	}
+
 	switch e.Type {
 	case EntryUser:
 		if e.Principal == "" {
-			return fmt.Sprintf("user::%s", FormatPermissions(e.Permissions))
+			return fmt.Sprintf("%suser::%s", prefix, FormatPermissions(e.Permissions))
 		}
-		return fmt.Sprintf("user:%s:%s", e.Principal, FormatPermissions(e.Permissions))
+		// Escape spaces in principal name with \040
+		escapedPrincipal := strings.ReplaceAll(e.Principal, " ", "\\040")
+		return fmt.Sprintf(
+			"%suser:%s:%s",
+			prefix,
+			escapedPrincipal,
+			FormatPermissions(e.Permissions),
+		)
 	case EntryGroup:
 		if e.Principal == "" {
-			return fmt.Sprintf("group::%s", FormatPermissions(e.Permissions))
+			return fmt.Sprintf("%sgroup::%s", prefix, FormatPermissions(e.Permissions))
 		}
-		return fmt.Sprintf("group:%s:%s", e.Principal, FormatPermissions(e.Permissions))
+		// Escape spaces in principal name with \040
+		escapedPrincipal := strings.ReplaceAll(e.Principal, " ", "\\040")
+		return fmt.Sprintf(
+			"%sgroup:%s:%s",
+			prefix,
+			escapedPrincipal,
+			FormatPermissions(e.Permissions),
+		)
 	case EntryOwner:
-		return fmt.Sprintf("owner::%s", FormatPermissions(e.Permissions))
+		return fmt.Sprintf("%suser::%s", prefix, FormatPermissions(e.Permissions))
 	case EntryOwnerGroup:
-		return fmt.Sprintf("group::%s", FormatPermissions(e.Permissions))
+		return fmt.Sprintf("%sgroup::%s", prefix, FormatPermissions(e.Permissions))
 	case EntryMask:
-		return fmt.Sprintf("mask::%s", FormatPermissions(e.Permissions))
+		return fmt.Sprintf("%smask::%s", prefix, FormatPermissions(e.Permissions))
 	case EntryOther:
-		return fmt.Sprintf("other::%s", FormatPermissions(e.Permissions))
+		return fmt.Sprintf("%sother::%s", prefix, FormatPermissions(e.Permissions))
 	case EntryEveryone:
 		// Fall back to other for everyone on POSIX
-		return fmt.Sprintf("other::%s", FormatPermissions(e.Permissions))
-		// return fmt.Sprintf("everyone@:%s:%s:%s",
-		// 	FormatPermissions(e.Permissions),
-		// 	FormatFlags(e.Flags),
-		// 	e.Access)
+		return fmt.Sprintf("%sother::%s", prefix, FormatPermissions(e.Permissions))
 	default:
 		return ""
 	}

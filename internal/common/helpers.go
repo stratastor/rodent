@@ -22,6 +22,10 @@ func init() {
 
 // Helper to add errors to context
 func APIError(c *gin.Context, err error) {
+	// Check if response has already been written
+	if c.Writer.Written() {
+		return
+	}
 	c.Error(err)
 	c.Abort()
 }

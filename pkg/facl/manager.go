@@ -380,15 +380,12 @@ func (m *ACLManager) ResolveADUsers(ctx context.Context, entries []ACLEntry) ([]
 // detectACLType determines the ACL type supported by the filesystem
 func (m *ACLManager) detectACLType(path string) (ACLType, error) {
 	// Check if the path is on a ZFS filesystem
-	isZFS, err := isZFSPath(path)
+	_, err := isZFSPath(path)
 	if err != nil {
-		return "", errors.Wrap(err, errors.FACLReadError).
-			WithMetadata("path", path)
-	}
-
-	if !isZFS {
-		return "", errors.Wrap(err, errors.FACLUnsupportedFS).
-			WithMetadata("path", path)
+		// Don't fail on filesystem detection error, just log it
+		m.logger.Warn("Failed to detect filesystem type, defaulting to POSIX ACLs",
+			"path", path, "error", err)
+		return ACLTypePOSIX, nil
 	}
 
 	// Default to POSIX ACLs
@@ -461,6 +458,17 @@ func validatePath(path string) error {
 				"Path does not exist").WithMetadata("path", path)
 		}
 		return errors.Wrap(err, errors.FACLReadError).
+			WithMetadata("path", path)
+	}
+
+	isZFS, err := isZFSPath(path)
+	if err != nil {
+		return errors.Wrap(err, errors.FACLReadError).
+			WithMetadata("path", path)
+	}
+
+	if !isZFS {
+		return errors.Wrap(err, errors.FACLUnsupportedFS).
 			WithMetadata("path", path)
 	}
 

@@ -53,6 +53,10 @@ func (h *ACLHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 // getACL handles GET requests to retrieve ACLs
 func (h *ACLHandler) getACL(c *gin.Context) {
+	// Check if response has already been written
+	if c.Writer.Written() {
+		return
+	}
 	fsPath := getDecodedPath(c)
 	if fsPath == "" {
 		APIError(c, errors.New(errors.FACLInvalidInput, "Path cannot be empty"))
@@ -69,6 +73,9 @@ func (h *ACLHandler) getACL(c *gin.Context) {
 
 	result, err := h.manager.GetACL(c.Request.Context(), config)
 	if err != nil {
+		h.logger.Error("Failed to get ACL",
+			"path", fsPath,
+			"error", err)
 		APIError(c, err)
 		return
 	}
