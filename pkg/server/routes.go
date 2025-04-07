@@ -13,7 +13,10 @@ import (
 	"github.com/stratastor/rodent/internal/constants"
 	svcAPI "github.com/stratastor/rodent/internal/services/api"
 	svcManager "github.com/stratastor/rodent/internal/services/manager"
+	"github.com/stratastor/rodent/pkg/ad"
 	"github.com/stratastor/rodent/pkg/ad/handlers"
+	"github.com/stratastor/rodent/pkg/facl"
+	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -95,4 +98,35 @@ func registerServiceRoutes(engine *gin.Engine) (serviceHandler *svcAPI.ServiceHa
 		serviceHandler.RegisterRoutes(v1)
 	}
 	return serviceHandler, nil
+}
+
+func registerFaclRoutes(engine *gin.Engine) (*aclAPI.ACLHandler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "facl")
+	if err != nil {
+		return nil, err
+	}
+
+	adClient, err := ad.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AD client: %w", err)
+	}
+
+	// Create ACL manager
+	aclManager := facl.NewACLManager(l, adClient)
+
+	// Create ACL handler
+	aclHandler := aclAPI.NewACLHandler(aclManager, l)
+
+	// API group with version
+	v1 := engine.Group(constants.APIFACL)
+	{
+		// Register ACL routes
+		aclHandler.RegisterRoutes(v1)
+	}
+
+	return aclHandler, nil
 }

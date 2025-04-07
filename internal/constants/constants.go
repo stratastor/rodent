@@ -26,6 +26,9 @@ const (
 	// APIServices is the base path for service management API endpoints
 	APIServices = APIBase + "/services"
 
+	// APIFACL is the base path for filesystem ACL management API endpoints
+	APIFACL = APIBase + "/facl"
+
 	// Updated path constants
 
 	// Template paths - relative paths

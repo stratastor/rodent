@@ -5,7 +5,20 @@ import (
 	"io"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 )
+
+// Global logger
+var Log logger.Logger
+
+func init() {
+	var err error
+	Log, err = logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "global")
+	if err != nil {
+		panic("Failed to initialize logger: " + err.Error())
+	}
+}
 
 // Helper to add errors to context
 func APIError(c *gin.Context, err error) {

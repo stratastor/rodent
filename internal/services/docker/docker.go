@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/services"
-	"github.com/stratastor/rodent/internal/services/command"
 )
 
 // Docker service constants

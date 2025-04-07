@@ -85,6 +85,13 @@ func Start(ctx context.Context, port int) error {
 	}
 	defer serviceHandler.Close()
 
+	// Register ACL routes
+	aclHandler, err := registerFaclRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register ACL routes: %w", err)
+	}
+	defer aclHandler.Close()
+
 	toggle.StartRegistrationProcess(ctx, l)
 
 	srv = &http.Server{

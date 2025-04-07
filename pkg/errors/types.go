@@ -27,6 +27,7 @@ const (
 	DomainHealth    Domain = "HEALTH"
 	DomainLifecycle Domain = "LIFECYCLE"
 	DomainAD        Domain = "AD"
+	DomainShares    Domain = "SHARES"
 )
 
 // ErrorCode represents unique error identifiers
@@ -63,6 +64,7 @@ type RodentError struct {
 // 1400-1499: Health check
 // 1500-1599: Lifecycle management
 // 1600-1699: Rodent errors
+// 1700-1799: Shares + ACL errors
 // 2000-2999: ZFS operations
 // Domain-specific error code ranges:
 const (
@@ -254,6 +256,18 @@ const (
 const (
 	// Rodent Errors (1600-1699)
 	RodentMisc = 1600 + iota // Miscellaneous program error
+)
+
+const (
+	// Shares + ACL Errors (1700-1799)
+	// ACL errors
+	FACLInvalidInput = 1700 + iota // Invalid ACL input
+	FACLReadError
+	FACLWriteError
+	FACLParseError
+	FACLPathNotFound
+	FACLInvalidPrincipal
+	FACLUnsupportedFS
 )
 
 var errorDefinitions = map[ErrorCode]struct {
@@ -719,4 +733,41 @@ var errorDefinitions = map[ErrorCode]struct {
 
 	// Rodent errors
 	RodentMisc: {"Miscellaneous program error", DomainLifecycle, http.StatusInternalServerError},
+
+	// ACL errors
+	FACLInvalidInput: {
+		"Invalid ACL input",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	FACLReadError: {
+		"Failed to read filesystem ACLs",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	FACLWriteError: {
+		"Failed to modify filesystem ACLs",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	FACLParseError: {
+		"Failed to parse ACL data",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	FACLPathNotFound: {
+		"Path not found",
+		DomainShares,
+		http.StatusNotFound,
+	},
+	FACLInvalidPrincipal: {
+		"Invalid user or group specified in ACL",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	FACLUnsupportedFS: {
+		"Unsupported filesystem for ACL operations",
+		DomainShares,
+		http.StatusBadRequest,
+	},
 }
