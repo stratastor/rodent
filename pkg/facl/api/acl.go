@@ -176,9 +176,11 @@ func (h *ACLHandler) removeACL(c *gin.Context) {
 	}
 
 	var req struct {
-		Type      facl.ACLType    `json:"type" binding:"required"`
-		Entries   []facl.ACLEntry `json:"entries" binding:"required"`
-		Recursive bool            `json:"recursive"`
+		Type           facl.ACLType    `json:"type"`
+		Entries        []facl.ACLEntry `json:"entries"`
+		Recursive      bool            `json:"recursive"`
+		RemoveAllXattr bool            `json:"remove_all_xattr"`
+		RemoveDefault  bool            `json:"remove_default"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -186,21 +188,20 @@ func (h *ACLHandler) removeACL(c *gin.Context) {
 		return
 	}
 
-	// Validate and resolve AD users/groups
-	entries, err := h.manager.ResolveADUsers(c.Request.Context(), req.Entries)
-	if err != nil {
-		APIError(c, err)
-		return
+	// Do not validate and resolve AD users/groups as they may have been removed
+
+	config := facl.ACLRemoveConfig{
+		ACLConfig: facl.ACLConfig{
+			Path:      fsPath,
+			Type:      req.Type,
+			Entries:   req.Entries,
+			Recursive: req.Recursive,
+		},
+		RemoveAllXattr: req.RemoveAllXattr,
+		RemoveDefault:  req.RemoveDefault,
 	}
 
-	config := facl.ACLConfig{
-		Path:      fsPath,
-		Type:      req.Type,
-		Entries:   entries,
-		Recursive: req.Recursive,
-	}
-
-	err = h.manager.RemoveACL(c.Request.Context(), config)
+	err := h.manager.RemoveACL(c.Request.Context(), config)
 	if err != nil {
 		APIError(c, err)
 		return

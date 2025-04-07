@@ -154,15 +154,34 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 	}
 	defer os.Remove(tempFile.Name())
 
+	// For debugging: collect entries to log them
+	var entryStrings []string
+
 	// Write ACL entries to temporary file
 	for _, entry := range cfg.Entries {
-		_, err := tempFile.WriteString(entry.String() + "\n")
+		entryStr := entry.String()
+		entryStrings = append(entryStrings, entryStr)
+		m.logger.Debug("Writing ACL entry",
+			"entry", entryStr,
+			"principal", entry.Principal,
+			"type", entry.Type)
+		_, err := tempFile.WriteString(entryStr + "\n")
 		if err != nil {
 			return errors.Wrap(err, errors.FACLWriteError).
 				WithMetadata("path", cfg.Path)
 		}
 	}
 	tempFile.Close()
+	// Log the entries for debugging
+	m.logger.Debug("ACL entries being set",
+		"path", cfg.Path,
+		"entries", strings.Join(entryStrings, ", "),
+		"temp_file", tempFile.Name())
+	// Log the actual content of the file
+	fileContent, err := os.ReadFile(tempFile.Name())
+	if err == nil {
+		m.logger.Debug("File content", "content", string(fileContent))
+	}
 
 	// Use --set to replace all ACLs
 	args = append(args, "--set-file="+tempFile.Name())
@@ -203,8 +222,8 @@ func (m *ACLManager) ModifyACL(ctx context.Context, cfg ACLConfig) error {
 		// args = append(args, "--nfs4") // Use NFSv4 ACLs
 	}
 
-	// Add --modify flag to modify existing ACLs
-	args = append(args, "-m")
+	// Modify existing ACLs
+	args = append(args, "-M")
 
 	// Create temporary file with ACL entries
 	tempFile, err := os.CreateTemp("", "rodent-acl-*.txt")
@@ -216,7 +235,12 @@ func (m *ACLManager) ModifyACL(ctx context.Context, cfg ACLConfig) error {
 
 	// Write ACL entries to temporary file
 	for _, entry := range cfg.Entries {
-		_, err := tempFile.WriteString(entry.String() + "\n")
+		entryStr := entry.String()
+		m.logger.Debug("Writing ACL entry for modify",
+			"entry", entryStr,
+			"principal", entry.Principal,
+			"type", entry.Type)
+		_, err := tempFile.WriteString(entryStr + "\n")
 		if err != nil {
 			return errors.Wrap(err, errors.FACLWriteError).
 				WithMetadata("path", cfg.Path)
@@ -224,7 +248,7 @@ func (m *ACLManager) ModifyACL(ctx context.Context, cfg ACLConfig) error {
 	}
 	tempFile.Close()
 
-	args = append(args, "--file="+tempFile.Name())
+	args = append(args, tempFile.Name())
 	args = append(args, cfg.Path)
 
 	// Execute setfacl command
@@ -239,78 +263,84 @@ func (m *ACLManager) ModifyACL(ctx context.Context, cfg ACLConfig) error {
 }
 
 // RemoveACL removes specific ACL entries
-func (m *ACLManager) RemoveACL(ctx context.Context, cfg ACLConfig) error {
+func (m *ACLManager) RemoveACL(ctx context.Context, cfg ACLRemoveConfig) error {
 	// Validate path
 	if err := validatePath(cfg.Path); err != nil {
 		return err
 	}
 
-	// Validate entries
-	if len(cfg.Entries) == 0 {
-		return errors.New(errors.FACLInvalidInput, "No ACL entries provided")
-	}
-
-	// Build setfacl arguments
 	args := []string{}
 
-	if cfg.Recursive {
-		args = append(args, "-R") // Apply recursively
-	}
-
-	if cfg.Type == ACLTypeNFSv4 {
-		// NFSv4 ACLs are not yet supported
-		// args = append(args, "--nfs4") // Use NFSv4 ACLs
-	}
-
-	// Add --remove flag to remove ACLs
-	args = append(args, "-x")
-
-	// Create temporary file with ACL entries to remove
-	tempFile, err := os.CreateTemp("", "rodent-acl-*.txt")
-	if err != nil {
-		return errors.Wrap(err, errors.FACLWriteError).
-			WithMetadata("path", cfg.Path)
-	}
-	defer os.Remove(tempFile.Name())
-
-	// Write ACL entries to temporary file
-	for _, entry := range cfg.Entries {
-		// For removal, we only need the type and principal
-		var entryStr string
-		switch entry.Type {
-		case EntryUser:
-			if entry.Principal == "" {
-				entryStr = "user::"
-			} else {
-				entryStr = fmt.Sprintf("user:%s", entry.Principal)
-			}
-		case EntryGroup:
-			if entry.Principal == "" {
-				entryStr = "group::"
-			} else {
-				entryStr = fmt.Sprintf("group:%s", entry.Principal)
-			}
-		case EntryOwner:
-			entryStr = "owner::"
-		case EntryOwnerGroup:
-			entryStr = "group::"
-		case EntryMask:
-			entryStr = "mask::"
-		case EntryOther:
-			entryStr = "other::"
-		case EntryEveryone:
-			entryStr = "everyone@"
+	if !cfg.RemoveAllXattr {
+		if cfg.RemoveDefault {
+			args = append(args, "-k") // Remove default ACLs
 		}
 
-		_, err := tempFile.WriteString(entryStr + "\n")
+		// Validate entries
+		if len(cfg.Entries) == 0 {
+			return errors.New(errors.FACLInvalidInput, "No ACL entries provided")
+		}
+
+		// Build setfacl arguments
+
+		if cfg.Recursive {
+			args = append(args, "-R") // Apply recursively
+		}
+
+		// Use -X for removing ACLs with a file input
+		args = append(args, "-X")
+
+		// Create temporary file with ACL entries to remove
+		tempFile, err := os.CreateTemp("", "rodent-acl-*.txt")
 		if err != nil {
 			return errors.Wrap(err, errors.FACLWriteError).
 				WithMetadata("path", cfg.Path)
 		}
-	}
-	tempFile.Close()
+		defer os.Remove(tempFile.Name())
 
-	args = append(args, "--file="+tempFile.Name())
+		// Write ACL entries to temporary file
+		for _, entry := range cfg.Entries {
+			// For removal, we only need the type and principal
+			var entryStr string
+			prefix := ""
+			if entry.IsDefault {
+				prefix = "default:"
+			}
+			switch entry.Type {
+			case EntryUser:
+				if entry.Principal == "" {
+					// Can't remove base user entry
+					continue
+				}
+				// Escape spaces with \040 for setfacl
+				escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
+				entryStr = fmt.Sprintf("%suser:%s", prefix, escapedPrincipal)
+			case EntryGroup:
+				if entry.Principal == "" {
+					// Can't remove base group entry
+					continue
+				}
+				// Escape spaces with \040 for setfacl
+				escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
+				entryStr = fmt.Sprintf("%sgroup:%s", prefix, escapedPrincipal)
+			default:
+				// Can't remove base entries
+				continue
+			}
+
+			_, err := tempFile.WriteString(entryStr + "\n")
+			if err != nil {
+				return errors.Wrap(err, errors.FACLWriteError).
+					WithMetadata("path", cfg.Path)
+			}
+		}
+		tempFile.Close()
+
+		args = append(args, tempFile.Name())
+	} else if cfg.RemoveAllXattr {
+		args = append(args, "-b") // Remove all ACLs
+	}
+
 	args = append(args, cfg.Path)
 
 	// Execute setfacl command
@@ -342,6 +372,8 @@ func (m *ACLManager) ResolveADUsers(ctx context.Context, entries []ACLEntry) ([]
 			continue
 		}
 
+		// TODO: "\\" may not always be the correct filter
+		// TODO: Check principal regardless of default domain
 		// Check if it's a domain user/group (DOMAIN\User format)
 		if strings.Contains(entry.Principal, "\\") {
 			parts := strings.SplitN(entry.Principal, "\\", 2)

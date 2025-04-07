@@ -246,7 +246,7 @@ func parseFlags(flags string) []ACLFlags {
 
 // unescapePrincipal handles escaped characters in principal names
 func unescapePrincipal(principal string) string {
-	// Handle octal escape sequences like \040 (space)
+	// First, handle the \040 style octal escapes (e.g., domain\040users)
 	result := ""
 	i := 0
 	for i < len(principal) {
@@ -262,5 +262,13 @@ func unescapePrincipal(principal string) string {
 		result += string(principal[i])
 		i++
 	}
+
 	return result
+}
+
+// Add this to pkg/facl/types.go
+// escapePrincipal escapes special characters in principal names
+func escapePrincipal(principal string) string {
+	// For setfacl, just escape spaces with backslash
+	return strings.ReplaceAll(principal, " ", "\\ ")
 }
