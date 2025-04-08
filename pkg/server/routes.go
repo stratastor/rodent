@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/constants"
 	svcAPI "github.com/stratastor/rodent/internal/services/api"
 	svcManager "github.com/stratastor/rodent/internal/services/manager"
@@ -17,6 +18,8 @@ import (
 	"github.com/stratastor/rodent/pkg/ad/handlers"
 	"github.com/stratastor/rodent/pkg/facl"
 	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
+	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
+	"github.com/stratastor/rodent/pkg/shares/smb"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -129,4 +132,37 @@ func registerFaclRoutes(engine *gin.Engine) (*aclAPI.ACLHandler, error) {
 	}
 
 	return aclHandler, nil
+}
+
+// RegisterSharesRoutes registers shares API routes
+func registerSharesRoutes(engine *gin.Engine) error {
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "shares")
+	if err != nil {
+		return err
+	}
+	// Create the SMB manager
+	executor := generalCmd.NewCommandExecutor(true)
+
+	// Get ACL manager if available
+	aclManager := facl.NewACLManager(l, nil)
+
+	// Create SMB manager
+	smbManager, err := smb.NewManager(l, executor, aclManager)
+	if err != nil {
+		return fmt.Errorf("failed to create SMB manager: %w", err)
+	}
+
+	// Create SMB service manager
+	smbService := smb.NewServiceManager(l)
+
+	// Create the shares handler
+	sharesHandler := sharesAPI.NewSharesHandler(l, smbManager, smbService)
+
+	// Register routes
+	v1 := engine.Group(constants.APIShares)
+	{
+		sharesHandler.RegisterRoutes(v1)
+	}
+
+	return nil
 }

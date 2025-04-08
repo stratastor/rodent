@@ -1,0 +1,1276 @@
+package smb
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"text/template"
+	"time"
+
+	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/facl"
+	"github.com/stratastor/rodent/pkg/shares"
+)
+
+const (
+	DefaultSMBConfigPath = "/etc/samba/smb.conf"
+	SharesConfigDir      = "/etc/samba/shares.d"
+	TemplateDir          = "/etc/rodent/templates/smb"
+	DefaultTemplate      = "share.tmpl"
+	GlobalTemplate       = "global.tmpl"
+)
+
+var (
+	// Ensure safe share names
+	shareNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.]{0,62}$`)
+	pathRegex      = regexp.MustCompile(`^/[a-zA-Z0-9/._-]+$`)
+)
+
+// Manager implements SMB share management
+type Manager struct {
+	logger     logger.Logger
+	executor   *command.CommandExecutor
+	configDir  string
+	templates  map[string]*template.Template
+	mutex      sync.RWMutex
+	aclManager *facl.ACLManager
+}
+
+// NewManager creates a new SMB shares manager
+func NewManager(
+	logger logger.Logger,
+	executor *command.CommandExecutor,
+	aclManager *facl.ACLManager,
+) (*Manager, error) {
+	// Create shares config directory if it doesn't exist
+	if err := os.MkdirAll(SharesConfigDir, 0755); err != nil {
+		return nil, errors.Wrap(err, errors.RodentMisc).
+			WithMetadata("path", SharesConfigDir)
+	}
+
+	// Load templates
+	templates := make(map[string]*template.Template)
+
+	// Load default template from embedded files or filesystem
+	defaultTemplate, err := template.ParseFiles(filepath.Join(TemplateDir, DefaultTemplate))
+	if err != nil {
+		// If template doesn't exist, create a basic one
+		defaultTemplate, err = template.New(DefaultTemplate).Parse(`[{{.Name}}]
+    path = {{.Path}}
+    comment = {{.Description}}
+    read only = {{if .ReadOnly}}yes{{else}}no{{end}}
+    browsable = {{if .Browsable}}yes{{else}}no{{end}}
+    {{if .ValidUsers}}valid users = {{join .ValidUsers ", "}}{{end}}
+    {{if .InheritACLs}}inherit acls = yes{{end}}
+    {{if .MapACLInherit}}map acl inherit = yes{{end}}
+    {{range $key, $value := .CustomParameters}}
+    {{$key}} = {{$value}}
+    {{end}}
+`)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.RodentMisc).
+				WithMetadata("template", DefaultTemplate)
+		}
+	}
+	templates[DefaultTemplate] = defaultTemplate
+
+	// Load global template
+	globalTemplate, err := template.ParseFiles(filepath.Join(TemplateDir, GlobalTemplate))
+	if err != nil {
+		// If template doesn't exist, create a basic one
+		globalTemplate, err = template.New(GlobalTemplate).Parse(`[global]
+    workgroup = {{.WorkGroup}}
+    {{if .ServerString}}server string = {{.ServerString}}{{end}}
+    security = {{.SecurityMode}}
+    {{if .Realm}}realm = {{.Realm}}{{end}}
+    {{if .ServerRole}}server role = {{.ServerRole}}{{end}}
+    {{if .LogLevel}}log level = {{.LogLevel}}{{end}}
+    {{if gt .MaxLogSize 0}}max log size = {{.MaxLogSize}}{{end}}
+    
+    {{if .WinbindUseDefaultDomain}}winbind use default domain = yes{{end}}
+    {{if .WinbindOfflineLogon}}winbind offline logon = yes{{end}}
+    
+    {{range $key, $value := .IDMapConfig}}
+    {{$key}} = {{$value}}
+    {{end}}
+    
+    {{if .KerberosMethod}}kerberos method = {{.KerberosMethod}}{{end}}
+    {{if .DedicatedKeytabFile}}dedicated keytab file = {{.DedicatedKeytabFile}}{{end}}
+    
+    {{range $key, $value := .CustomParameters}}
+    {{$key}} = {{$value}}
+    {{end}}
+`)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.RodentMisc).
+				WithMetadata("template", GlobalTemplate)
+		}
+	}
+	templates[GlobalTemplate] = globalTemplate
+
+	return &Manager{
+		logger:     logger,
+		executor:   executor,
+		configDir:  SharesConfigDir,
+		templates:  templates,
+		aclManager: aclManager,
+	}, nil
+}
+
+// validateShareConfig validates SMB share configuration
+func (m *Manager) validateShareConfig(config *SMBShareConfig) error {
+	// Validate share name
+	if config.Name == "" {
+		return errors.New(errors.SharesInvalidInput, "Share name cannot be empty")
+	}
+
+	if !shareNameRegex.MatchString(config.Name) {
+		return errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", config.Name)
+	}
+
+	// Validate path
+	if config.Path == "" {
+		return errors.New(errors.SharesInvalidInput, "Share path cannot be empty")
+	}
+
+	if !pathRegex.MatchString(config.Path) {
+		return errors.New(errors.SharesInvalidInput, "Invalid path format").
+			WithMetadata("path", config.Path)
+	}
+
+	// Check if path exists
+	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
+		return errors.New(errors.SharesInvalidInput, "Path does not exist").
+			WithMetadata("path", config.Path)
+	}
+
+	return nil
+}
+
+// ListShares returns a list of all configured SMB shares
+func (m *Manager) ListShares(ctx context.Context) ([]shares.ShareConfig, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Get all share config files
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*.conf"))
+	if err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "list")
+	}
+
+	var result []shares.ShareConfig
+
+	// Read each share config file
+	for _, file := range files {
+		// Skip smb.conf
+		if filepath.Base(file) == "smb.conf" {
+			continue
+		}
+
+		// Read share config
+		data, err := os.ReadFile(file)
+		if err != nil {
+			m.logger.Warn("Failed to read share config file", "file", file, "error", err)
+			continue
+		}
+
+		var smbConfig SMBShareConfig
+		if err := json.Unmarshal(data, &smbConfig); err != nil {
+			m.logger.Warn("Failed to parse share config file", "file", file, "error", err)
+			continue
+		}
+
+		// Create ShareConfig from SMBShareConfig
+		shareConfig := shares.ShareConfig{
+			Name:        smbConfig.Name,
+			Description: smbConfig.Description,
+			Path:        smbConfig.Path,
+			Type:        shares.ShareTypeSMB,
+			Enabled:     smbConfig.Enabled,
+			Tags:        smbConfig.Tags,
+			Created:     getFileCreationTime(file),
+			Modified:    getFileModificationTime(file),
+		}
+
+		// Get share status
+		status, err := m.getShareStatus(ctx, smbConfig.Name)
+		if err != nil {
+			m.logger.Warn("Failed to get share status", "share", smbConfig.Name, "error", err)
+			shareConfig.Status = shares.ShareStatusInactive
+		} else if status {
+			shareConfig.Status = shares.ShareStatusActive
+		} else {
+			shareConfig.Status = shares.ShareStatusInactive
+		}
+
+		result = append(result, shareConfig)
+	}
+
+	return result, nil
+}
+
+// ListSharesByType returns a list of SMB shares
+func (m *Manager) ListSharesByType(
+	ctx context.Context,
+	shareType shares.ShareType,
+) ([]shares.ShareConfig, error) {
+	if shareType != shares.ShareTypeSMB {
+		return nil, errors.New(errors.SharesInvalidInput, "Unsupported share type").
+			WithMetadata("type", string(shareType))
+	}
+
+	return m.ListShares(ctx)
+}
+
+// GetShare returns the configuration for a specific SMB share
+func (m *Manager) GetShare(ctx context.Context, name string) (*shares.ShareConfig, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return nil, errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Read share config file
+	filePath := filepath.Join(m.configDir, name+".conf")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New(errors.SharesNotFound, "Share not found").
+				WithMetadata("name", name)
+		}
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "get").
+			WithMetadata("name", name)
+	}
+
+	var smbConfig SMBShareConfig
+	if err := json.Unmarshal(data, &smbConfig); err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "parse").
+			WithMetadata("name", name)
+	}
+
+	// Create ShareConfig from SMBShareConfig
+	shareConfig := &shares.ShareConfig{
+		Name:        smbConfig.Name,
+		Description: smbConfig.Description,
+		Path:        smbConfig.Path,
+		Type:        shares.ShareTypeSMB,
+		Enabled:     smbConfig.Enabled,
+		Tags:        smbConfig.Tags,
+		Created:     getFileCreationTime(filePath),
+		Modified:    getFileModificationTime(filePath),
+	}
+
+	// Get share status
+	status, err := m.getShareStatus(ctx, name)
+	if err != nil {
+		m.logger.Warn("Failed to get share status", "share", name, "error", err)
+		shareConfig.Status = shares.ShareStatusInactive
+	} else if status {
+		shareConfig.Status = shares.ShareStatusActive
+	} else {
+		shareConfig.Status = shares.ShareStatusInactive
+	}
+
+	return shareConfig, nil
+}
+
+// GetSMBShare returns the SMB specific configuration for a share
+func (m *Manager) GetSMBShare(ctx context.Context, name string) (*SMBShareConfig, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return nil, errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Read share config file
+	filePath := filepath.Join(m.configDir, name+".conf")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New(errors.SharesNotFound, "Share not found").
+				WithMetadata("name", name)
+		}
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "get").
+			WithMetadata("name", name)
+	}
+
+	var smbConfig SMBShareConfig
+	if err := json.Unmarshal(data, &smbConfig); err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "parse").
+			WithMetadata("name", name)
+	}
+
+	return &smbConfig, nil
+}
+
+// CreateShare creates a new SMB share
+func (m *Manager) CreateShare(ctx context.Context, config interface{}) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Convert interface to SMBShareConfig
+	smbConfig, ok := config.(*SMBShareConfig)
+	if !ok {
+		return errors.New(errors.SharesInvalidInput, "Invalid share configuration type")
+	}
+
+	// Validate share configuration
+	if err := m.validateShareConfig(smbConfig); err != nil {
+		return err
+	}
+
+	// Check if share already exists
+	filePath := filepath.Join(m.configDir, smbConfig.Name+".conf")
+	if _, err := os.Stat(filePath); err == nil {
+		return errors.New(errors.SharesAlreadyExists, "Share already exists").
+			WithMetadata("name", smbConfig.Name)
+	}
+
+	// Save share configuration
+	data, err := json.MarshalIndent(smbConfig, "", "  ")
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "marshal").
+			WithMetadata("name", smbConfig.Name)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "save").
+			WithMetadata("name", smbConfig.Name)
+	}
+
+	// Generate SMB configuration
+	if err := m.generateShareConfig(smbConfig); err != nil {
+		return err
+	}
+
+	// Set directory permissions if needed
+	if smbConfig.InheritACLs || smbConfig.MapACLInherit {
+		// Ensure directory has correct permissions for SMB sharing
+		if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
+			m.logger.Warn("Failed to set share permissions",
+				"share", smbConfig.Name,
+				"path", smbConfig.Path,
+				"error", err)
+		}
+	}
+
+	// Reload SMB configuration
+	if err := m.ReloadConfig(ctx); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "reload").
+			WithMetadata("name", smbConfig.Name)
+	}
+
+	return nil
+}
+
+// UpdateShare updates an existing SMB share
+func (m *Manager) UpdateShare(ctx context.Context, name string, config interface{}) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Convert interface to SMBShareConfig
+	smbConfig, ok := config.(*SMBShareConfig)
+	if !ok {
+		return errors.New(errors.SharesInvalidInput, "Invalid share configuration type")
+	}
+
+	// Validate share configuration
+	if err := m.validateShareConfig(smbConfig); err != nil {
+		return err
+	}
+
+	// Ensure name consistency
+	if name != smbConfig.Name {
+		return errors.New(errors.SharesInvalidInput, "Share name mismatch").
+			WithMetadata("name", name).
+			WithMetadata("config_name", smbConfig.Name)
+	}
+
+	// Check if share exists
+	filePath := filepath.Join(m.configDir, name+".conf")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.New(errors.SharesNotFound, "Share not found").
+			WithMetadata("name", name)
+	}
+
+	// Save share configuration
+	data, err := json.MarshalIndent(smbConfig, "", "  ")
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "marshal").
+			WithMetadata("name", name)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "save").
+			WithMetadata("name", name)
+	}
+
+	// Generate SMB configuration
+	if err := m.generateShareConfig(smbConfig); err != nil {
+		return err
+	}
+
+	// Set directory permissions if needed
+	if smbConfig.InheritACLs || smbConfig.MapACLInherit {
+		// Ensure directory has correct permissions for SMB sharing
+		if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
+			m.logger.Warn("Failed to set share permissions",
+				"share", smbConfig.Name,
+				"path", smbConfig.Path,
+				"error", err)
+		}
+	}
+
+	// Reload SMB configuration
+	if err := m.ReloadConfig(ctx); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "reload").
+			WithMetadata("name", name)
+	}
+
+	return nil
+}
+
+// DeleteShare deletes an SMB share
+func (m *Manager) DeleteShare(ctx context.Context, name string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Check if share exists
+	filePath := filepath.Join(m.configDir, name+".conf")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.New(errors.SharesNotFound, "Share not found").
+			WithMetadata("name", name)
+	}
+
+	// Remove share configuration file
+	if err := os.Remove(filePath); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "delete").
+			WithMetadata("name", name)
+	}
+
+	// Remove generated SMB configuration
+	smbConfPath := filepath.Join(SharesConfigDir, name+".smb.conf")
+	if err := os.Remove(smbConfPath); err != nil && !os.IsNotExist(err) {
+		m.logger.Warn("Failed to remove SMB configuration file",
+			"file", smbConfPath,
+			"error", err)
+	}
+
+	// Reload SMB configuration
+	if err := m.ReloadConfig(ctx); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "reload").
+			WithMetadata("name", name)
+	}
+
+	return nil
+}
+
+// GetShareStats returns statistics for an SMB share
+func (m *Manager) GetShareStats(ctx context.Context, name string) (*shares.ShareStats, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return nil, errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Get SMB statistics
+	smbStats, err := m.GetSMBShareStats(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create ShareStats from SMBShareStats
+	stats := &shares.ShareStats{
+		ActiveConnections: smbStats.ActiveSessions,
+		OpenFiles:         smbStats.OpenFiles,
+	}
+
+	// Set last accessed time if there are open files
+	if len(smbStats.Files) > 0 {
+		// Find the most recent access
+		var latestTime time.Time
+		for _, file := range smbStats.Files {
+			if file.OpenedAt.After(latestTime) {
+				latestTime = file.OpenedAt
+			}
+		}
+		stats.LastAccessed = latestTime
+	}
+
+	return stats, nil
+}
+
+// GetSMBShareStats returns detailed SMB statistics for a share
+func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareStats, error) {
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return nil, errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Run smbstatus to get detailed information
+	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
+	if err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "stats").
+			WithMetadata("name", name)
+	}
+
+	// Parse JSON output
+	var smbStatus struct {
+		Sessions map[string]struct {
+			SessionID     string `json:"session_id"`
+			Username      string `json:"username"`
+			GroupName     string `json:"groupname"`
+			RemoteMachine string `json:"remote_machine"`
+			ConnectedAt   string `json:"connected_at"`
+			Encryption    struct {
+				Cipher string `json:"cipher"`
+				Degree string `json:"degree"`
+			} `json:"encryption"`
+			Signing struct {
+				Cipher string `json:"cipher"`
+				Degree string `json:"degree"`
+			} `json:"signing"`
+		} `json:"sessions"`
+		Tcons map[string]struct {
+			Service     string `json:"service"`
+			SessionID   string `json:"session_id"`
+			Machine     string `json:"machine"`
+			ConnectedAt string `json:"connected_at"`
+		} `json:"tcons"`
+		OpenFiles map[string]struct {
+			ServicePath string `json:"service_path"`
+			Filename    string `json:"filename"`
+			Opens       map[string]struct {
+				UID       int    `json:"uid"`
+				OpenedAt  string `json:"opened_at"`
+				ShareMode struct {
+					Read   bool   `json:"READ"`
+					Write  bool   `json:"WRITE"`
+					Delete bool   `json:"DELETE"`
+					Text   string `json:"text"`
+				} `json:"sharemode"`
+				AccessMask struct {
+					ReadData   bool   `json:"READ_DATA"`
+					WriteData  bool   `json:"WRITE_DATA"`
+					AppendData bool   `json:"APPEND_DATA"`
+					Text       string `json:"text"`
+				} `json:"access_mask"`
+			} `json:"opens"`
+		} `json:"open_files"`
+	}
+
+	if err := json.Unmarshal(out, &smbStatus); err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "parse_stats").
+			WithMetadata("name", name)
+	}
+
+	// Create SMBShareStats
+	stats := &SMBShareStats{
+		Sessions: make([]SMBSession, 0),
+		Files:    make([]SMBOpenFile, 0),
+	}
+
+	// Track session IDs for this share
+	shareSessions := make(map[string]bool)
+
+	// Gather connection info from tcons
+	for _, tcon := range smbStatus.Tcons {
+		if tcon.Service == name {
+			shareSessions[tcon.SessionID] = true
+		}
+	}
+
+	// Collect sessions for this share
+	for sessionID, session := range smbStatus.Sessions {
+		if shareSessions[sessionID] {
+			connectedAt, _ := time.Parse(time.RFC3339, session.ConnectedAt)
+
+			smbSession := SMBSession{
+				SessionID:     sessionID,
+				Username:      session.Username,
+				GroupName:     session.GroupName,
+				RemoteMachine: session.RemoteMachine,
+				ConnectedAt:   connectedAt,
+				Encryption:    session.Encryption.Degree,
+				Signing:       session.Signing.Degree,
+			}
+
+			stats.Sessions = append(stats.Sessions, smbSession)
+		}
+	}
+
+	// Collect open files for this share
+	for path, fileInfo := range smbStatus.OpenFiles {
+		if strings.HasPrefix(path, "/"+name+"/") || path == "/"+name {
+			for _, openInfo := range fileInfo.Opens {
+				// openInfo is a struct, not a map or slice, so we can't range over it
+				openedAt, _ := time.Parse(time.RFC3339, openInfo.OpenedAt)
+
+				// Get session info to determine username
+				var username string
+				for sessionID, session := range smbStatus.Sessions {
+					if shareSessions[sessionID] {
+						username = session.Username
+						break
+					}
+				}
+
+				smbFile := SMBOpenFile{
+					Path:         path,
+					ShareName:    name,
+					Username:     username,
+					OpenedAt:     openedAt,
+					AccessMode:   openInfo.ShareMode.Text,
+					AccessRights: openInfo.AccessMask.Text,
+				}
+
+				stats.Files = append(stats.Files, smbFile)
+			}
+		}
+	}
+
+	// Update counters
+	stats.ActiveSessions = len(stats.Sessions)
+	stats.OpenFiles = len(stats.Files)
+
+	return stats, nil
+}
+
+// Exists checks if an SMB share exists
+func (m *Manager) Exists(ctx context.Context, name string) (bool, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Validate share name
+	if !shareNameRegex.MatchString(name) {
+		return false, errors.New(errors.SharesInvalidInput, "Invalid share name format").
+			WithMetadata("name", name)
+	}
+
+	// Check if share configuration file exists
+	filePath := filepath.Join(m.configDir, name+".conf")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "check_exists").
+			WithMetadata("name", name)
+	}
+
+	return true, nil
+}
+
+// ReloadConfig reloads the SMB configuration
+func (m *Manager) ReloadConfig(ctx context.Context) error {
+	// Update main SMB configuration file
+	if err := m.updateMainConfig(); err != nil {
+		return err
+	}
+
+	// Reload SMB service configuration
+	cmd := exec.CommandContext(ctx, "sudo", "smbcontrol", "smbd", "reload-config")
+	if err := cmd.Run(); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "reload_config")
+	}
+
+	return nil
+}
+
+// UpdateGlobalConfig updates the global SMB configuration
+func (m *Manager) UpdateGlobalConfig(ctx context.Context, config *SMBGlobalConfig) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Validate global configuration
+	if config.WorkGroup == "" {
+		return errors.New(errors.SharesInvalidInput, "Workgroup cannot be empty")
+	}
+
+	if config.SecurityMode == "" {
+		return errors.New(errors.SharesInvalidInput, "Security mode cannot be empty")
+	}
+
+	// Save global configuration
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "marshal_global")
+	}
+
+	filePath := filepath.Join(m.configDir, "global.conf")
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "save_global")
+	}
+
+	// Generate global configuration section
+	if err := m.generateGlobalConfig(config); err != nil {
+		return err
+	}
+
+	// Update main SMB configuration
+	if err := m.updateMainConfig(); err != nil {
+		return err
+	}
+
+	// Reload configuration
+	return m.ReloadConfig(ctx)
+}
+
+// GetGlobalConfig returns the global SMB configuration
+func (m *Manager) GetGlobalConfig(ctx context.Context) (*SMBGlobalConfig, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	// Read global config file
+	filePath := filepath.Join(m.configDir, "global.conf")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Return default configuration if file doesn't exist
+			return &SMBGlobalConfig{
+				WorkGroup:    "WORKGROUP",
+				SecurityMode: "user",
+				ServerRole:   "standalone server",
+				LogLevel:     "1",
+			}, nil
+		}
+
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "get_global")
+	}
+
+	var globalConfig SMBGlobalConfig
+	if err := json.Unmarshal(data, &globalConfig); err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "parse_global")
+	}
+
+	return &globalConfig, nil
+}
+
+// GetSMBServiceStatus returns the status of the SMB service
+func (m *Manager) GetSMBServiceStatus(ctx context.Context) (*SMBServiceStatus, error) {
+	// Check if SMB service is running
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", "smbd")
+	out, err := cmd.Output()
+
+	status := &SMBServiceStatus{}
+
+	if err != nil {
+		status.Running = false
+		return status, nil
+	}
+
+	// Service is running
+	if strings.TrimSpace(string(out)) == "active" {
+		status.Running = true
+
+		// Get SMB version
+		versionCmd := exec.CommandContext(ctx, "smbd", "--version")
+		versionOut, err := versionCmd.Output()
+		if err == nil {
+			status.Version = strings.TrimSpace(string(versionOut))
+		}
+
+		// Get PID
+		pidCmd := exec.CommandContext(ctx, "pidof", "smbd")
+		pidOut, err := pidCmd.Output()
+		if err == nil {
+			pidStr := strings.Split(strings.TrimSpace(string(pidOut)), " ")[0]
+			pid, err := strconv.Atoi(pidStr)
+			if err == nil {
+				status.PID = pid
+			}
+		}
+
+		// Get config file
+		status.ConfigFile = DefaultSMBConfigPath
+
+		// Get start time
+		if status.PID > 0 {
+			procFile := fmt.Sprintf("/proc/%d/stat", status.PID)
+			procData, err := os.ReadFile(procFile)
+			if err == nil {
+				procFields := strings.Fields(string(procData))
+				if len(procFields) > 22 {
+					startTime, err := strconv.ParseInt(procFields[21], 10, 64)
+					if err == nil {
+						// Convert clock ticks to seconds
+						var clockTicks int64 = 100 // Usually 100 Hz on Linux
+						uptime, err := os.ReadFile("/proc/uptime")
+						if err == nil {
+							uptimeFields := strings.Fields(string(uptime))
+							if len(uptimeFields) > 0 {
+								upSec, err := strconv.ParseFloat(uptimeFields[0], 64)
+								if err == nil {
+									bootTime := time.Now().Add(-time.Duration(upSec) * time.Second)
+									status.StartTime = bootTime.Add(
+										time.Duration(startTime/clockTicks) * time.Second,
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Get active shares and sessions
+		smbStatus, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
+		if err == nil {
+			var parsedStatus struct {
+				Sessions map[string]interface{} `json:"sessions"`
+				Tcons    map[string]interface{} `json:"tcons"`
+			}
+
+			if err := json.Unmarshal(smbStatus, &parsedStatus); err == nil {
+				status.ActiveSessions = len(parsedStatus.Sessions)
+				status.ActiveShares = len(parsedStatus.Tcons)
+			}
+		}
+	}
+
+	return status, nil
+}
+
+// ensureSharePermissions ensures the directory has correct permissions for SMB sharing
+func (m *Manager) ensureSharePermissions(ctx context.Context, config *SMBShareConfig) error {
+	// Skip if ACL manager is not available
+	if m.aclManager == nil {
+		return nil
+	}
+
+	// Ensure directory exists
+	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
+		return errors.New(errors.SharesInvalidInput, "Share path does not exist").
+			WithMetadata("path", config.Path)
+	}
+
+	// Set basic permissions
+	if err := os.Chmod(config.Path, 0755); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "chmod").
+			WithMetadata("path", config.Path)
+	}
+
+	// Set ACLs if needed
+	if config.InheritACLs || config.MapACLInherit {
+		entries := []facl.ACLEntry{
+			{
+				Type: facl.EntryOwner,
+				Permissions: []facl.PermissionType{
+					facl.PermReadData,
+					facl.PermWriteData,
+					facl.PermExecute,
+				},
+				Access: facl.AccessAllow,
+			},
+		}
+
+		// Add ACLs for valid users if specified
+		for _, user := range config.ValidUsers {
+			// Skip AD prefixes or group indicators
+			if strings.Contains(user, "\\") {
+				parts := strings.Split(user, "\\")
+				user = parts[len(parts)-1]
+			}
+
+			if strings.HasPrefix(user, "@") {
+				// Group
+				entries = append(entries, facl.ACLEntry{
+					Type:        facl.EntryGroup,
+					Principal:   strings.TrimPrefix(user, "@"),
+					Permissions: []facl.PermissionType{facl.PermReadData, facl.PermExecute},
+					Access:      facl.AccessAllow,
+				})
+			} else {
+				// User
+				entries = append(entries, facl.ACLEntry{
+					Type:        facl.EntryUser,
+					Principal:   user,
+					Permissions: []facl.PermissionType{facl.PermReadData, facl.PermExecute},
+					Access:      facl.AccessAllow,
+				})
+			}
+		}
+
+		// Set ACLs
+		err := m.aclManager.SetACL(ctx, facl.ACLConfig{
+			Path:      config.Path,
+			Type:      facl.ACLTypeNFSv4,
+			Entries:   entries,
+			Recursive: true,
+		})
+
+		if err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "set_acl").
+				WithMetadata("path", config.Path)
+		}
+	}
+
+	return nil
+}
+
+// Helper functions
+
+// updateMainConfig updates the main SMB configuration file
+func (m *Manager) updateMainConfig() error {
+	// Start with global configuration
+	var content string
+
+	// Read global configuration
+	globalPath := filepath.Join(SharesConfigDir, "global.smb.conf")
+	globalData, err := os.ReadFile(globalPath)
+	if err == nil {
+		content = string(globalData) + "\n\n"
+	} else if !os.IsNotExist(err) {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "read_global_config")
+	}
+
+	// Append includes for all shares
+	content += "# Include share definitions - managed by Rodent\n"
+	content += "include = " + SharesConfigDir + "/*.smb.conf\n"
+
+	// Write updated config
+	if err := os.WriteFile(DefaultSMBConfigPath, []byte(content), 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "write_config")
+	}
+
+	return nil
+}
+
+// generateShareConfig generates SMB configuration for a share
+func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
+	// Get the template
+	tmpl, ok := m.templates[DefaultTemplate]
+	if !ok {
+		return errors.New(errors.SharesInternalError, "Share template not found")
+	}
+
+	// Create a template helper for joining arrays
+	funcMap := template.FuncMap{
+		"join": strings.Join,
+	}
+	tmpl = tmpl.Funcs(funcMap)
+
+	// Render the template
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, config); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "render_template").
+			WithMetadata("name", config.Name)
+	}
+
+	// Write the configuration file
+	filePath := filepath.Join(SharesConfigDir, config.Name+".smb.conf")
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "write_share_config").
+			WithMetadata("name", config.Name)
+	}
+
+	return nil
+}
+
+// generateGlobalConfig generates the global SMB configuration
+func (m *Manager) generateGlobalConfig(config *SMBGlobalConfig) error {
+	// Get the template
+	tmpl, ok := m.templates[GlobalTemplate]
+	if !ok {
+		return errors.New(errors.SharesInternalError, "Global template not found")
+	}
+
+	// Render the template
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, config); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "render_global_template")
+	}
+
+	// Write the configuration file
+	filePath := filepath.Join(SharesConfigDir, "global.smb.conf")
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "write_global_config")
+	}
+
+	return nil
+}
+
+// getShareStatus checks if a share is active
+func (m *Manager) getShareStatus(ctx context.Context, name string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "sudo", "smbstatus", "-j")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "check_status").
+			WithMetadata("name", name)
+	}
+
+	var smbStatus struct {
+		Tcons map[string]struct {
+			Service string `json:"service"`
+		} `json:"tcons"`
+	}
+
+	if err := json.Unmarshal(out, &smbStatus); err != nil {
+		return false, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "parse_status").
+			WithMetadata("name", name)
+	}
+
+	// Check if the share is active
+	for _, tcon := range smbStatus.Tcons {
+		if tcon.Service == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// Add this method to the Manager struct
+
+// BulkUpdateShares updates multiple SMB shares with the same parameters
+func (m *Manager) BulkUpdateShares(
+	ctx context.Context,
+	config SMBBulkUpdateConfig,
+) ([]SMBBulkUpdateResult, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Validate input
+	if len(config.Parameters) == 0 {
+		return nil, errors.New(errors.SharesInvalidInput, "No parameters specified for bulk update")
+	}
+
+	if !config.All && len(config.ShareNames) == 0 && len(config.Tags) == 0 {
+		return nil, errors.New(errors.SharesInvalidInput, "No shares specified for bulk update")
+	}
+
+	// Get all shares
+	allShares, err := m.getAllShareConfigs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter shares to update
+	var sharesToUpdate []*SMBShareConfig
+	if config.All {
+		sharesToUpdate = allShares
+	} else if len(config.ShareNames) > 0 {
+		// Filter by name
+		for _, share := range allShares {
+			for _, name := range config.ShareNames {
+				if share.Name == name {
+					sharesToUpdate = append(sharesToUpdate, share)
+					break
+				}
+			}
+		}
+	} else if len(config.Tags) > 0 {
+		// Filter by tags
+		for _, share := range allShares {
+			match := true
+			for key, value := range config.Tags {
+				if shareValue, ok := share.Tags[key]; !ok || shareValue != value {
+					match = false
+					break
+				}
+			}
+			if match {
+				sharesToUpdate = append(sharesToUpdate, share)
+			}
+		}
+	}
+
+	if len(sharesToUpdate) == 0 {
+		return nil, errors.New(errors.SharesNotFound, "No matching shares found for update")
+	}
+
+	// Update shares
+	results := make([]SMBBulkUpdateResult, 0, len(sharesToUpdate))
+	for _, share := range sharesToUpdate {
+		result := SMBBulkUpdateResult{
+			ShareName: share.Name,
+			Success:   true,
+		}
+
+		// Update custom parameters
+		if share.CustomParameters == nil {
+			share.CustomParameters = make(map[string]string)
+		}
+
+		// Apply bulk updates
+		for key, value := range config.Parameters {
+			share.CustomParameters[key] = value
+		}
+
+		// Save updated configuration
+		err := m.saveShareConfig(share)
+		if err != nil {
+			result.Success = false
+			result.Error = err.Error()
+		} else {
+			// Generate SMB configuration
+			err = m.generateShareConfig(share)
+			if err != nil {
+				result.Success = false
+				result.Error = err.Error()
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	// Reload SMB configuration if at least one share was updated successfully
+	anySuccess := false
+	for _, result := range results {
+		if result.Success {
+			anySuccess = true
+			break
+		}
+	}
+
+	if anySuccess {
+		if err := m.ReloadConfig(ctx); err != nil {
+			return results, errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "reload_after_bulk_update")
+		}
+	}
+
+	return results, nil
+}
+
+// getAllShareConfigs returns all SMB share configurations
+func (m *Manager) getAllShareConfigs() ([]*SMBShareConfig, error) {
+	// Get all share config files
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*.conf"))
+	if err != nil {
+		return nil, errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "list_configs")
+	}
+
+	var result []*SMBShareConfig
+
+	// Read each share config file
+	for _, file := range files {
+		// Skip global config
+		if filepath.Base(file) == "global.conf" {
+			continue
+		}
+
+		// Read share config
+		data, err := os.ReadFile(file)
+		if err != nil {
+			m.logger.Warn("Failed to read share config file", "file", file, "error", err)
+			continue
+		}
+
+		var smbConfig SMBShareConfig
+		if err := json.Unmarshal(data, &smbConfig); err != nil {
+			m.logger.Warn("Failed to parse share config file", "file", file, "error", err)
+			continue
+		}
+
+		result = append(result, &smbConfig)
+	}
+
+	return result, nil
+}
+
+// saveShareConfig saves the share configuration to disk
+func (m *Manager) saveShareConfig(config *SMBShareConfig) error {
+	// Marshal config to JSON
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "marshal").
+			WithMetadata("name", config.Name)
+	}
+
+	// Write to file
+	filePath := filepath.Join(m.configDir, config.Name+".conf")
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "save").
+			WithMetadata("name", config.Name)
+	}
+
+	return nil
+}
+
+// Expose the share name regex for validation
+func GetShareNameRegex() *regexp.Regexp {
+	return shareNameRegex
+}
+
+// getFileCreationTime returns the creation time of a file
+func getFileCreationTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+
+	// Get the stat_t struct
+	stat := info.Sys().(*syscall.Stat_t)
+	return time.Unix(stat.Ctimespec.Sec, stat.Ctimespec.Nsec)
+}
+
+// getFileModificationTime returns the modification time of a file
+func getFileModificationTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return info.ModTime()
+}

@@ -92,6 +92,7 @@ const (
 	ServerResponseError                   // Response generation error
 	ServerContextCancelled                // Context cancelled
 	ServerTLSError                        // TLS configuration error
+	ServerInternalError
 )
 
 const (
@@ -268,6 +269,20 @@ const (
 	FACLPathNotFound
 	FACLInvalidPrincipal
 	FACLUnsupportedFS
+
+	// Shares service errors
+	SharesInvalidInput    // Invalid share input or parameters
+	SharesOperationFailed // Generic share operation failure
+	SharesNotFound        // Share not found
+	SharesAlreadyExists   // Share already exists
+	SharesServiceFailed   // Share service operation failed
+	SharesInternalError   // Internal shares subsystem error
+	SharesAccessDenied    // Access denied for share operation
+	SharesPathInvalid     // Invalid path for share
+	SharesConfigInvalid   // Invalid share configuration
+	SharesNetworkError    // Network error during share operation
+	SharesLimitExceeded   // Exceeded share limits
+	SharesProtocolError   // Protocol-specific share error
 )
 
 var errorDefinitions = map[ErrorCode]struct {
@@ -769,5 +784,71 @@ var errorDefinitions = map[ErrorCode]struct {
 		"Unsupported filesystem for ACL operations",
 		DomainShares,
 		http.StatusBadRequest,
+	},
+
+	SharesInvalidInput: {
+		"Invalid share input or parameters",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	SharesOperationFailed: {
+		"Share operation failed",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	SharesNotFound: {
+		"Share not found",
+		DomainShares,
+		http.StatusNotFound,
+	},
+	SharesAlreadyExists: {
+		"Share already exists",
+		DomainShares,
+		http.StatusConflict,
+	},
+	SharesServiceFailed: {
+		"Share service operation failed",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	SharesInternalError: {
+		"Internal shares subsystem error",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	SharesAccessDenied: {
+		"Access denied for share operation",
+		DomainShares,
+		http.StatusForbidden,
+	},
+	SharesPathInvalid: {
+		"Invalid path for share",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	SharesConfigInvalid: {
+		"Invalid share configuration",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	SharesNetworkError: {
+		"Network error during share operation",
+		DomainShares,
+		http.StatusInternalServerError,
+	},
+	SharesLimitExceeded: {
+		"Exceeded share limits",
+		DomainShares,
+		http.StatusTooManyRequests,
+	},
+	SharesProtocolError: {
+		"Protocol-specific share error",
+		DomainShares,
+		http.StatusBadRequest,
+	},
+	ServerInternalError: {
+		"Internal server error",
+		DomainServer,
+		http.StatusInternalServerError,
 	},
 }

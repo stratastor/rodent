@@ -29,6 +29,8 @@ const (
 	// APIFACL is the base path for filesystem ACL management API endpoints
 	APIFACL = APIBase + "/facl"
 
+	APIShares = APIBase + "/shares"
+
 	// Updated path constants
 
 	// Template paths - relative paths

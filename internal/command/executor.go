@@ -5,6 +5,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -119,4 +120,114 @@ func validateCommand(name string, args []string) error {
 	}
 
 	return nil
+}
+
+// CommandExecutor provides a general-purpose command execution service
+type CommandExecutor struct {
+	UseSudo bool
+	Timeout time.Duration
+	WorkDir string
+	Env     []string
+}
+
+// NewCommandExecutor creates a new command executor
+func NewCommandExecutor(useSudo bool) *CommandExecutor {
+	return &CommandExecutor{
+		UseSudo: useSudo,
+		Timeout: 30 * time.Second,
+	}
+}
+
+// Execute runs a command and returns its output
+func (e *CommandExecutor) Execute(ctx context.Context, cmd string, args ...string) ([]byte, error) {
+	// Apply timeout if not already set in context
+	if _, ok := ctx.Deadline(); !ok && e.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
+		defer cancel()
+	}
+
+	// Prepend sudo if needed
+	cmdArgs := make([]string, 0, len(args)+1)
+	if e.UseSudo {
+		cmdArgs = append(cmdArgs, "sudo", cmd)
+	} else {
+		cmdArgs = append(cmdArgs, cmd)
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	// Create command
+	execCmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
+	execCmd.Env = append(execCmd.Env, e.Env...)
+	if e.WorkDir != "" {
+		execCmd.Dir = e.WorkDir
+	}
+
+	// Capture output
+	var stdout, stderr bytes.Buffer
+	execCmd.Stdout = &stdout
+	execCmd.Stderr = &stderr
+
+	// Execute command
+	err := execCmd.Run()
+	if err != nil {
+		return stderr.Bytes(), fmt.Errorf("command failed: %w: %s", err, stderr.String())
+	}
+
+	return stdout.Bytes(), nil
+}
+
+// ExecuteWithCombinedOutput runs a command and returns combined stdout/stderr
+func (e *CommandExecutor) ExecuteWithCombinedOutput(
+	ctx context.Context,
+	cmd string,
+	args ...string,
+) ([]byte, error) {
+	// Apply timeout if not already set in context
+	if _, ok := ctx.Deadline(); !ok && e.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
+		defer cancel()
+	}
+
+	// Prepend sudo if needed
+	cmdArgs := make([]string, 0, len(args)+1)
+	if e.UseSudo {
+		cmdArgs = append(cmdArgs, "sudo", cmd)
+	} else {
+		cmdArgs = append(cmdArgs, cmd)
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	// Create command
+	execCmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
+	execCmd.Env = append(execCmd.Env, e.Env...)
+	if e.WorkDir != "" {
+		execCmd.Dir = e.WorkDir
+	}
+
+	// Capture combined output
+	var combinedOutput bytes.Buffer
+	execCmd.Stdout = &combinedOutput
+	execCmd.Stderr = &combinedOutput
+
+	// Execute command
+	err := execCmd.Run()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return combinedOutput.Bytes(), rterrors.NewCommandError(
+				cmd+" "+strings.Join(args, " "),
+				exitErr.ExitCode(),
+				combinedOutput.String(),
+			)
+		}
+		return combinedOutput.Bytes(), fmt.Errorf(
+			"command failed: %w: %s",
+			err,
+			combinedOutput.String(),
+		)
+	}
+
+	return combinedOutput.Bytes(), nil
 }

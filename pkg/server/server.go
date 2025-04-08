@@ -92,6 +92,11 @@ func Start(ctx context.Context, port int) error {
 	}
 	defer aclHandler.Close()
 
+	err = registerSharesRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register shares routes: %w", err)
+	}
+
 	toggle.StartRegistrationProcess(ctx, l)
 
 	srv = &http.Server{
