@@ -19,6 +19,7 @@ package errors
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -173,4 +174,46 @@ func NewCommandError(cmd string, exitCode int, stderr string) *RodentError {
 		WithMetadata("command", cmd).
 		WithMetadata("exit_code", fmt.Sprintf("%d", exitCode)).
 		WithMetadata("stderr", stderr)
+}
+
+// GetCode extracts the error code from an error if it's a RodentError
+// If not a RodentError, returns 0 and false
+func GetCode(err error) (ErrorCode, bool) {
+	if err == nil {
+		return 0, false
+	}
+
+	// Check if it's directly a RodentError
+	if re, ok := err.(*RodentError); ok {
+		return re.Code, true
+	}
+
+	// Check if the error wraps a RodentError using errors.As
+	var rodentErr *RodentError
+	if errors.As(err, &rodentErr) {
+		return rodentErr.Code, true
+	}
+
+	return 0, false
+}
+
+// GetErrorWithCode returns the first RodentError in the error chain with the specified code
+// Returns nil if no matching error is found
+func GetErrorWithCode(err error, code ErrorCode) *RodentError {
+	if err == nil {
+		return nil
+	}
+
+	// Check the current error
+	if re, ok := err.(*RodentError); ok && re.Code == code {
+		return re
+	}
+
+	// Check wrapped errors
+	var rodentErr *RodentError
+	if errors.As(err, &rodentErr) && rodentErr.Code == code {
+		return rodentErr
+	}
+
+	return nil
 }
