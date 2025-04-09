@@ -1,0 +1,22 @@
+[global]
+    workgroup = {{.WorkGroup}}
+    {{if .ServerString}}server string = {{.ServerString}}{{end}}
+    security = {{.SecurityMode}}
+    {{if .Realm}}realm = {{.Realm}}{{end}}
+    {{if .ServerRole}}server role = {{.ServerRole}}{{end}}
+    {{if .LogLevel}}log level = {{.LogLevel}}{{end}}
+    {{if gt .MaxLogSize 0}}max log size = {{.MaxLogSize}}{{end}}
+    
+    {{if .WinbindUseDefaultDomain}}winbind use default domain = yes{{end}}
+    {{if .WinbindOfflineLogon}}winbind offline logon = yes{{end}}
+    
+    {{range $key, $value := .IDMapConfig}}
+    {{$key}} = {{$value}}
+    {{end}}
+    
+    {{if .KerberosMethod}}kerberos method = {{.KerberosMethod}}{{end}}
+    {{if .DedicatedKeytabFile}}dedicated keytab file = {{.DedicatedKeytabFile}}{{end}}
+    
+    {{range $key, $value := .CustomParameters}}
+    {{$key}} = {{$value}}
+    {{end}}

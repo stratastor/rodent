@@ -60,6 +60,13 @@ type Config struct {
 
 	StrataSecure bool `mapstructure:"strataSecure"`
 
+	Shares struct {
+		SMB struct {
+			Realm     string `mapstructure:"realm"`
+			Workgroup string `mapstructure:"workgroup"`
+		} `mapstructure:"smb"`
+	} `mapstructure:"shares"`
+
 	Development struct {
 		Enabled bool `mapstructure:"enabled"`
 	} `mapstructure:"development"`
@@ -119,6 +126,10 @@ func LoadConfig(configFilePath string) *Config {
 		// Set defaults for Toggle configuration
 		viper.SetDefault("toggle.jwt", "")
 		viper.SetDefault("toggle.baseURL", "")
+
+		// Set defaults for Shares configuration
+		viper.SetDefault("shares.smb.realm", "AD.STRATA.INTERNAL")
+		viper.SetDefault("shares.smb.workgroup", "AD")
 
 		// Set defaults for StrataSecure
 		viper.SetDefault("strataSecure", true)

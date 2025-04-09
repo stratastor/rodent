@@ -15,7 +15,7 @@ import (
 
 // setupTestManager creates a service manager for testing
 func setupTestManager(t *testing.T) *ServiceManager {
-	l, err := logger.New(logger.Config{LogLevel: "debug"})
+	l, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "services-test")
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}

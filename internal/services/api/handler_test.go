@@ -22,7 +22,7 @@ import (
 func setupRealServicesRouter(t *testing.T) (*gin.Engine, *ServiceHandler) {
 	gin.SetMode(gin.TestMode)
 
-	l, err := logger.New(logger.Config{LogLevel: "debug"})
+	l, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "services-test")
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}

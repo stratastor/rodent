@@ -37,6 +37,38 @@ type SMBShareConfig struct {
 	CustomParameters map[string]string `json:"custom_parameters,omitempty"`
 }
 
+// NewSMBShareConfig creates a new SMB share configuration with default values
+func NewSMBShareConfig(name, path string) *SMBShareConfig {
+	return &SMBShareConfig{
+		Name:        name,
+		Path:        path,
+		Description: "SMB share managed by Rodent",
+		Enabled:     true,
+		Tags:        make(map[string]string),
+
+		// Default SMB settings for better compatibility and security
+		ReadOnly:       false,
+		Browsable:      true,
+		GuestOk:        false,
+		Public:         false,
+		InheritACLs:    true,
+		MapACLInherit:  true,
+		FollowSymlinks: true,
+		CreateMask:     "0644",
+		DirectoryMask:  "0755",
+
+		// Initialize maps
+		CustomParameters: map[string]string{
+			"create mask":          "0644",
+			"directory mask":       "0755",
+			"vfs objects":          "acl_xattr",
+			"map archive":          "no",
+			"map readonly":         "no",
+			"store dos attributes": "yes",
+		},
+	}
+}
+
 // SMBGlobalConfig represents global SMB configuration
 type SMBGlobalConfig struct {
 	WorkGroup               string            `json:"workgroup"`
@@ -54,6 +86,55 @@ type SMBGlobalConfig struct {
 
 	// Advanced configuration
 	CustomParameters map[string]string `json:"custom_parameters,omitempty"`
+}
+
+// NewSMBGlobalConfig creates a new global SMB configuration with default values
+func NewSMBGlobalConfig() *SMBGlobalConfig {
+	return &SMBGlobalConfig{
+		WorkGroup:               "WORKGROUP",
+		ServerString:            "Rodent SMB Server",
+		SecurityMode:            "user",
+		ServerRole:              "standalone server",
+		LogLevel:                "1",
+		MaxLogSize:              1000,
+		WinbindUseDefaultDomain: false,
+		WinbindOfflineLogon:     false,
+		IDMapConfig:             make(map[string]string),
+		CustomParameters: map[string]string{
+			"map to guest": "Bad User",
+			"unix charset": "UTF-8",
+			"dns proxy":    "no",
+		},
+	}
+}
+
+// NewSMBGlobalConfigWithAD creates a new global SMB configuration with Active Directory settings
+func NewSMBGlobalConfigWithAD(realm, workgroup string) *SMBGlobalConfig {
+	config := NewSMBGlobalConfig()
+	config.WorkGroup = workgroup
+	config.Realm = realm
+	config.SecurityMode = "ADS"
+	config.ServerRole = "member server"
+	config.WinbindUseDefaultDomain = true
+	config.WinbindOfflineLogon = true
+	config.KerberosMethod = "secrets and keytab"
+
+	// Default idmap backend configuration for AD
+	config.IDMapConfig = map[string]string{
+		"idmap config *:backend":                 "tdb",
+		"idmap config *:range":                   "100000-199999",
+		"idmap config " + workgroup + ":backend": "rid",
+		"idmap config " + workgroup + ":range":   "200000-999999",
+	}
+
+	// Additional AD-specific parameters
+	config.CustomParameters["winbind enum users"] = "yes"
+	config.CustomParameters["winbind enum groups"] = "yes"
+	config.CustomParameters["winbind nested groups"] = "yes"
+	config.CustomParameters["winbind refresh tickets"] = "yes"
+	config.CustomParameters["dedicated keytab file"] = "/etc/krb5.keytab"
+
+	return config
 }
 
 // SMBSession represents an active SMB session

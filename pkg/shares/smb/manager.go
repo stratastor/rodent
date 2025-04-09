@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"text/template"
 	"time"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/facl"
@@ -62,60 +62,19 @@ func NewManager(
 	// Load templates
 	templates := make(map[string]*template.Template)
 
-	// Load default template from embedded files or filesystem
-	defaultTemplate, err := template.ParseFiles(filepath.Join(TemplateDir, DefaultTemplate))
+	// Load default template from embedded files
+	defaultTemplate, err := getTemplate("share.tmpl")
 	if err != nil {
-		// If template doesn't exist, create a basic one
-		defaultTemplate, err = template.New(DefaultTemplate).Parse(`[{{.Name}}]
-    path = {{.Path}}
-    comment = {{.Description}}
-    read only = {{if .ReadOnly}}yes{{else}}no{{end}}
-    browsable = {{if .Browsable}}yes{{else}}no{{end}}
-    {{if .ValidUsers}}valid users = {{join .ValidUsers ", "}}{{end}}
-    {{if .InheritACLs}}inherit acls = yes{{end}}
-    {{if .MapACLInherit}}map acl inherit = yes{{end}}
-    {{range $key, $value := .CustomParameters}}
-    {{$key}} = {{$value}}
-    {{end}}
-`)
-		if err != nil {
-			return nil, errors.Wrap(err, errors.RodentMisc).
-				WithMetadata("template", DefaultTemplate)
-		}
+		return nil, errors.Wrap(err, errors.RodentMisc).
+			WithMetadata("template", DefaultTemplate)
 	}
 	templates[DefaultTemplate] = defaultTemplate
 
-	// Load global template
-	globalTemplate, err := template.ParseFiles(filepath.Join(TemplateDir, GlobalTemplate))
+	// Load global template from embedded files
+	globalTemplate, err := getTemplate("global.tmpl")
 	if err != nil {
-		// If template doesn't exist, create a basic one
-		globalTemplate, err = template.New(GlobalTemplate).Parse(`[global]
-    workgroup = {{.WorkGroup}}
-    {{if .ServerString}}server string = {{.ServerString}}{{end}}
-    security = {{.SecurityMode}}
-    {{if .Realm}}realm = {{.Realm}}{{end}}
-    {{if .ServerRole}}server role = {{.ServerRole}}{{end}}
-    {{if .LogLevel}}log level = {{.LogLevel}}{{end}}
-    {{if gt .MaxLogSize 0}}max log size = {{.MaxLogSize}}{{end}}
-    
-    {{if .WinbindUseDefaultDomain}}winbind use default domain = yes{{end}}
-    {{if .WinbindOfflineLogon}}winbind offline logon = yes{{end}}
-    
-    {{range $key, $value := .IDMapConfig}}
-    {{$key}} = {{$value}}
-    {{end}}
-    
-    {{if .KerberosMethod}}kerberos method = {{.KerberosMethod}}{{end}}
-    {{if .DedicatedKeytabFile}}dedicated keytab file = {{.DedicatedKeytabFile}}{{end}}
-    
-    {{range $key, $value := .CustomParameters}}
-    {{$key}} = {{$value}}
-    {{end}}
-`)
-		if err != nil {
-			return nil, errors.Wrap(err, errors.RodentMisc).
-				WithMetadata("template", GlobalTemplate)
-		}
+		return nil, errors.Wrap(err, errors.RodentMisc).
+			WithMetadata("template", GlobalTemplate)
 	}
 	templates[GlobalTemplate] = globalTemplate
 
@@ -128,7 +87,6 @@ func NewManager(
 	}, nil
 }
 
-// validateShareConfig validates SMB share configuration
 func (m *Manager) validateShareConfig(config *SMBShareConfig) error {
 	// Validate share name
 	if config.Name == "" {
@@ -154,6 +112,15 @@ func (m *Manager) validateShareConfig(config *SMBShareConfig) error {
 	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
 		return errors.New(errors.SharesInvalidInput, "Path does not exist").
 			WithMetadata("path", config.Path)
+	}
+
+	// Initialize maps if nil to prevent null pointer dereferences
+	if config.Tags == nil {
+		config.Tags = make(map[string]string)
+	}
+
+	if config.CustomParameters == nil {
+		config.CustomParameters = make(map[string]string)
 	}
 
 	return nil
@@ -761,7 +728,7 @@ func (m *Manager) UpdateGlobalConfig(ctx context.Context, config *SMBGlobalConfi
 	return m.ReloadConfig(ctx)
 }
 
-// GetGlobalConfig returns the global SMB configuration
+// Modify the GetGlobalConfig method in manager.go
 func (m *Manager) GetGlobalConfig(ctx context.Context) (*SMBGlobalConfig, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -771,13 +738,9 @@ func (m *Manager) GetGlobalConfig(ctx context.Context) (*SMBGlobalConfig, error)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cfg := config.GetConfig()
 			// Return default configuration if file doesn't exist
-			return &SMBGlobalConfig{
-				WorkGroup:    "WORKGROUP",
-				SecurityMode: "user",
-				ServerRole:   "standalone server",
-				LogLevel:     "1",
-			}, nil
+			return NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup), nil
 		}
 
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
@@ -990,15 +953,25 @@ func (m *Manager) updateMainConfig() error {
 // generateShareConfig generates SMB configuration for a share
 func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 	// Get the template
-	tmpl, ok := m.templates[DefaultTemplate]
+	tmplName := DefaultTemplate
+	tmpl, ok := m.templates[tmplName]
 	if !ok {
 		return errors.New(errors.SharesInternalError, "Share template not found")
 	}
 
-	// Create a template helper for joining arrays
+	// Create a new template with the function map
 	funcMap := template.FuncMap{
 		"join": strings.Join,
 	}
+
+	// Clone the template with the function map
+	tmpl, err := tmpl.Clone()
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "clone_template").
+			WithMetadata("name", config.Name)
+	}
+
 	tmpl = tmpl.Funcs(funcMap)
 
 	// Render the template
@@ -1013,7 +986,7 @@ func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 	filePath := filepath.Join(SharesConfigDir, config.Name+".smb.conf")
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "write_share_config").
+			WithMetadata("operation", "write_config").
 			WithMetadata("name", config.Name)
 	}
 
@@ -1248,21 +1221,47 @@ func (m *Manager) saveShareConfig(config *SMBShareConfig) error {
 	return nil
 }
 
+// EnsureShareDefaults ensures that a share configuration has all required defaults
+// This is useful for migration of old configs or handling partial user input
+func (m *Manager) EnsureShareDefaults(config *SMBShareConfig) {
+	// Get a new config with defaults
+	defaultConfig := NewSMBShareConfig(config.Name, config.Path)
+
+	// Make sure Tags is initialized
+	if config.Tags == nil {
+		config.Tags = make(map[string]string)
+	}
+
+	// Make sure CustomParameters is initialized
+	if config.CustomParameters == nil {
+		config.CustomParameters = defaultConfig.CustomParameters
+	} else {
+		// Add default parameters that aren't already specified
+		for k, v := range defaultConfig.CustomParameters {
+			if _, exists := config.CustomParameters[k]; !exists {
+				config.CustomParameters[k] = v
+			}
+		}
+	}
+
+	// Set description if empty
+	if config.Description == "" {
+		config.Description = defaultConfig.Description
+	}
+
+	// Ensure we have a create/directory mask
+	if config.CreateMask == "" {
+		config.CreateMask = defaultConfig.CreateMask
+	}
+
+	if config.DirectoryMask == "" {
+		config.DirectoryMask = defaultConfig.DirectoryMask
+	}
+}
+
 // Expose the share name regex for validation
 func GetShareNameRegex() *regexp.Regexp {
 	return shareNameRegex
-}
-
-// getFileCreationTime returns the creation time of a file
-func getFileCreationTime(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-
-	// Get the stat_t struct
-	stat := info.Sys().(*syscall.Stat_t)
-	return time.Unix(stat.Ctimespec.Sec, stat.Ctimespec.Nsec)
 }
 
 // getFileModificationTime returns the modification time of a file

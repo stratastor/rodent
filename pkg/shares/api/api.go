@@ -298,7 +298,6 @@ func (h *SharesHandler) getSMBShare(c *gin.Context) {
 	c.JSON(http.StatusOK, share)
 }
 
-// createSMBShare creates a new SMB share
 func (h *SharesHandler) createSMBShare(c *gin.Context) {
 	config, exists := c.Get("smbConfig")
 	if !exists {
@@ -309,7 +308,57 @@ func (h *SharesHandler) createSMBShare(c *gin.Context) {
 		return
 	}
 
-	smbConfig := config.(smb.SMBShareConfig)
+	var smbConfig smb.SMBShareConfig
+	if rawConfig, ok := config.(smb.SMBShareConfig); ok {
+		// Create a new config with defaults
+		defaultConfig := smb.NewSMBShareConfig(rawConfig.Name, rawConfig.Path)
+
+		// Override with user-provided values where specified
+		if rawConfig.Description != "" {
+			defaultConfig.Description = rawConfig.Description
+		}
+
+		// Copy non-empty slices
+		if len(rawConfig.ValidUsers) > 0 {
+			defaultConfig.ValidUsers = rawConfig.ValidUsers
+		}
+		if len(rawConfig.InvalidUsers) > 0 {
+			defaultConfig.InvalidUsers = rawConfig.InvalidUsers
+		}
+		if len(rawConfig.ReadList) > 0 {
+			defaultConfig.ReadList = rawConfig.ReadList
+		}
+		if len(rawConfig.WriteList) > 0 {
+			defaultConfig.WriteList = rawConfig.WriteList
+		}
+
+		// Copy user-provided tags
+		if len(rawConfig.Tags) > 0 {
+			for k, v := range rawConfig.Tags {
+				defaultConfig.Tags[k] = v
+			}
+		}
+
+		// Copy user-provided custom parameters
+		if len(rawConfig.CustomParameters) > 0 {
+			for k, v := range rawConfig.CustomParameters {
+				defaultConfig.CustomParameters[k] = v
+			}
+		}
+
+		// Use explicitly set booleans
+		defaultConfig.ReadOnly = rawConfig.ReadOnly
+		defaultConfig.Browsable = rawConfig.Browsable
+		defaultConfig.GuestOk = rawConfig.GuestOk
+		defaultConfig.Public = rawConfig.Public
+		defaultConfig.InheritACLs = rawConfig.InheritACLs
+		defaultConfig.MapACLInherit = rawConfig.MapACLInherit
+		defaultConfig.FollowSymlinks = rawConfig.FollowSymlinks
+
+		smbConfig = *defaultConfig
+	} else {
+		smbConfig = config.(smb.SMBShareConfig)
+	}
 
 	if err := h.smbManager.CreateShare(c.Request.Context(), &smbConfig); err != nil {
 		APIError(c, err)
