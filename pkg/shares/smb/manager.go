@@ -59,19 +59,28 @@ func NewManager(
 			WithMetadata("path", SharesConfigDir)
 	}
 
+	// Define template function map
+	funcMap := template.FuncMap{
+		"join": strings.Join,
+	}
+
 	// Load templates
 	templates := make(map[string]*template.Template)
 
-	// Load default template from embedded files
-	defaultTemplate, err := getTemplate("share.tmpl")
+	// Load default template from embedded files or fallback to default content
+	defaultTemplate, err := template.New(DefaultTemplate).
+		Funcs(funcMap).
+		Parse(DefaultTemplateContent())
 	if err != nil {
 		return nil, errors.Wrap(err, errors.RodentMisc).
 			WithMetadata("template", DefaultTemplate)
 	}
 	templates[DefaultTemplate] = defaultTemplate
 
-	// Load global template from embedded files
-	globalTemplate, err := getTemplate("global.tmpl")
+	// Load global template from embedded files or fallback to default content
+	globalTemplate, err := template.New(GlobalTemplate).
+		Funcs(funcMap).
+		Parse(GlobalTemplateContent())
 	if err != nil {
 		return nil, errors.Wrap(err, errors.RodentMisc).
 			WithMetadata("template", GlobalTemplate)
@@ -335,16 +344,20 @@ func (m *Manager) CreateShare(ctx context.Context, config interface{}) error {
 		return err
 	}
 
+	// Creating a share shouldn't change ACLs, it's expected to be
+	// to be set by the user manually.
+
 	// Set directory permissions if needed
-	if smbConfig.InheritACLs || smbConfig.MapACLInherit {
-		// Ensure directory has correct permissions for SMB sharing
-		if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
-			m.logger.Warn("Failed to set share permissions",
-				"share", smbConfig.Name,
-				"path", smbConfig.Path,
-				"error", err)
-		}
-	}
+	// TODO: handle this gracefully
+	// if smbConfig.InheritACLs || smbConfig.MapACLInherit {
+	// 	// Ensure directory has correct permissions for SMB sharing
+	// 	if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
+	// 		m.logger.Warn("Failed to set share permissions",
+	// 			"share", smbConfig.Name,
+	// 			"path", smbConfig.Path,
+	// 			"error", err)
+	// 	}
+	// }
 
 	// Reload SMB configuration
 	if err := m.ReloadConfig(ctx); err != nil {
@@ -405,16 +418,20 @@ func (m *Manager) UpdateShare(ctx context.Context, name string, config interface
 		return err
 	}
 
+	// Creating a share shouldn't change ACLs, it's expected to be
+	// to be set by the user manually.
+
 	// Set directory permissions if needed
-	if smbConfig.InheritACLs || smbConfig.MapACLInherit {
-		// Ensure directory has correct permissions for SMB sharing
-		if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
-			m.logger.Warn("Failed to set share permissions",
-				"share", smbConfig.Name,
-				"path", smbConfig.Path,
-				"error", err)
-		}
-	}
+	// TODO: Handle this gracefully
+	// if smbConfig.InheritACLs || smbConfig.MapACLInherit {
+	// 	// Ensure directory has correct permissions for SMB sharing
+	// 	if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
+	// 		m.logger.Warn("Failed to set share permissions",
+	// 			"share", smbConfig.Name,
+	// 			"path", smbConfig.Path,
+	// 			"error", err)
+	// 	}
+	// }
 
 	// Reload SMB configuration
 	if err := m.ReloadConfig(ctx); err != nil {
@@ -903,9 +920,9 @@ func (m *Manager) ensureSharePermissions(ctx context.Context, config *SMBShareCo
 		}
 
 		// Set ACLs
-		err := m.aclManager.SetACL(ctx, facl.ACLConfig{
+		err := m.aclManager.ModifyACL(ctx, facl.ACLConfig{
 			Path:      config.Path,
-			Type:      facl.ACLTypeNFSv4,
+			Type:      facl.ACLTypePOSIX,
 			Entries:   entries,
 			Recursive: true,
 		})
@@ -925,24 +942,46 @@ func (m *Manager) ensureSharePermissions(ctx context.Context, config *SMBShareCo
 // updateMainConfig updates the main SMB configuration file
 func (m *Manager) updateMainConfig() error {
 	// Start with global configuration
-	var content string
+	var content strings.Builder
 
 	// Read global configuration
 	globalPath := filepath.Join(SharesConfigDir, "global.smb.conf")
 	globalData, err := os.ReadFile(globalPath)
 	if err == nil {
-		content = string(globalData) + "\n\n"
+		content.WriteString(string(globalData))
+		content.WriteString("\n\n")
 	} else if !os.IsNotExist(err) {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "read_global_config")
 	}
 
-	// Append includes for all shares
-	content += "# Include share definitions - managed by Rodent\n"
-	content += "include = " + SharesConfigDir + "/*.smb.conf\n"
+	// Find all individual share config files
+	shareConfigs, err := filepath.Glob(filepath.Join(SharesConfigDir, "*.smb.conf"))
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "find_share_configs")
+	}
+
+	// Append each share configuration
+	content.WriteString("# Share definitions - managed by Rodent\n")
+	for _, shareConfig := range shareConfigs {
+		// Skip global config that was already included
+		if filepath.Base(shareConfig) == "global.smb.conf" {
+			continue
+		}
+
+		shareData, err := os.ReadFile(shareConfig)
+		if err != nil {
+			m.logger.Warn("Failed to read share config", "file", shareConfig, "error", err)
+			continue
+		}
+
+		content.WriteString(string(shareData))
+		content.WriteString("\n\n")
+	}
 
 	// Write updated config
-	if err := os.WriteFile(DefaultSMBConfigPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(DefaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_config")
 	}

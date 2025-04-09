@@ -265,10 +265,3 @@ func unescapePrincipal(principal string) string {
 
 	return result
 }
-
-// Add this to pkg/facl/types.go
-// escapePrincipal escapes special characters in principal names
-func escapePrincipal(principal string) string {
-	// For setfacl, just escape spaces with backslash
-	return strings.ReplaceAll(principal, " ", "\\ ")
-}

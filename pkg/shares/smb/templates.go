@@ -3,30 +3,28 @@ package smb
 
 import (
 	"embed"
-	"text/template"
 )
 
 //go:embed share.tmpl global.tmpl
 var templateFS embed.FS
 
-// GetTemplate loads a template from the embedded filesystem
-func getTemplate(name string) (*template.Template, error) {
-	content, err := templateFS.ReadFile(name)
-	if err != nil {
-		return nil, err
-	}
-
-	tmpl, err := template.New(name).Parse(string(content))
-	if err != nil {
-		return nil, err
-	}
-
-	return tmpl, nil
-}
-
-// DefaultTemplateContent returns the default share template content
+// DefaultTemplateContent returns the content for the default share template
 func DefaultTemplateContent() string {
-	content, _ := templateFS.ReadFile("share.tmpl")
+	content, err := templateFS.ReadFile("share.tmpl")
+	if err != nil {
+		// Fallback to hardcoded template
+		return `[{{.Name}}]
+    path = {{.Path}}
+    comment = {{.Description}}
+    read only = {{if .ReadOnly}}yes{{else}}no{{end}}
+    browsable = {{if .Browsable}}yes{{else}}no{{end}}
+    {{if .ValidUsers}}valid users = {{join .ValidUsers ", "}}{{end}}
+    {{if .InheritACLs}}inherit acls = yes{{end}}
+    {{if .MapACLInherit}}map acl inherit = yes{{end}}
+    {{range $key, $value := .CustomParameters}}
+    {{$key}} = {{$value}}
+    {{end}}`
+	}
 	return string(content)
 }
 

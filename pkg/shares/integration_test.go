@@ -25,6 +25,7 @@ type TestEnvironment struct {
 	TestUser         string
 	TestUserPassword string
 	TestFilesystem   string
+	TestRealm        string
 	Hostname         string
 	MountPoint       string
 	CleanupFuncs     []func()
@@ -38,6 +39,7 @@ func newTestEnvironment(t *testing.T) *TestEnvironment {
 	testUser := os.Getenv("RODENT_TEST_USER")
 	testUserPassword := os.Getenv("RODENT_TEST_USER_PASS")
 	testFilesystem := os.Getenv("RODENT_TEST_FS")
+	testRealm := os.Getenv("RODENT_TEST_REALM")
 	hostname, _ := os.Hostname()
 
 	// Skip if required env vars are not set
@@ -58,7 +60,7 @@ func newTestEnvironment(t *testing.T) *TestEnvironment {
 	}
 
 	// Create temporary mount point
-	mountPoint, err := os.MkdirTemp("/tmp", "rodent-test-mount-*")
+	mountPoint, err := os.MkdirTemp("/tmp/rodent-test", "rodent-test-mount-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp mount directory: %v", err)
 	}
@@ -67,6 +69,7 @@ func newTestEnvironment(t *testing.T) *TestEnvironment {
 		TestUser:         testUser,
 		TestUserPassword: testUserPassword,
 		TestFilesystem:   testFilesystem,
+		TestRealm:        testRealm,
 		Hostname:         hostname,
 		MountPoint:       mountPoint,
 		CleanupFuncs:     []func(){},
@@ -167,7 +170,7 @@ func TestSMBShareLifecycle(t *testing.T) {
 			ReadOnly:    false,
 			Browsable:   true,
 			GuestOk:     false,
-			ValidUsers:  []string{env.TestUser},
+			ValidUsers:  []string{"AD\\" + env.TestUser},
 			Tags: map[string]string{
 				"purpose": "testing",
 				"owner":   "rodent",
@@ -177,8 +180,6 @@ func TestSMBShareLifecycle(t *testing.T) {
 			CustomParameters: map[string]string{
 				"create mask":          "0644",
 				"directory mask":       "0755",
-				"force user":           "nobody",
-				"force group":          "nogroup",
 				"vfs objects":          "acl_xattr",
 				"map archive":          "no",
 				"map readonly":         "no",
@@ -215,6 +216,7 @@ func TestSMBShareLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get share details: %v", err)
 		}
+		t.Logf("Share details: %+v", share)
 
 		if share.Name != shareName {
 			t.Errorf("Share name mismatch: got %s, want %s", share.Name, shareName)
@@ -230,11 +232,18 @@ func TestSMBShareLifecycle(t *testing.T) {
 	// Step 4: Mount the share
 	t.Run("MountShare", func(t *testing.T) {
 		// Wait for a moment to ensure SMB service has reloaded configuration
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		// Construct the mount command
-		mountCmd := fmt.Sprintf("sudo mount -t cifs //%s/%s %s -o username=%s,password=%s,vers=3.0",
-			env.Hostname, shareName, env.MountPoint, env.TestUser, env.TestUserPassword)
+		mountCmd := fmt.Sprintf(
+			"sudo mount -t cifs //%s/%s %s -o username=%s@%s,password=%s,vers=3.0",
+			env.Hostname,
+			shareName,
+			env.MountPoint,
+			env.TestUser,
+			env.TestRealm,
+			env.TestUserPassword,
+		)
 
 		// Execute the mount command, but remove password from output
 		t.Logf("Mounting with: %s", strings.Replace(mountCmd, env.TestUserPassword, "********", -1))
@@ -242,11 +251,27 @@ func TestSMBShareLifecycle(t *testing.T) {
 		cmd := exec.Command("sudo", "mount", "-t", "cifs",
 			fmt.Sprintf("//%s/%s", env.Hostname, shareName),
 			env.MountPoint,
-			"-o", fmt.Sprintf("username=%s,password=%s,vers=3.0",
-				env.TestUser, env.TestUserPassword))
+			"-o", fmt.Sprintf("username=%s@%s,password=%s,vers=3.0",
+				env.TestUser, env.TestRealm, env.TestUserPassword))
 
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			t.Logf("Mount failed. Checking if share exists:")
+			smbclientCmd := exec.Command(
+				"smbclient",
+				"-L",
+				"//"+env.Hostname+"/"+shareName,
+				"-U",
+				env.TestUser,
+				"--password",
+				env.TestUserPassword,
+			)
+			t.Logf("Running smbclient command: %s", smbclientCmd.String())
+			if smbclientOutput, smbclientErr := smbclientCmd.CombinedOutput(); smbclientErr == nil {
+				t.Logf("Available shares: %s", string(smbclientOutput))
+			} else {
+				t.Logf("Failed to list shares: %v", smbclientErr)
+			}
 			t.Fatalf("Failed to mount share: %v\nOutput: %s", err, output)
 		}
 
@@ -362,13 +387,13 @@ func TestSMBShareLifecycle(t *testing.T) {
 	t.Run("VerifyReadOnly", func(t *testing.T) {
 		// Unmount and remount to apply new settings
 		exec.Command("sudo", "umount", env.MountPoint).Run()
-		time.Sleep(1 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		cmd := exec.Command("sudo", "mount", "-t", "cifs",
 			fmt.Sprintf("//%s/%s", env.Hostname, shareName),
 			env.MountPoint,
-			"-o", fmt.Sprintf("username=%s,password=%s,vers=3.0",
-				env.TestUser, env.TestUserPassword))
+			"-o", fmt.Sprintf("username=%s@%s,password=%s,vers=3.0",
+				env.TestUser, env.TestRealm, env.TestUserPassword))
 
 		output, err := cmd.CombinedOutput()
 		if err != nil {
