@@ -1,3 +1,7 @@
+// Copyright 2025 Raamsri Kumar <raam@tinkershack.in>
+// Copyright 2025 The StrataSTOR Authors and Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 package shares_test
 
 import (
@@ -15,6 +19,12 @@ import (
 	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 )
+
+// TODO: Create AD user for testing
+// TODO: Create ZFS filesystem for testing
+// TODO: Apply appropriate ACLs to the test filesystem
+
+// Sample test command: sudo RODENT_TESTING=true RODENT_TEST_REALM=AD.STRATA.INTERNAL RODENT_TEST_USER=test-share RODENT_TEST_USER_PASS=test-share@123 RODENT_TEST_FS="/tank/newFS" go test -v ./...
 
 const (
 	testFileContent = "This is a test file created by Rodent SMB share integration tests."
@@ -578,7 +588,7 @@ func TestSMBBulkOperations(t *testing.T) {
 			ReadOnly:    false,
 			Browsable:   true,
 			GuestOk:     false,
-			ValidUsers:  []string{env.TestUser},
+			ValidUsers:  []string{"AD\\" + env.TestUser},
 			Tags: map[string]string{
 				"purpose": "bulk-testing",
 				"index":   fmt.Sprintf("%d", i),

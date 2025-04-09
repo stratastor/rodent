@@ -1,3 +1,7 @@
+// Copyright 2025 Raamsri Kumar <raam@tinkershack.in>
+// Copyright 2025 The StrataSTOR Authors and Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 package smb
 
 import (
@@ -29,6 +33,8 @@ const (
 	TemplateDir          = "/etc/rodent/templates/smb"
 	DefaultTemplate      = "share.tmpl"
 	GlobalTemplate       = "global.tmpl"
+	ConfigFileExt        = ".json"
+	SmbConfigFileExt     = ".smb.conf"
 )
 
 var (
@@ -141,7 +147,7 @@ func (m *Manager) ListShares(ctx context.Context) ([]shares.ShareConfig, error) 
 	defer m.mutex.RUnlock()
 
 	// Get all share config files
-	files, err := filepath.Glob(filepath.Join(m.configDir, "*.conf"))
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "list")
@@ -223,7 +229,7 @@ func (m *Manager) GetShare(ctx context.Context, name string) (*shares.ShareConfi
 	}
 
 	// Read share config file
-	filePath := filepath.Join(m.configDir, name+".conf")
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -280,7 +286,7 @@ func (m *Manager) GetSMBShare(ctx context.Context, name string) (*SMBShareConfig
 	}
 
 	// Read share config file
-	filePath := filepath.Join(m.configDir, name+".conf")
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -319,7 +325,7 @@ func (m *Manager) CreateShare(ctx context.Context, config interface{}) error {
 	}
 
 	// Check if share already exists
-	filePath := filepath.Join(m.configDir, smbConfig.Name+".conf")
+	filePath := filepath.Join(m.configDir, smbConfig.Name+ConfigFileExt)
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.New(errors.SharesAlreadyExists, "Share already exists").
 			WithMetadata("name", smbConfig.Name)
@@ -343,21 +349,6 @@ func (m *Manager) CreateShare(ctx context.Context, config interface{}) error {
 	if err := m.generateShareConfig(smbConfig); err != nil {
 		return err
 	}
-
-	// Creating a share shouldn't change ACLs, it's expected to be
-	// to be set by the user manually.
-
-	// Set directory permissions if needed
-	// TODO: handle this gracefully
-	// if smbConfig.InheritACLs || smbConfig.MapACLInherit {
-	// 	// Ensure directory has correct permissions for SMB sharing
-	// 	if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
-	// 		m.logger.Warn("Failed to set share permissions",
-	// 			"share", smbConfig.Name,
-	// 			"path", smbConfig.Path,
-	// 			"error", err)
-	// 	}
-	// }
 
 	// Reload SMB configuration
 	if err := m.ReloadConfig(ctx); err != nil {
@@ -393,7 +384,7 @@ func (m *Manager) UpdateShare(ctx context.Context, name string, config interface
 	}
 
 	// Check if share exists
-	filePath := filepath.Join(m.configDir, name+".conf")
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.New(errors.SharesNotFound, "Share not found").
 			WithMetadata("name", name)
@@ -418,21 +409,6 @@ func (m *Manager) UpdateShare(ctx context.Context, name string, config interface
 		return err
 	}
 
-	// Creating a share shouldn't change ACLs, it's expected to be
-	// to be set by the user manually.
-
-	// Set directory permissions if needed
-	// TODO: Handle this gracefully
-	// if smbConfig.InheritACLs || smbConfig.MapACLInherit {
-	// 	// Ensure directory has correct permissions for SMB sharing
-	// 	if err := m.ensureSharePermissions(ctx, smbConfig); err != nil {
-	// 		m.logger.Warn("Failed to set share permissions",
-	// 			"share", smbConfig.Name,
-	// 			"path", smbConfig.Path,
-	// 			"error", err)
-	// 	}
-	// }
-
 	// Reload SMB configuration
 	if err := m.ReloadConfig(ctx); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
@@ -455,7 +431,7 @@ func (m *Manager) DeleteShare(ctx context.Context, name string) error {
 	}
 
 	// Check if share exists
-	filePath := filepath.Join(m.configDir, name+".conf")
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.New(errors.SharesNotFound, "Share not found").
 			WithMetadata("name", name)
@@ -469,7 +445,7 @@ func (m *Manager) DeleteShare(ctx context.Context, name string) error {
 	}
 
 	// Remove generated SMB configuration
-	smbConfPath := filepath.Join(SharesConfigDir, name+".smb.conf")
+	smbConfPath := filepath.Join(SharesConfigDir, name+SmbConfigFileExt)
 	if err := os.Remove(smbConfPath); err != nil && !os.IsNotExist(err) {
 		m.logger.Warn("Failed to remove SMB configuration file",
 			"file", smbConfPath,
@@ -675,7 +651,7 @@ func (m *Manager) Exists(ctx context.Context, name string) (bool, error) {
 	}
 
 	// Check if share configuration file exists
-	filePath := filepath.Join(m.configDir, name+".conf")
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
@@ -858,85 +834,6 @@ func (m *Manager) GetSMBServiceStatus(ctx context.Context) (*SMBServiceStatus, e
 	return status, nil
 }
 
-// ensureSharePermissions ensures the directory has correct permissions for SMB sharing
-func (m *Manager) ensureSharePermissions(ctx context.Context, config *SMBShareConfig) error {
-	// Skip if ACL manager is not available
-	if m.aclManager == nil {
-		return nil
-	}
-
-	// Ensure directory exists
-	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
-		return errors.New(errors.SharesInvalidInput, "Share path does not exist").
-			WithMetadata("path", config.Path)
-	}
-
-	// Set basic permissions
-	if err := os.Chmod(config.Path, 0755); err != nil {
-		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "chmod").
-			WithMetadata("path", config.Path)
-	}
-
-	// Set ACLs if needed
-	if config.InheritACLs || config.MapACLInherit {
-		entries := []facl.ACLEntry{
-			{
-				Type: facl.EntryOwner,
-				Permissions: []facl.PermissionType{
-					facl.PermReadData,
-					facl.PermWriteData,
-					facl.PermExecute,
-				},
-				Access: facl.AccessAllow,
-			},
-		}
-
-		// Add ACLs for valid users if specified
-		for _, user := range config.ValidUsers {
-			// Skip AD prefixes or group indicators
-			if strings.Contains(user, "\\") {
-				parts := strings.Split(user, "\\")
-				user = parts[len(parts)-1]
-			}
-
-			if strings.HasPrefix(user, "@") {
-				// Group
-				entries = append(entries, facl.ACLEntry{
-					Type:        facl.EntryGroup,
-					Principal:   strings.TrimPrefix(user, "@"),
-					Permissions: []facl.PermissionType{facl.PermReadData, facl.PermExecute},
-					Access:      facl.AccessAllow,
-				})
-			} else {
-				// User
-				entries = append(entries, facl.ACLEntry{
-					Type:        facl.EntryUser,
-					Principal:   user,
-					Permissions: []facl.PermissionType{facl.PermReadData, facl.PermExecute},
-					Access:      facl.AccessAllow,
-				})
-			}
-		}
-
-		// Set ACLs
-		err := m.aclManager.ModifyACL(ctx, facl.ACLConfig{
-			Path:      config.Path,
-			Type:      facl.ACLTypePOSIX,
-			Entries:   entries,
-			Recursive: true,
-		})
-
-		if err != nil {
-			return errors.Wrap(err, errors.SharesOperationFailed).
-				WithMetadata("operation", "set_acl").
-				WithMetadata("path", config.Path)
-		}
-	}
-
-	return nil
-}
-
 // Helper functions
 
 // updateMainConfig updates the main SMB configuration file
@@ -956,14 +853,16 @@ func (m *Manager) updateMainConfig() error {
 	}
 
 	// Find all individual share config files
-	shareConfigs, err := filepath.Glob(filepath.Join(SharesConfigDir, "*.smb.conf"))
+	shareConfigs, err := filepath.Glob(filepath.Join(SharesConfigDir, "*"+SmbConfigFileExt))
 	if err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "find_share_configs")
 	}
 
 	// Append each share configuration
-	content.WriteString("# Share definitions - managed by Rodent\n")
+	content.WriteString(
+		"# Do not manually edit share definitions - managed by StrataSTOR Rodent service\n",
+	)
 	for _, shareConfig := range shareConfigs {
 		// Skip global config that was already included
 		if filepath.Base(shareConfig) == "global.smb.conf" {
@@ -1022,7 +921,7 @@ func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 	}
 
 	// Write the configuration file
-	filePath := filepath.Join(SharesConfigDir, config.Name+".smb.conf")
+	filePath := filepath.Join(SharesConfigDir, config.Name+SmbConfigFileExt)
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_config").
@@ -1088,8 +987,6 @@ func (m *Manager) getShareStatus(ctx context.Context, name string) (bool, error)
 
 	return false, nil
 }
-
-// Add this method to the Manager struct
 
 // BulkUpdateShares updates multiple SMB shares with the same parameters
 func (m *Manager) BulkUpdateShares(
@@ -1205,10 +1102,10 @@ func (m *Manager) BulkUpdateShares(
 // getAllShareConfigs returns all SMB share configurations
 func (m *Manager) getAllShareConfigs() ([]*SMBShareConfig, error) {
 	// Get all share config files
-	files, err := filepath.Glob(filepath.Join(m.configDir, "*.conf"))
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "list_configs")
+			WithMetadata("operation", "list_share_configs")
 	}
 
 	var result []*SMBShareConfig
@@ -1245,15 +1142,15 @@ func (m *Manager) saveShareConfig(config *SMBShareConfig) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "marshal").
+			WithMetadata("operation", "marshal_config").
 			WithMetadata("name", config.Name)
 	}
 
 	// Write to file
-	filePath := filepath.Join(m.configDir, config.Name+".conf")
+	filePath := filepath.Join(m.configDir, config.Name+ConfigFileExt)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "save").
+			WithMetadata("operation", "save_config").
 			WithMetadata("name", config.Name)
 	}
 
