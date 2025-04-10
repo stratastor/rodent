@@ -134,6 +134,70 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 		return errors.New(errors.FACLInvalidInput, "No ACL entries provided")
 	}
 
+	// First get existing ACLs to ensure we preserve base entries
+	existingResult, err := m.GetACL(ctx, ACLListConfig{
+		Path: cfg.Path,
+	})
+	if err != nil {
+		return errors.Wrap(err, errors.FACLReadError).
+			WithMetadata("path", cfg.Path)
+	}
+
+	// Extract base entries that we need to preserve
+	var baseEntries []ACLEntry
+	for _, entry := range existingResult.Entries {
+		// Keep only the basic required entries (owner, group, other)
+		if (entry.Type == EntryOwner || entry.Type == EntryOwnerGroup ||
+			entry.Type == EntryOther) && !entry.IsDefault {
+			baseEntries = append(baseEntries, entry)
+		}
+	}
+
+	// Check if provided entries already include required base entries
+	hasOwner, hasOwnerGroup, hasOther := false, false, false
+	for _, entry := range cfg.Entries {
+		if !entry.IsDefault {
+			if entry.Type == EntryOwner {
+				hasOwner = true
+			} else if entry.Type == EntryOwnerGroup {
+				hasOwnerGroup = true
+			} else if entry.Type == EntryOther {
+				hasOther = true
+			}
+		}
+	}
+
+	// Merge base entries with provided entries
+	var mergedEntries []ACLEntry
+	// Add required base entries if not already provided
+	if !hasOwner {
+		for _, entry := range baseEntries {
+			if entry.Type == EntryOwner {
+				mergedEntries = append(mergedEntries, entry)
+				break
+			}
+		}
+	}
+	if !hasOwnerGroup {
+		for _, entry := range baseEntries {
+			if entry.Type == EntryOwnerGroup {
+				mergedEntries = append(mergedEntries, entry)
+				break
+			}
+		}
+	}
+	if !hasOther {
+		for _, entry := range baseEntries {
+			if entry.Type == EntryOther {
+				mergedEntries = append(mergedEntries, entry)
+				break
+			}
+		}
+	}
+
+	// Add all provided entries
+	mergedEntries = append(mergedEntries, cfg.Entries...)
+
 	// Build setfacl arguments
 	args := []string{}
 
@@ -158,13 +222,13 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 	var entryStrings []string
 
 	// Write ACL entries to temporary file
-	for _, entry := range cfg.Entries {
+	for _, entry := range mergedEntries {
 		entryStr := entry.String()
 		entryStrings = append(entryStrings, entryStr)
-		m.logger.Debug("Writing ACL entry",
-			"entry", entryStr,
-			"principal", entry.Principal,
-			"type", entry.Type)
+		// m.logger.Debug("Writing ACL entry",
+		// 	"entry", entryStr,
+		// 	"principal", entry.Principal,
+		// 	"type", entry.Type)
 		_, err := tempFile.WriteString(entryStr + "\n")
 		if err != nil {
 			return errors.Wrap(err, errors.FACLWriteError).
@@ -172,6 +236,7 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 		}
 	}
 	tempFile.Close()
+
 	// Log the entries for debugging
 	m.logger.Debug("ACL entries being set",
 		"path", cfg.Path,
@@ -272,71 +337,72 @@ func (m *ACLManager) RemoveACL(ctx context.Context, cfg ACLRemoveConfig) error {
 	args := []string{}
 
 	if !cfg.RemoveAllXattr {
+
 		if cfg.RemoveDefault {
 			args = append(args, "-k") // Remove default ACLs
 		}
-
-		// Validate entries
-		if len(cfg.Entries) == 0 {
-			return errors.New(errors.FACLInvalidInput, "No ACL entries provided")
-		}
-
-		// Build setfacl arguments
 
 		if cfg.Recursive {
 			args = append(args, "-R") // Apply recursively
 		}
 
-		// Use -X for removing ACLs with a file input
-		args = append(args, "-X")
-
-		// Create temporary file with ACL entries to remove
-		tempFile, err := os.CreateTemp("", "rodent-acl-*.txt")
-		if err != nil {
-			return errors.Wrap(err, errors.FACLWriteError).
-				WithMetadata("path", cfg.Path)
+		// Validate entries
+		if !cfg.RemoveDefault && len(cfg.Entries) == 0 {
+			return errors.New(errors.FACLInvalidInput, "No ACL entries provided")
 		}
-		defer os.Remove(tempFile.Name())
+		if len(cfg.Entries) > 0 {
 
-		// Write ACL entries to temporary file
-		for _, entry := range cfg.Entries {
-			// For removal, we only need the type and principal
-			var entryStr string
-			prefix := ""
-			if entry.IsDefault {
-				prefix = "default:"
-			}
-			switch entry.Type {
-			case EntryUser:
-				if entry.Principal == "" {
-					// Can't remove base user entry
-					continue
-				}
-				// Escape spaces with \040 for setfacl
-				escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
-				entryStr = fmt.Sprintf("%suser:%s", prefix, escapedPrincipal)
-			case EntryGroup:
-				if entry.Principal == "" {
-					// Can't remove base group entry
-					continue
-				}
-				// Escape spaces with \040 for setfacl
-				escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
-				entryStr = fmt.Sprintf("%sgroup:%s", prefix, escapedPrincipal)
-			default:
-				// Can't remove base entries
-				continue
-			}
+			// Use -X for removing ACLs with a file input
+			args = append(args, "-X")
 
-			_, err := tempFile.WriteString(entryStr + "\n")
+			// Create temporary file with ACL entries to remove
+			tempFile, err := os.CreateTemp("", "rodent-acl-*.txt")
 			if err != nil {
 				return errors.Wrap(err, errors.FACLWriteError).
 					WithMetadata("path", cfg.Path)
 			}
-		}
-		tempFile.Close()
+			defer os.Remove(tempFile.Name())
 
-		args = append(args, tempFile.Name())
+			// Write ACL entries to temporary file
+			for _, entry := range cfg.Entries {
+				// For removal, we only need the type and principal
+				var entryStr string
+				prefix := ""
+				if entry.IsDefault {
+					prefix = "default:"
+				}
+				switch entry.Type {
+				case EntryUser:
+					if entry.Principal == "" {
+						// Can't remove base user entry
+						continue
+					}
+					// Escape spaces with \040 for setfacl
+					escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
+					entryStr = fmt.Sprintf("%suser:%s", prefix, escapedPrincipal)
+				case EntryGroup:
+					if entry.Principal == "" {
+						// Can't remove base group entry
+						continue
+					}
+					// Escape spaces with \040 for setfacl
+					escapedPrincipal := strings.ReplaceAll(entry.Principal, " ", "\\040")
+					entryStr = fmt.Sprintf("%sgroup:%s", prefix, escapedPrincipal)
+				default:
+					// Can't remove base entries
+					continue
+				}
+
+				_, err := tempFile.WriteString(entryStr + "\n")
+				if err != nil {
+					return errors.Wrap(err, errors.FACLWriteError).
+						WithMetadata("path", cfg.Path)
+				}
+			}
+			tempFile.Close()
+
+			args = append(args, tempFile.Name())
+		}
 	} else if cfg.RemoveAllXattr {
 		args = append(args, "-b") // Remove all ACLs
 	}

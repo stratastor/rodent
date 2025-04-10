@@ -43,6 +43,7 @@ var (
 	pathRegex      = regexp.MustCompile(`^/[a-zA-Z0-9/._-]+$`)
 )
 
+// TODO: Add main smb conf path variable to facilitate testing
 // Manager implements SMB share management
 type Manager struct {
 	logger     logger.Logger

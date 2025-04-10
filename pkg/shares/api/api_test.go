@@ -23,6 +23,8 @@ import (
 	"github.com/stratastor/rodent/pkg/shares/smb"
 )
 
+// TODO: Backup, cleanup config, and reload on exit
+
 // setupAPITest creates a test environment for API testing
 func setupAPITest(t *testing.T) (*gin.Engine, *smb.Manager, *smb.ServiceManager, func()) {
 	// Create temporary directory for share configs
