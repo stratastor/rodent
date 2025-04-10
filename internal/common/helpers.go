@@ -3,10 +3,13 @@ package common
 import (
 	"bytes"
 	"io"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/pkg/errors"
 )
 
 // Global logger
@@ -22,11 +25,25 @@ func init() {
 
 // Helper to add errors to context
 func APIError(c *gin.Context, err error) {
-	// Check if response has already been written
-	if c.Writer.Written() {
-		return
+	if rodentErr, ok := err.(*errors.RodentError); ok {
+		c.JSON(rodentErr.HTTPStatus, gin.H{
+			"error": gin.H{
+				"code":      rodentErr.Code,
+				"domain":    rodentErr.Domain,
+				"message":   rodentErr.Message,
+				"details":   rodentErr.Details,
+				"metadata":  rodentErr.Metadata,
+				"timestamp": time.Now().Format(time.RFC3339),
+			},
+		})
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{
+				"message":   err.Error(),
+				"timestamp": time.Now().Format(time.RFC3339),
+			},
+		})
 	}
-	c.Error(err)
 	c.Abort()
 }
 
