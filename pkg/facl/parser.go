@@ -61,6 +61,11 @@ func parseGetfaclOutput(output string, aclType ACLType) ([]ACLEntry, error) {
 
 // parsePOSIXACLEntry parses a POSIX ACL entry line
 func parsePOSIXACLEntry(line string) (ACLEntry, error) {
+	// First, strip off any comments (like "#effective:---")
+	if idx := strings.Index(line, "#"); idx != -1 {
+		line = strings.TrimSpace(line[:idx])
+	}
+
 	parts := strings.Split(line, ":")
 	if len(parts) < 2 {
 		return ACLEntry{}, errors.New(errors.FACLParseError,
