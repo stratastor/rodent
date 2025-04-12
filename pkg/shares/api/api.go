@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/shares"
 	"github.com/stratastor/rodent/pkg/shares/smb"
@@ -41,11 +41,6 @@ func NewSharesHandler(
 func (h *SharesHandler) RegisterRoutes(router *gin.RouterGroup) {
 	sharesAPI := router.Group("")
 	{
-		// Common operations
-		sharesAPI.GET("", h.listShares)
-		sharesAPI.GET("/:name", ValidateShareName(), h.getShare)
-		sharesAPI.DELETE("/:name", ValidateShareName(), h.deleteShare)
-
 		// SMB specific operations
 		smb := sharesAPI.Group("/smb")
 		{
@@ -53,6 +48,7 @@ func (h *SharesHandler) RegisterRoutes(router *gin.RouterGroup) {
 			smb.GET("/:name", ValidateShareName(), h.getSMBShare)
 			smb.POST("", ValidateSMBShareConfig(), h.createSMBShare)
 			smb.PUT("/:name", ValidateShareName(), ValidateSMBShareConfig(), h.updateSMBShare)
+			smb.DELETE("/:name", ValidateShareName(), h.deleteSMBShare)
 			smb.GET("/:name/stats", ValidateShareName(), h.getSMBStats)
 
 			// Global SMB config
@@ -74,29 +70,7 @@ func (h *SharesHandler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 }
 
-// Helper function to return errors in a consistent format
-func APIError(c *gin.Context, err error) {
-	if rodentErr, ok := err.(*errors.RodentError); ok {
-		c.JSON(rodentErr.HTTPStatus, gin.H{
-			"error": gin.H{
-				"code":      rodentErr.Code,
-				"domain":    rodentErr.Domain,
-				"message":   rodentErr.Message,
-				"details":   rodentErr.Details,
-				"metadata":  rodentErr.Metadata,
-				"timestamp": time.Now().Format(time.RFC3339),
-			},
-		})
-	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"message":   err.Error(),
-				"timestamp": time.Now().Format(time.RFC3339),
-			},
-		})
-	}
-	c.Abort()
-}
+var APIError = common.APIError
 
 // ValidateShareName validates share name format
 func ValidateShareName() gin.HandlerFunc {
@@ -223,48 +197,8 @@ func ValidateSMBBulkUpdateConfig() gin.HandlerFunc {
 	}
 }
 
-// listShares lists all shares
-func (h *SharesHandler) listShares(c *gin.Context) {
-	shareType := c.Query("type")
-
-	var result []shares.ShareConfig
-	var err error
-
-	if shareType != "" {
-		result, err = h.smbManager.ListSharesByType(
-			c.Request.Context(),
-			shares.ShareType(shareType),
-		)
-	} else {
-		result, err = h.smbManager.ListShares(c.Request.Context())
-	}
-
-	if err != nil {
-		APIError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"shares": result,
-		"count":  len(result),
-	})
-}
-
-// getShare gets a share by name
-func (h *SharesHandler) getShare(c *gin.Context) {
-	name := c.Param("name")
-
-	share, err := h.smbManager.GetShare(c.Request.Context(), name)
-	if err != nil {
-		APIError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, share)
-}
-
-// deleteShare deletes a share
-func (h *SharesHandler) deleteShare(c *gin.Context) {
+// deleteSMBShare deletes a share
+func (h *SharesHandler) deleteSMBShare(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := h.smbManager.DeleteShare(c.Request.Context(), name); err != nil {

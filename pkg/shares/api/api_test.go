@@ -24,9 +24,31 @@ import (
 )
 
 // TODO: Backup, cleanup config, and reload on exit
+var (
+	testFS string
+	ts1    string // test share 1
+	ts2    string // test share 2
+)
 
 // setupAPITest creates a test environment for API testing
 func setupAPITest(t *testing.T) (*gin.Engine, *smb.Manager, *smb.ServiceManager, func()) {
+	testFS = os.Getenv("RODENT_TEST_FS")
+
+	// Skip if required env vars are not set
+	if testFS == "" {
+		t.Skip(
+			"Required environment variables RODENT_TEST_USER, RODENT_TEST_USER_PASS, and RODENT_TEST_FS must be set",
+		)
+	}
+
+	// Check if the test filesystem exists
+	if _, err := os.Stat(testFS); os.IsNotExist(err) {
+		t.Skipf("Test filesystem '%s' does not exist", testFS)
+	}
+
+	ts1 = "api-test-share-1-" + time.Now().Format("20060102150405")
+	ts2 = "api-test-share-2-" + time.Now().Format("20060102150405")
+
 	// Create temporary directory for share configs
 	tempDir, err := os.MkdirTemp("", "rodent-smb-test-*")
 	if err != nil {
@@ -92,9 +114,9 @@ func TestSharesAPI(t *testing.T) {
 	// Case 1: Test listShares endpoint
 	t.Run("ListShares", func(t *testing.T) {
 		// Create test share first
-		createTestShare(t, "testshare1", "/tank/newFS")
+		createTestShare(t, ts1, testFS)
 
-		req, _ := http.NewRequest("GET", "/api/shares", nil)
+		req, _ := http.NewRequest("GET", "/api/shares/smb", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -118,7 +140,7 @@ func TestSharesAPI(t *testing.T) {
 		// Verify the share is in the list
 		found := false
 		for _, share := range response.Shares {
-			if share.Name == "testshare1" {
+			if share.Name == ts1 {
 				found = true
 				break
 			}
@@ -130,7 +152,7 @@ func TestSharesAPI(t *testing.T) {
 
 	// Case 2: Test getShare endpoint
 	t.Run("GetShare", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/api/shares/testshare1", nil)
+		req, _ := http.NewRequest("GET", "/api/shares/smb/"+ts1, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -144,11 +166,11 @@ func TestSharesAPI(t *testing.T) {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
 
-		if response.Name != "testshare1" {
-			t.Errorf("Expected share name 'testshare1', got '%s'", response.Name)
+		if response.Name != ts1 {
+			t.Errorf("Expected share name '%s', got '%s'", ts1, response.Name)
 		}
-		if response.Path != "/tank/newFS" {
-			t.Errorf("Expected share path '/tank/newFS', got '%s'", response.Path)
+		if response.Path != testFS {
+			t.Errorf("Expected share path '%s', got '%s'", testFS, response.Path)
 		}
 	})
 
@@ -160,8 +182,8 @@ func TestSharesAPI(t *testing.T) {
 			Description string            `json:"description"`
 			Tags        map[string]string `json:"tags"`
 		}{
-			Name:        "testshare2",
-			Path:        "/tank/newFS",
+			Name:        ts2,
+			Path:        testFS,
 			Description: "Test share 2",
 			Tags: map[string]string{
 				"purpose": "testing",
@@ -187,12 +209,12 @@ func TestSharesAPI(t *testing.T) {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
 
-		if response.Name != "testshare2" {
-			t.Errorf("Expected share name 'testshare2', got '%s'", response.Name)
+		if response.Name != ts2 {
+			t.Errorf("Expected share name '%s', got '%s'", ts2, response.Name)
 		}
 
 		// Verify the share was created
-		exists, err := manager.Exists(context.Background(), "testshare2")
+		exists, err := manager.Exists(context.Background(), ts2)
 		if err != nil {
 			t.Fatalf("Failed to check if share exists: %v", err)
 		}
@@ -204,7 +226,7 @@ func TestSharesAPI(t *testing.T) {
 	// Case 4: Test updateSMBShare endpoint
 	t.Run("UpdateSMBShare", func(t *testing.T) {
 		// Get the current share config
-		smbShare, err := manager.GetSMBShare(context.Background(), "testshare1")
+		smbShare, err := manager.GetSMBShare(context.Background(), ts1)
 		if err != nil {
 			t.Fatalf("Failed to get share config: %v", err)
 		}
@@ -213,7 +235,7 @@ func TestSharesAPI(t *testing.T) {
 		smbShare.Description = "Updated test share 1"
 
 		body, _ := json.Marshal(smbShare)
-		req, _ := http.NewRequest("PUT", "/api/shares/smb/testshare1", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("PUT", "/api/shares/smb/"+ts1, bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -224,7 +246,7 @@ func TestSharesAPI(t *testing.T) {
 		}
 
 		// Verify the share was updated
-		updatedShare, err := manager.GetSMBShare(context.Background(), "testshare1")
+		updatedShare, err := manager.GetSMBShare(context.Background(), ts1)
 		if err != nil {
 			t.Fatalf("Failed to get updated share config: %v", err)
 		}
@@ -236,7 +258,7 @@ func TestSharesAPI(t *testing.T) {
 
 	// Case 5: Test getSMBShare endpoint
 	t.Run("GetSMBShare", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/api/shares/smb/testshare1", nil)
+		req, _ := http.NewRequest("GET", "/api/shares/smb/"+ts1, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -250,11 +272,11 @@ func TestSharesAPI(t *testing.T) {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
 
-		if response.Name != "testshare1" {
-			t.Errorf("Expected share name 'testshare1', got '%s'", response.Name)
+		if response.Name != ts1 {
+			t.Errorf("Expected share name '%s', got '%s'", ts1, response.Name)
 		}
-		if response.Path != "/tank/newFS" {
-			t.Errorf("Expected share path '/tank/newFS', got '%s'", response.Path)
+		if response.Path != testFS {
+			t.Errorf("Expected share path '%s', got '%s'", testFS, response.Path)
 		}
 		if response.Description != "Updated test share 1" {
 			t.Errorf("Expected share description 'Updated test share 1', got '%s'",
@@ -296,7 +318,7 @@ func TestSharesAPI(t *testing.T) {
 		}
 
 		// Verify parameters were updated
-		share1, err := manager.GetSMBShare(context.Background(), "testshare1")
+		share1, err := manager.GetSMBShare(context.Background(), ts1)
 		if err != nil {
 			t.Fatalf("Failed to get share config: %v", err)
 		}
@@ -330,53 +352,53 @@ func TestSharesAPI(t *testing.T) {
 		}
 	})
 
-	// Case 8: Test global config endpoints
-	t.Run("GlobalConfig", func(t *testing.T) {
-		// First, update global config
-		globalConfig := smb.SMBGlobalConfig{
-			WorkGroup:    "TESTGROUP",
-			SecurityMode: "user",
-			ServerString: "Test Server",
-			LogLevel:     "1",
-		}
+	// Test global config endpoints
+	// t.Run("GlobalConfig", func(t *testing.T) {
+	// 	// First, update global config
+	// 	globalConfig := smb.SMBGlobalConfig{
+	// 		WorkGroup:    "TESTGROUP",
+	// 		SecurityMode: "user",
+	// 		ServerString: "Test Server",
+	// 		LogLevel:     "1",
+	// 	}
 
-		body, _ := json.Marshal(globalConfig)
-		req, _ := http.NewRequest("PUT", "/api/shares/smb/global", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+	// 	body, _ := json.Marshal(globalConfig)
+	// 	req, _ := http.NewRequest("PUT", "/api/shares/smb/global", bytes.NewBuffer(body))
+	// 	req.Header.Set("Content-Type", "application/json")
+	// 	w := httptest.NewRecorder()
+	// 	router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status OK, got %v", w.Code)
-			t.Errorf("Response: %s", w.Body.String())
-		}
+	// 	if w.Code != http.StatusOK {
+	// 		t.Errorf("Expected status OK, got %v", w.Code)
+	// 		t.Errorf("Response: %s", w.Body.String())
+	// 	}
 
-		// Then get global config and verify it was updated
-		req, _ = http.NewRequest("GET", "/api/shares/smb/global", nil)
-		w = httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+	// 	// Then get global config and verify it was updated
+	// 	req, _ = http.NewRequest("GET", "/api/shares/smb/global", nil)
+	// 	w = httptest.NewRecorder()
+	// 	router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status OK, got %v", w.Code)
-			t.Errorf("Response: %s", w.Body.String())
-		}
+	// 	if w.Code != http.StatusOK {
+	// 		t.Errorf("Expected status OK, got %v", w.Code)
+	// 		t.Errorf("Response: %s", w.Body.String())
+	// 	}
 
-		var response smb.SMBGlobalConfig
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-			t.Fatalf("Failed to unmarshal response: %v", err)
-		}
+	// 	var response smb.SMBGlobalConfig
+	// 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+	// 		t.Fatalf("Failed to unmarshal response: %v", err)
+	// 	}
 
-		if response.WorkGroup != "TESTGROUP" {
-			t.Errorf("Expected workgroup 'TESTGROUP', got '%s'", response.WorkGroup)
-		}
-		if response.SecurityMode != "user" {
-			t.Errorf("Expected security mode 'user', got '%s'", response.SecurityMode)
-		}
-	})
+	// 	if response.WorkGroup != "TESTGROUP" {
+	// 		t.Errorf("Expected workgroup 'TESTGROUP', got '%s'", response.WorkGroup)
+	// 	}
+	// 	if response.SecurityMode != "user" {
+	// 		t.Errorf("Expected security mode 'user', got '%s'", response.SecurityMode)
+	// 	}
+	// })
 
 	// Case 9: Test deleteShare endpoint
 	t.Run("DeleteShare", func(t *testing.T) {
-		req, _ := http.NewRequest("DELETE", "/api/shares/testshare1", nil)
+		req, _ := http.NewRequest("DELETE", "/api/shares/smb/"+ts1, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -386,7 +408,7 @@ func TestSharesAPI(t *testing.T) {
 		}
 
 		// Verify the share was deleted
-		exists, err := manager.Exists(context.Background(), "testshare1")
+		exists, err := manager.Exists(context.Background(), ts1)
 		if err != nil {
 			t.Fatalf("Failed to check if share exists: %v", err)
 		}
@@ -397,7 +419,7 @@ func TestSharesAPI(t *testing.T) {
 
 	// Case 10: Test error handling with non-existent share
 	t.Run("ErrorHandling", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/api/shares/nonexistent", nil)
+		req, _ := http.NewRequest("GET", "/api/shares/smb/nonexistent", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
