@@ -26,6 +26,11 @@ func init() {
 // Helper to add errors to context
 func APIError(c *gin.Context, err error) {
 	if rodentErr, ok := err.(*errors.RodentError); ok {
+		// Do not include command in the error response
+		rodentErr.Metadata["command"] = ""
+		if rodentErr.Metadata["output"] != "" {
+			rodentErr.Message += " - " + rodentErr.Metadata["output"]
+		}
 		c.JSON(rodentErr.HTTPStatus, gin.H{
 			"error": gin.H{
 				"code":      rodentErr.Code,
