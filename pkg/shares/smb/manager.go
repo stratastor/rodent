@@ -528,7 +528,6 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 			Username      string `json:"username"`
 			GroupName     string `json:"groupname"`
 			RemoteMachine string `json:"remote_machine"`
-			ConnectedAt   string `json:"connected_at"`
 			Encryption    struct {
 				Cipher string `json:"cipher"`
 				Degree string `json:"degree"`
@@ -582,18 +581,28 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 	// Track session IDs for this share
 	shareSessions := make(map[string]bool)
 
-	// Gather connection info from tcons
+	// Map to store connection times for each session
+	sessionConnectedTimes := make(map[string]time.Time)
+
+	// Gather connection info from tcons and record connection times
 	for _, tcon := range smbStatus.Tcons {
 		if tcon.Service == name {
 			shareSessions[tcon.SessionID] = true
 			stats.Status = shares.ShareStatusActive
+
+			// Parse and store connection time for this session
+			connectedAt, err := time.Parse(time.RFC3339, tcon.ConnectedAt)
+			if err == nil {
+				sessionConnectedTimes[tcon.SessionID] = connectedAt
+			}
 		}
 	}
 
 	// Collect sessions for this share
 	for sessionID, session := range smbStatus.Sessions {
 		if shareSessions[sessionID] {
-			connectedAt, _ := time.Parse(time.RFC3339, session.ConnectedAt)
+			// Get the connection time from our map
+			connectedAt := sessionConnectedTimes[sessionID]
 
 			smbSession := SMBSession{
 				SessionID:     sessionID,
