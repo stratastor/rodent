@@ -514,7 +514,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
 
 	// Run smbstatus to get detailed information
-	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-f", "-j").Output()
+	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "stats").
@@ -611,18 +611,47 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 
 	// Collect open files for this share
 	for path, fileInfo := range smbStatus.OpenFiles {
-		if strings.HasPrefix(path, "/"+name+"/") || path == "/"+name {
-			for _, openInfo := range fileInfo.Opens {
-				// openInfo is a struct, not a map or slice, so we can't range over it
-				openedAt, _ := time.Parse(time.RFC3339, openInfo.OpenedAt)
+		// There are multiple ways a file might be associated with a share:
+		// 1. Direct match on ServicePath to the share name
+		// 2. ServicePath is a subdirectory of the share
+		// 3. The file could be in a share that's mounted at a different path
 
-				// Get session info to determine username
-				var username string
-				for sessionID, session := range smbStatus.Sessions {
-					if shareSessions[sessionID] {
-						username = session.Username
+		// Here we check if the service path (without leading slash) matches the share name
+		// OR if the service path contains the tcon service name from any active connections
+		belongsToShare := strings.TrimPrefix(fileInfo.ServicePath, "/") == name
+
+		// If not a direct match, check if the service path is used by this share in any tcon
+		if !belongsToShare {
+			for _, tcon := range smbStatus.Tcons {
+				if tcon.Service == name {
+					// This is our share - if the path contains our share's path, include it
+					if strings.Contains(path, fileInfo.ServicePath) {
+						belongsToShare = true
 						break
 					}
+				}
+			}
+		}
+
+		if belongsToShare {
+			for openID, openInfo := range fileInfo.Opens {
+				openedAt, _ := time.Parse(time.RFC3339, openInfo.OpenedAt)
+
+				// Get username from session if possible
+				var username string
+				var sessionID string
+
+				// Find the session ID for this open file
+				for _, tcon := range smbStatus.Tcons {
+					if tcon.Service == name {
+						sessionID = tcon.SessionID
+						break
+					}
+				}
+
+				// Get username from the session
+				if session, ok := smbStatus.Sessions[sessionID]; ok {
+					username = session.Username
 				}
 
 				smbFile := SMBOpenFile{
@@ -632,6 +661,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 					OpenedAt:     openedAt,
 					AccessMode:   openInfo.ShareMode.Text,
 					AccessRights: openInfo.AccessMask.Text,
+					OpenID:       openID,
 				}
 
 				stats.Files = append(stats.Files, smbFile)

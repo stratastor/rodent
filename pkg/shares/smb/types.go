@@ -162,6 +162,7 @@ type SMBOpenFile struct {
 	OpenedAt     time.Time `json:"opened_at"`
 	AccessMode   string    `json:"access_mode"`
 	AccessRights string    `json:"access_rights"`
+	OpenID       string    `json:"open_id"`
 }
 
 // SMBShareStats provides statistics about an SMB share
