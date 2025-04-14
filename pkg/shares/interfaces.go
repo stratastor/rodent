@@ -42,9 +42,10 @@ type ShareConfig struct {
 
 // ShareStats represents statistics for a share
 type ShareStats struct {
-	ActiveConnections int       `json:"active_connections"`
-	OpenFiles         int       `json:"open_files"`
-	LastAccessed      time.Time `json:"last_accessed,omitempty"`
+	ActiveConnections int         `json:"active_connections"`
+	OpenFiles         int         `json:"open_files"`
+	LastAccessed      time.Time   `json:"last_accessed,omitempty"`
+	Status            ShareStatus `json:"status"`
 }
 
 // SharesManager is the interface that manages shares

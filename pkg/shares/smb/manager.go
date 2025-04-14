@@ -484,6 +484,7 @@ func (m *Manager) GetShareStats(ctx context.Context, name string) (*shares.Share
 	stats := &shares.ShareStats{
 		ActiveConnections: smbStats.ActiveSessions,
 		OpenFiles:         smbStats.OpenFiles,
+		Status:            smbStats.Status,
 	}
 
 	// Set last accessed time if there are open files
@@ -572,6 +573,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 	stats := &SMBShareStats{
 		Sessions: make([]SMBSession, 0),
 		Files:    make([]SMBOpenFile, 0),
+		Status:   shares.ShareStatusInactive,
 	}
 
 	// Track session IDs for this share
@@ -581,6 +583,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 	for _, tcon := range smbStatus.Tcons {
 		if tcon.Service == name {
 			shareSessions[tcon.SessionID] = true
+			stats.Status = shares.ShareStatusActive
 		}
 	}
 

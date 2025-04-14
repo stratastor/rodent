@@ -6,6 +6,8 @@ package smb
 
 import (
 	"time"
+
+	"github.com/stratastor/rodent/pkg/shares"
 )
 
 // SMBShareConfig represents configuration for an SMB share
@@ -164,10 +166,11 @@ type SMBOpenFile struct {
 
 // SMBShareStats provides statistics about an SMB share
 type SMBShareStats struct {
-	ActiveSessions int           `json:"active_sessions"`
-	OpenFiles      int           `json:"open_files"`
-	Sessions       []SMBSession  `json:"sessions,omitempty"`
-	Files          []SMBOpenFile `json:"files,omitempty"`
+	ActiveSessions int                `json:"active_sessions"`
+	OpenFiles      int                `json:"open_files"`
+	Sessions       []SMBSession       `json:"sessions,omitempty"`
+	Files          []SMBOpenFile      `json:"files,omitempty"`
+	Status         shares.ShareStatus `json:"status"`
 }
 
 // SMBServiceStatus represents the status of the SMB service
