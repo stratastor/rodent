@@ -171,6 +171,7 @@ type SMBShareStats struct {
 	Sessions       []SMBSession       `json:"sessions,omitempty"`
 	Files          []SMBOpenFile      `json:"files,omitempty"`
 	Status         shares.ShareStatus `json:"status"`
+	ConfModified   time.Time          `json:"conf_modified"`
 }
 
 // SMBServiceStatus represents the status of the SMB service

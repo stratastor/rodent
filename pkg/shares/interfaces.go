@@ -46,6 +46,7 @@ type ShareStats struct {
 	OpenFiles         int         `json:"open_files"`
 	LastAccessed      time.Time   `json:"last_accessed,omitempty"`
 	Status            ShareStatus `json:"status"`
+	ConfModified      time.Time   `json:"conf_modified"`
 }
 
 // SharesManager is the interface that manages shares

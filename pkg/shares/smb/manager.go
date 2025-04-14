@@ -485,6 +485,7 @@ func (m *Manager) GetShareStats(ctx context.Context, name string) (*shares.Share
 		ActiveConnections: smbStats.ActiveSessions,
 		OpenFiles:         smbStats.OpenFiles,
 		Status:            smbStats.Status,
+		ConfModified:      smbStats.ConfModified,
 	}
 
 	// Set last accessed time if there are open files
@@ -510,8 +511,10 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 			WithMetadata("name", name)
 	}
 
+	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+
 	// Run smbstatus to get detailed information
-	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
+	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-f", "-j").Output()
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "stats").
@@ -639,6 +642,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 	// Update counters
 	stats.ActiveSessions = len(stats.Sessions)
 	stats.OpenFiles = len(stats.Files)
+	stats.ConfModified = getFileModificationTime(filePath)
 
 	return stats, nil
 }
@@ -821,7 +825,7 @@ func (m *Manager) GetSMBServiceStatus(ctx context.Context) (*SMBServiceStatus, e
 		}
 
 		// Get active shares and sessions
-		smbStatus, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
+		smbStatus, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-f", "-j").Output()
 		if err == nil {
 			var parsedStatus struct {
 				Sessions map[string]interface{} `json:"sessions"`
@@ -962,7 +966,7 @@ func (m *Manager) generateGlobalConfig(config *SMBGlobalConfig) error {
 
 // getShareStatus checks if a share is active
 func (m *Manager) getShareStatus(ctx context.Context, name string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "sudo", "smbstatus", "-j")
+	cmd := exec.CommandContext(ctx, "sudo", "smbstatus", "-f", "-j")
 	out, err := cmd.Output()
 	if err != nil {
 		return false, errors.Wrap(err, errors.SharesOperationFailed).
