@@ -1,6 +1,8 @@
 module github.com/stratastor/rodent
 
-go 1.23.1
+go 1.24
+
+toolchain go1.24.0
 
 require (
 	github.com/gin-gonic/gin v1.10.0
@@ -16,6 +18,8 @@ require (
 	golang.org/x/text v0.21.0
 	gopkg.in/yaml.v2 v2.4.0
 )
+
+replace github.com/stratastor/toggle-rodent-proto => ../toggle-rodent-proto
 
 require (
 	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
@@ -56,10 +60,10 @@ require (
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/net v0.34.0 // indirect
+	golang.org/x/sys v0.29.0 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

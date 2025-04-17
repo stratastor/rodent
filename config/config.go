@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -77,36 +78,51 @@ type Config struct {
 // LoadConfig loads the configuration with precedence rules.
 func LoadConfig(configFilePath string) *Config {
 	once.Do(func() {
+		// Setup basic logger for initialization
 		logConfig := logger.Config{
 			LogLevel:     "info",
 			EnableSentry: false,
 			SentryDSN:    "",
-		} // Adjust the logger.Config initialization manually
+		}
 		l, err := logger.NewTag(logConfig, "config")
 		if err != nil {
 			fmt.Printf("Failed to create logger: %v\n", err)
-			// TODO: Why exit here? Return error/nil instead?
 			os.Exit(1)
 		}
 
+		// Reset viper to avoid any potential carryover
+		viper.Reset()
 		viper.SetConfigType("yaml")
 
-		// Determine config path with precedence
-		configPath = determineConfigPath(configFilePath)
+		// Determine which config file to use with clear priorities
+		systemConfigPath := filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
 
-		if configPath != "" {
-			absPath, err := filepath.Abs(configPath)
-			if err != nil {
-				l.Error("Invalid config path", "err", err)
-			} else {
-				viper.SetConfigFile(absPath)
-			}
+		if configFilePath != "" {
+			// 1. Priority: Explicit path from command line
+			configPath = configFilePath
+		} else if envPath := os.Getenv("RODENT_CONFIG"); envPath != "" {
+			// 2. Priority: Environment variable
+			configPath = envPath
+		} else {
+			// 3. Priority: Always default to system-wide config
+			configPath = systemConfigPath
 		}
+
+		l.Info("Using config file", "path", configPath)
+
+		// Convert to absolute path if possible for consistency
+		absPath, err := filepath.Abs(configPath)
+		if err == nil {
+			configPath = absPath
+		}
+
+		// Set config file path for viper
+		viper.SetConfigFile(configPath)
 
 		// Set defaults
 		viper.SetDefault("environment", "dev")
 		viper.SetDefault("server.port", 8042)
-		viper.SetDefault("server.logLevel", "info")
+		viper.SetDefault("server.logLevel", "debug")
 		viper.SetDefault("server.daemonize", false)
 		viper.SetDefault("health.interval", "30s")
 		viper.SetDefault("health.endpoint", "/health")
@@ -117,7 +133,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("logger.enableSentry", false)
 		viper.SetDefault("logger.sentryDSN", "")
 
-		// Set defaults for AD configuration
+		// Set defaults for AD configuration - use lowercase consistently
 		viper.SetDefault("ad.adminPassword", "")
 		viper.SetDefault("ad.ldapURL", "ldaps://localhost:636")
 		viper.SetDefault("ad.baseDN", "CN=Users,DC=ad,DC=strata,DC=internal")
@@ -133,33 +149,113 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Set defaults for StrataSecure
 		viper.SetDefault("strataSecure", true)
-
 		viper.SetDefault("development.enabled", false)
 
 		// Bind environment variables
 		viper.AutomaticEnv()
+		viper.SetEnvPrefix("RODENT")
+		viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-		// Load configuration file
-		if err := viper.ReadInConfig(); err != nil {
-			l.Debug("Config file not found or unreadable, using defaults", "err", err)
+		// Try to read the config file
+		err = viper.ReadInConfig()
+
+		// Handle missing or invalid config
+		if err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				// File doesn't exist, create a default one
+				l.Info(
+					"Config file not found, creating default at system path",
+					"path",
+					systemConfigPath,
+				)
+
+				// Ensure parent directory exists
+				if err := os.MkdirAll(constants.SystemConfigDir, 0755); err != nil {
+					l.Error("Failed to create config directory", "err", err)
+				}
+
+				// Use defaults for now
+				var cfg Config
+				if err := viper.Unmarshal(&cfg); err != nil {
+					l.Error("Failed to unmarshal default configuration", "err", err)
+				}
+
+				instance = &cfg
+				configPath = systemConfigPath
+
+				// Save default config to the system path
+				if err := SaveConfig(systemConfigPath); err != nil {
+					l.Error("Failed to save default configuration", "err", err)
+				}
+			} else {
+				// Some other error (parse error, etc.)
+				l.Error("Error reading config file", "err", err)
+
+				// Still use defaults
+				var cfg Config
+				if err := viper.Unmarshal(&cfg); err != nil {
+					l.Error("Failed to unmarshal default configuration", "err", err)
+				}
+
+				instance = &cfg
+			}
 		} else {
+			// Successfully loaded config
+			l.Info("Config file loaded successfully", "path", viper.ConfigFileUsed())
 			configPath = viper.ConfigFileUsed()
-		}
 
-		// Unmarshal into Config struct
-		var cfg Config
-		if err := viper.Unmarshal(&cfg); err != nil {
-			l.Error("Failed to parse configuration", "err", err)
-		}
+			// Handle case-sensitivity in YAML - check if upper-case AD is used
+			if viper.IsSet("AD") {
+				l.Info("Detected uppercase AD section, fixing case-sensitivity issues")
 
-		instance = &cfg
+				// Copy uppercase AD values to lowercase ad
+				if adPwd := viper.GetString("AD.adminPassword"); adPwd != "" {
+					viper.Set("ad.adminPassword", adPwd)
+				}
+				if adURL := viper.GetString("AD.ldapURL"); adURL != "" {
+					viper.Set("ad.ldapURL", adURL)
+				}
+				if adBaseDN := viper.GetString("AD.baseDN"); adBaseDN != "" {
+					viper.Set("ad.baseDN", adBaseDN)
+				}
+				if adAdminDN := viper.GetString("AD.adminDN"); adAdminDN != "" {
+					viper.Set("ad.adminDN", adAdminDN)
+				}
 
-		// Save the configuration if it was loaded from a non-standard location
-		if configPath == "" {
-			if err := SaveConfig(""); err != nil {
-				l.Error("Failed to persist configuration", "err", err)
+				// Update config on disk to fix the case issue
+				var fixedCfg Config
+				if err := viper.Unmarshal(&fixedCfg); err != nil {
+					l.Error("Failed to unmarshal fixed config", "err", err)
+				} else {
+					// Save instance before writing to disk
+					instance = &fixedCfg
+
+					// Write corrected config back to system path
+					l.Info("Saving case-corrected config to system path", "path", systemConfigPath)
+					if err := SaveConfig(systemConfigPath); err != nil {
+						l.Error("Failed to save case-corrected configuration", "err", err)
+					}
+				}
+			} else {
+				// Normal case - unmarshal config
+				var cfg Config
+				if err := viper.Unmarshal(&cfg); err != nil {
+					l.Error("Failed to parse configuration", "err", err)
+				} else {
+					instance = &cfg
+				}
 			}
 		}
+
+		// Verify AD password was loaded
+		if instance.AD.AdminPassword == "" {
+			l.Warn("AD admin password is empty, AD operations may fail")
+		}
+
+		// Log config values for debugging (redact sensitive data)
+		debugCfg := *instance
+		debugCfg.AD.AdminPassword = "[REDACTED]"
+		l.Debug("Loaded configuration", "config", fmt.Sprintf("%+v", debugCfg))
 	})
 
 	return instance
@@ -206,46 +302,6 @@ func SaveConfig(path string) error {
 	configPath = path
 
 	return nil
-}
-
-func determineConfigPath(explicitPath string) string {
-	// 1. Explicit path from command line
-	if explicitPath != "" {
-		return explicitPath
-	}
-
-	// 2. Environment variable
-	if envPath := os.Getenv("RODENT_CONFIG"); envPath != "" {
-		return envPath
-	}
-
-	// 3. Current working directory
-	currentDir, err := os.Getwd()
-	if err == nil {
-		cwdConfig := filepath.Join(currentDir, constants.ConfigFileName)
-		if _, err := os.Stat(cwdConfig); err == nil {
-			return cwdConfig
-		}
-	}
-
-	// 4. User-specific config for non-root users
-	if os.Geteuid() != 0 {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			userConfig := filepath.Join(home, ".rodent", constants.ConfigFileName)
-			if _, err := os.Stat(userConfig); err == nil {
-				return userConfig
-			}
-		}
-	}
-
-	// 5. System-wide config
-	systemConfig := filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
-	if _, err := os.Stat(systemConfig); err == nil {
-		return systemConfig
-	}
-
-	return ""
 }
 
 // GetLoadedConfigPath returns the path of the currently loaded configuration file.
