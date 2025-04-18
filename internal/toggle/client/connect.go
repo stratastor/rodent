@@ -8,8 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -20,55 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// backoff implements exponential backoff with jitter for connection retries
-type backoff struct {
-	attempts    int
-	baseDelay   time.Duration
-	maxDelay    time.Duration
-	multiplier  float64
-	jitter      float64
-	maxAttempts int
-}
-
-// newBackoff creates a new backoff strategy with reasonable defaults
-func newBackoff() backoff {
-	return backoff{
-		attempts:    0,
-		baseDelay:   500 * time.Millisecond,
-		maxDelay:    2 * time.Minute,
-		multiplier:  1.5,
-		jitter:      0.2,
-		maxAttempts: 10, // Reset after this many attempts
-	}
-}
-
-// nextDelay returns the next delay to wait before retrying
-func (b *backoff) nextDelay() time.Duration {
-	// Increment attempt counter
-	b.attempts++
-	
-	// Reset attempts after max to prevent potential overflow in calculations
-	if b.attempts > b.maxAttempts {
-		b.attempts = 1
-	}
-	
-	// Calculate delay with exponential backoff
-	backoffTime := float64(b.baseDelay) * math.Pow(b.multiplier, float64(b.attempts-1))
-	if backoffTime > float64(b.maxDelay) {
-		backoffTime = float64(b.maxDelay)
-	}
-	
-	// Add jitter to prevent reconnection storms
-	jitterRange := backoffTime * b.jitter
-	backoffWithJitter := backoffTime - (jitterRange/2) + (rand.Float64() * jitterRange)
-	
-	return time.Duration(backoffWithJitter)
-}
-
-// reset resets the backoff attempts
-func (b *backoff) reset() {
-	b.attempts = 0
-}
+// The backoff implementation has been moved to backoff.go for better organization
+// The circuit breaker implementation is in circuit_breaker.go
 
 // StreamConnection represents a bidirectional streaming connection to Toggle
 type StreamConnection struct {
@@ -83,10 +34,11 @@ type StreamConnection struct {
 	reconnectMu     sync.Mutex
 	isReconnecting  bool
 	backoffStrategy backoff
+	circuitBreaker  *CircuitBreaker // Circuit breaker to prevent excessive reconnection attempts
 }
 
 // Connect establishes a bidirectional streaming connection with Toggle
-// This long-lived connection enables Toggle to send commands to Rodent nodes 
+// This long-lived connection enables Toggle to send commands to Rodent nodes
 // that are behind firewalls or NATs, where Toggle cannot initiate connections
 // to the Rodent node directly.
 func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
@@ -117,14 +69,17 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 
 	// Create a new StreamConnection to manage the bidirectional stream
 	conn := &StreamConnection{
-		client:          c,
-		stream:          stream,
-		sessionID:       sessionID,
-		streamCtx:       streamCtx,
-		stopChan:        make(chan struct{}),            // Channel to signal goroutines to stop
-		outboundChan:    make(chan *proto.RodentRequest, 100), // Buffer for outbound messages
-		inboundChan:     make(chan *proto.ToggleRequest, 100), // Buffer for inbound messages
-		backoffStrategy: newBackoff(),                  // Initialize backoff strategy
+		client:    c,
+		stream:    stream,
+		sessionID: sessionID,
+		streamCtx: streamCtx,
+		stopChan: make(
+			chan struct{},
+		), // Channel to signal goroutines to stop
+		outboundChan:    make(chan *proto.RodentRequest, 200), // Increased buffer for outbound messages
+		inboundChan:     make(chan *proto.ToggleRequest, 500), // Significantly increased buffer for inbound messages
+		backoffStrategy: newBackoff(),                         // Initialize backoff strategy
+		circuitBreaker:  newCircuitBreaker(),                  // Initialize circuit breaker for connection stability
 		isReconnecting:  false,
 	}
 
@@ -132,10 +87,10 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 	conn.wg.Add(2)
 	go conn.sendLoop()    // Handles sending messages to Toggle
 	go conn.receiveLoop() // Handles receiving messages from Toggle
-	
+
 	// Start the request handler to process incoming Toggle requests
-	// This will handle system.status requests from Toggle as heartbeats
-	conn.HandleToggleRequests()
+	// Use the improved handler that correctly handles system.status requests
+	conn.ModifyHandleToggleRequests()
 
 	c.Logger.Info("Connected to Toggle via streaming gRPC", "sessionID", sessionID)
 
@@ -159,7 +114,7 @@ func (c *StreamConnection) sendLoop() {
 			// Send the message
 			if err := c.stream.Send(req); err != nil {
 				c.client.Logger.Error("Failed to send message to Toggle", "error", err)
-				
+
 				// Handle different error types appropriately
 				if shouldReconnect(err) {
 					c.client.Logger.Warn("Send connection disruption detected", "error", err)
@@ -174,95 +129,6 @@ func (c *StreamConnection) sendLoop() {
 			}
 		}
 	}
-}
-
-// tryReconnect attempts to reestablish the connection with exponential backoff
-func (c *StreamConnection) tryReconnect() {
-	c.reconnectMu.Lock()
-	if c.isReconnecting {
-		c.reconnectMu.Unlock()
-		return // Already reconnecting
-	}
-	c.isReconnecting = true
-	c.reconnectMu.Unlock()
-
-	defer func() {
-		c.reconnectMu.Lock()
-		c.isReconnecting = false
-		c.reconnectMu.Unlock()
-	}()
-
-	// Create a new context that can be used for reconnecting
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Keep trying until we succeed or get a permanent error
-	for {
-		select {
-		case <-c.stopChan:
-			c.client.Logger.Info("Reconnection canceled - connection is closing")
-			return
-		default:
-			// Calculate delay based on backoff strategy
-			delay := c.backoffStrategy.nextDelay()
-			c.client.Logger.Info("Reconnecting to Toggle service", "attempt", c.backoffStrategy.attempts, "delay", delay)
-			
-			// Wait based on backoff
-			select {
-			case <-time.After(delay):
-				// Continue with reconnection
-			case <-c.stopChan:
-				return // Connection is closing
-			}
-
-			// Try to establish a new connection
-			if err := c.reestablishConnection(ctx); err != nil {
-				c.client.Logger.Error("Failed to reconnect", "error", err, "attempt", c.backoffStrategy.attempts)
-				
-				// Check if this is a permanent error
-				if !shouldReconnect(err) {
-					c.client.Logger.Error("Permanent error during reconnection, giving up", "error", err)
-					close(c.stopChan)
-					return
-				}
-				
-				// Transient error, continue trying
-				continue
-			}
-			
-			// Successfully reconnected
-			c.client.Logger.Info("Successfully reconnected to Toggle service", "sessionID", c.sessionID)
-			c.backoffStrategy.reset() // Reset backoff for next time
-			return
-		}
-	}
-}
-
-// reestablishConnection creates a new gRPC stream
-func (c *StreamConnection) reestablishConnection(ctx context.Context) error {
-	// Create metadata with JWT token for authentication
-	md := metadata.Pairs("authorization", "Bearer "+c.client.jwt)
-	streamCtx := metadata.NewOutgoingContext(ctx, md)
-
-	// Establish a new bidirectional stream with the Toggle service
-	stream, err := c.client.client.Connect(streamCtx)
-	if err != nil {
-		return fmt.Errorf("failed to reconnect: %w", err)
-	}
-
-	// Replace the old stream with the new one
-	c.stream = stream
-	c.streamCtx = streamCtx
-
-	// Restart the send and receive loops
-	c.wg.Add(2)
-	go c.sendLoop()
-	go c.receiveLoop()
-	
-	// Restart the request handler
-	c.HandleToggleRequests()
-
-	return nil
 }
 
 // receiveLoop continuously receives messages from the stream and puts them in the inbound channel
@@ -290,7 +156,18 @@ func (c *StreamConnection) receiveLoop() {
 				}
 			}
 
-			// Send to inbound channel
+			// Add debug logging for tracking message flow 
+			if cmd, ok := resp.Payload.(*proto.ToggleRequest_Command); ok {
+				command := cmd.Command
+				if command.CommandType == "system.status" || 
+					(command.CommandType == "status" && command.Target == "system") {
+					c.client.Logger.Debug("Received system.status request", 
+						"request_id", resp.RequestId,
+						"timestamp", time.Now().Unix())
+				}
+			}
+
+			// Send all messages to inbound channel
 			select {
 			case c.inboundChan <- resp:
 				// Successfully sent to channel
@@ -314,14 +191,14 @@ func shouldReconnect(err error) bool {
 	// Check specific codes that indicate temporary issues
 	switch s.Code() {
 	case codes.Unavailable, // Server is unavailable
-		codes.DeadlineExceeded, // Deadline exceeded
+		codes.DeadlineExceeded,  // Deadline exceeded
 		codes.ResourceExhausted, // Resource exhausted
-		codes.Canceled: // Canceled
+		codes.Canceled:          // Canceled
 		return true
 	case codes.PermissionDenied, // Permission denied
-		codes.Unauthenticated, // Unauthenticated 
+		codes.Unauthenticated,    // Unauthenticated
 		codes.FailedPrecondition, // Failed precondition
-		codes.InvalidArgument: // Invalid argument
+		codes.InvalidArgument:    // Invalid argument
 		// These are likely permanent errors, don't reconnect
 		return false
 	default:
@@ -339,7 +216,7 @@ func (c *StreamConnection) Send(req *proto.RodentRequest) error {
 	default:
 		// Continue with send
 	}
-	
+
 	select {
 	case c.outboundChan <- req:
 		return nil
@@ -350,175 +227,87 @@ func (c *StreamConnection) Send(req *proto.RodentRequest) error {
 	}
 }
 
-// CommandHandler is a function type for handling specific command types
-type CommandHandler func(cmd *proto.CommandRequest) (*proto.CommandResponse, error)
-
-// commandHandlers stores command handlers by command type
-var commandHandlers = map[string]CommandHandler{}
-
-// RegisterCommandHandler registers a handler for a specific command type
-func RegisterCommandHandler(commandType string, handler CommandHandler) {
-	commandHandlers[commandType] = handler
-}
-
 // init registers default command handlers
 func init() {
-	// Register system.status handler (heartbeat)
-	RegisterCommandHandler("system.status", func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		// Collect basic system metrics
-		// In a production environment, this would collect real system metrics
-		metrics := map[string]interface{}{
-			"status":       "healthy",
-			"timestamp":    time.Now().Unix(),
-			"cpu_usage":    0.0,
-			"memory_usage": 0.0,
-			"disk_usage":   0.0,
-		}
-		
-		// Marshal metrics to JSON
-		payload, err := json.Marshal(metrics)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal metrics: %w", err)
-		}
-		
-		return &proto.CommandResponse{
-			Success: true,
-			Message: "System status",
-			Payload: payload,
-		}, nil
-	})
+	// The Toggle server sends "system.status" commands to check on node health
+	RegisterCommandHandler(
+		"system.status",
+		func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+			// Collect basic system metrics
+			// In a production environment, this would collect real system metrics
+			metrics := map[string]interface{}{
+				"status":       "healthy",
+				"timestamp":    time.Now().Unix(),
+				"cpu_usage":    0.0,
+				"memory_usage": 0.0,
+				"disk_usage":   0.0,
+			}
+
+			// Marshal metrics to JSON
+			payload, err := json.Marshal(metrics)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal metrics: %w", err)
+			}
+
+			return &proto.CommandResponse{
+				Success: true,
+				Message: "System status",
+				Payload: payload,
+			}, nil
+		},
+	)
+
+	// Also register "status" since the server might use this format with "system" target
+	RegisterCommandHandler(
+		"status",
+		func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+			// If not the system target, return unsupported
+			if cmd.Target != "system" {
+				return nil, fmt.Errorf("unsupported target for status command: %s", cmd.Target)
+			}
+
+			// Collect basic system metrics (same as system.status)
+			metrics := map[string]interface{}{
+				"status":       "healthy",
+				"timestamp":    time.Now().Unix(),
+				"cpu_usage":    0.0,
+				"memory_usage": 0.0,
+				"disk_usage":   0.0,
+			}
+
+			// Marshal metrics to JSON
+			payload, err := json.Marshal(metrics)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal metrics: %w", err)
+			}
+
+			return &proto.CommandResponse{
+				Success: true,
+				Message: "System status",
+				Payload: payload,
+			}, nil
+		},
+	)
 }
 
-// HandleToggleRequests starts a goroutine that processes incoming Toggle requests
-// and responds appropriately to commands including status/heartbeat requests
-func (c *StreamConnection) HandleToggleRequests() {
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		
-		for {
-			select {
-			case <-c.stopChan:
-				return
-			case req, ok := <-c.inboundChan:
-				if !ok {
-					c.client.Logger.Warn("Inbound channel closed unexpectedly")
-					return
-				}
-				
-				// Process the request based on payload type
-				switch payload := req.Payload.(type) {
-				case *proto.ToggleRequest_Command:
-					// Handle command requests
-					cmd := payload.Command
-					
-					c.client.Logger.Debug("Received command from Toggle", 
-						"type", cmd.CommandType, 
-						"target", cmd.Target,
-						"request_id", req.RequestId)
-					
-					// Look for a registered handler for this command type
-					handler, exists := commandHandlers[cmd.CommandType]
-					
-					var response *proto.CommandResponse
-					var err error
-					
-					if exists {
-						// Execute the handler
-						response, err = handler(cmd)
-						if err != nil {
-							c.client.Logger.Error("Command handler failed", 
-								"type", cmd.CommandType, 
-								"error", err)
-							
-							// Create error response
-							response = &proto.CommandResponse{
-								RequestId: req.RequestId,
-								Success:   false,
-								Message:   fmt.Sprintf("Command failed: %v", err),
-							}
-						}
-					} else {
-						// No handler found
-						c.client.Logger.Warn("No handler for command type", 
-							"type", cmd.CommandType)
-						
-						response = &proto.CommandResponse{
-							RequestId: req.RequestId,
-							Success:   false,
-							Message:   fmt.Sprintf("Unsupported command type: %s", cmd.CommandType),
-						}
-					}
-					
-					// Add request ID from Toggle request if missing
-					if response.RequestId == "" {
-						response.RequestId = req.RequestId
-					}
-					
-					// Create and send the response
-					resp := &proto.RodentRequest{
-						SessionId: c.sessionID,
-						RequestId: uuid.New().String(),
-						Payload: &proto.RodentRequest_CommandResponse{
-							CommandResponse: response,
-						},
-					}
-					
-					if err := c.Send(resp); err != nil {
-						c.client.Logger.Warn("Failed to send command response", "error", err)
-					}
-					
-				case *proto.ToggleRequest_Config:
-					// Handle config updates
-					configUpdate := payload.Config
-					c.client.Logger.Debug("Received config update from Toggle", 
-						"type", configUpdate.ConfigType)
-					
-					// Send acknowledgment
-					ack := &proto.RodentRequest{
-						SessionId: c.sessionID,
-						RequestId: uuid.New().String(),
-						Payload: &proto.RodentRequest_Ack{
-							Ack: &proto.Acknowledgement{
-								RequestId: req.RequestId,
-								Success:   true,
-								Message:   fmt.Sprintf("Received config update type: %s", configUpdate.ConfigType),
-							},
-						},
-					}
-					
-					if err := c.Send(ack); err != nil {
-						c.client.Logger.Warn("Failed to send config update acknowledgment", "error", err)
-					}
-					
-					// TODO: Apply the config update based on the type
-					// This would likely involve unmarshaling the payload and applying changes
-					
-				case *proto.ToggleRequest_Ack:
-					// Handle acknowledgments
-					ack := payload.Ack
-					c.client.Logger.Debug("Received acknowledgment from Toggle", 
-						"request_id", ack.RequestId,
-						"success", ack.Success,
-						"message", ack.Message)
-					
-					// TODO: Update any pending request status based on the acknowledgment
-				}
-			}
-		}
-	}()
-}
+// HandleToggleRequests has been moved to connect_handler.go
+// The function starts a goroutine that processes incoming Toggle requests
 
 // Receive returns a channel to receive messages from the Toggle server
 func (c *StreamConnection) Receive() <-chan *proto.ToggleRequest {
 	return c.inboundChan
 }
 
+// StopChan returns the stop channel to monitor for connection closure
+func (c *StreamConnection) StopChan() <-chan struct{} {
+	return c.stopChan
+}
+
 // Close closes the streaming connection
 func (c *StreamConnection) Close() error {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
-	
+
 	// Check if already closed
 	select {
 	case <-c.stopChan:
@@ -535,7 +324,7 @@ func (c *StreamConnection) Close() error {
 		c.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
@@ -543,7 +332,7 @@ func (c *StreamConnection) Close() error {
 		// Timeout waiting for goroutines to finish
 		c.client.Logger.Warn("Timeout waiting for goroutines to finish during Close()")
 	}
-	
+
 	// Try to gracefully close the stream if it exists
 	if c.stream != nil {
 		if err := c.stream.CloseSend(); err != nil {
@@ -562,10 +351,10 @@ func (c *StreamConnection) SendEvent(eventType, source string, payload []byte) e
 		RequestId: uuid.New().String(),
 		Payload: &proto.RodentRequest_Event{
 			Event: &proto.EventNotification{
-				EventType:  eventType,
-				Source:     source,
-				Timestamp:  time.Now().UnixMilli(),
-				Payload:    payload,
+				EventType: eventType,
+				Source:    source,
+				Timestamp: time.Now().UnixMilli(),
+				Payload:   payload,
 			},
 		},
 	}
@@ -574,7 +363,12 @@ func (c *StreamConnection) SendEvent(eventType, source string, payload []byte) e
 }
 
 // SendCommandResponse sends a response to a command request
-func (c *StreamConnection) SendCommandResponse(requestID string, success bool, message string, payload []byte) error {
+func (c *StreamConnection) SendCommandResponse(
+	requestID string,
+	success bool,
+	message string,
+	payload []byte,
+) error {
 	req := &proto.RodentRequest{
 		SessionId: c.sessionID,
 		RequestId: uuid.New().String(),
@@ -592,7 +386,11 @@ func (c *StreamConnection) SendCommandResponse(requestID string, success bool, m
 }
 
 // SendAcknowledgement sends an acknowledgement message
-func (c *StreamConnection) SendAcknowledgement(requestID string, success bool, message string) error {
+func (c *StreamConnection) SendAcknowledgement(
+	requestID string,
+	success bool,
+	message string,
+) error {
 	req := &proto.RodentRequest{
 		SessionId: c.sessionID,
 		RequestId: uuid.New().String(),

@@ -89,98 +89,27 @@ func RegisterNode(
 	return nil
 }
 
+// Global connection monitor instance
+var connectionMonitor *ConnectionMonitor
+
 // establishStreamConnection establishes and maintains a bidirectional stream connection with Toggle
-// It's designed to be run as a goroutine and will keep the connection alive indefinitely,
-// handling reconnections as needed
+// It's designed to be run as a goroutine and will use the ConnectionMonitor to maintain
+// a robust and stable connection
 func establishStreamConnection(
 	ctx context.Context,
 	toggleClient client.ToggleClient,
 	logger logger.Logger,
 ) {
-	// We can only use Connect with a gRPC client
-	grpcClient, ok := toggleClient.(*client.GRPCClient)
-	if !ok {
-		logger.Error("Cannot establish stream connection with non-gRPC client")
-		return
+	// Initialize the connection monitor if needed
+	if connectionMonitor == nil {
+		connectionMonitor = NewConnectionMonitor(ctx, toggleClient, logger)
 	}
-
-	// Create a context that can be canceled independently of the parent
-	streamCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Run connection loop indefinitely with backoff
-	initialRetryDelay := 5 * time.Second
-	maxRetryDelay := 5 * time.Minute
-	retryDelay := initialRetryDelay
 	
-	for {
-		select {
-		case <-ctx.Done():
-			// Parent context was canceled, exit the goroutine
-			logger.Info("Stream connection loop terminated due to context cancellation")
-			return
-		default:
-			// Attempt to establish the connection
-			logger.Info("Establishing bidirectional stream connection with Toggle")
-			conn, err := grpcClient.Connect(streamCtx)
-			
-			if err != nil {
-				logger.Error("Failed to establish stream connection", "error", err)
-				
-				// Sleep with backoff before retrying
-				logger.Info("Retrying connection in " + retryDelay.String())
-				time.Sleep(retryDelay)
-				
-				// Increase retry delay with exponential backoff (up to max)
-				retryDelay = time.Duration(float64(retryDelay) * 1.5)
-				if retryDelay > maxRetryDelay {
-					retryDelay = maxRetryDelay
-				}
-				
-				continue
-			}
-			
-			// Connection established, reset retry delay
-			retryDelay = initialRetryDelay
-			logger.Info("Bidirectional stream established with Toggle")
-			
-			// Wait for the connection to be closed or parent context to be canceled
-			connClosed := make(chan struct{})
-			
-			// Start a goroutine to monitor the connection
-			go func() {
-				// This channel will receive all messages from Toggle
-				msgChan := conn.Receive()
-				
-				// Keep receiving until channel closes
-				for {
-					_, ok := <-msgChan
-					if !ok {
-						// Channel closed, connection is down
-						close(connClosed)
-						return
-					}
-					// Message handling is done in the HandleToggleRequests method
-				}
-			}()
-			
-			// Wait for either connection closure or context cancellation
-			select {
-			case <-connClosed:
-				logger.Warn("Stream connection closed, will reconnect")
-				// Let the loop handle reconnection after a short delay
-				time.Sleep(initialRetryDelay)
-			case <-ctx.Done():
-				// Parent context canceled, close connection and exit
-				logger.Info("Closing stream connection due to context cancellation")
-				conn.Close()
-				return
-			}
-			
-			// Always ensure the connection is closed before retrying
-			conn.Close()
-		}
-	}
+	// Start the connection monitor
+	connectionMonitor.Start()
+	
+	// Log that the connection monitor has been started
+	logger.Info("Toggle connection monitor started")
 }
 
 // StartRegistrationProcess begins the async process of registering with Toggle
