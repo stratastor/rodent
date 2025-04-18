@@ -105,7 +105,7 @@ func NewClientAdapter(client *Client) *RESTClientAdapter {
 }
 
 // NewToggleClient creates a new client based on the JWT claims
-func NewToggleClient(l logger.Logger, jwt string, baseURL string) (ToggleClient, error) {
+func NewToggleClient(l logger.Logger, jwt string, baseURL string, rpcAddr string) (ToggleClient, error) {
 	// Check if the JWT indicates a private network
 	isPrivate, err := IsPrivateNetwork(jwt)
 	if err != nil {
@@ -116,7 +116,13 @@ func NewToggleClient(l logger.Logger, jwt string, baseURL string) (ToggleClient,
 
 	if isPrivate {
 		l.Info("Creating gRPC client for private network")
-		return NewGRPCClient(l, jwt, baseURL)
+		// Use rpcAddr for gRPC if provided, otherwise fall back to baseURL
+		serverAddr := rpcAddr
+		if serverAddr == "" {
+			serverAddr = baseURL
+			l.Warn("No specific gRPC address provided, using baseURL", "baseURL", baseURL)
+		}
+		return NewGRPCClient(l, jwt, serverAddr)
 	}
 
 	// For public networks, use the REST client

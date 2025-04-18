@@ -6,6 +6,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stratastor/logger"
@@ -30,22 +31,30 @@ func TestRegistration(t *testing.T) {
 
 	// Test both REST and gRPC clients
 	tests := []struct {
-		name     string
-		jwt      string
-		baseURL  string
-		isGRPC   bool
+		name          string
+		jwt           string
+		baseURL       string
+		rpcAddr       string
+		isGRPC        bool
+		expectError   bool
+		errorContains string
 	}{
 		{
-			name:    "gRPC Registration",
-			jwt:     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIyMTgzMTg2MTcsImlhdCI6MTc0NDkzMzAxNywicHJ2Ijp0cnVlLCJyaWQiOiIydnNUdzdjNFd2b21zQTllRGtQd3YyYk1CVzIiLCJzdWIiOiJjNzUwMGNjOC02M2UxLTRjMmItYWU4NS02MmFkOTA0YTdmNmIiLCJ0aWQiOiIydnNUdzdrbnRpV0ZMSWhDbHNSQW1yT2FZZUgifQ.34jPJR44u40hp_xrYjShVD7DoCOOQk_QKL7XfPLsTUs",
-			baseURL: "localhost:8242",
-			isGRPC:  true,
+			name:        "gRPC Registration",
+			jwt:         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIyMTgzMTg2MTcsImlhdCI6MTc0NDkzMzAxNywicHJ2Ijp0cnVlLCJyaWQiOiIydnNUdzdjNFd2b21zQTllRGtQd3YyYk1CVzIiLCJzdWIiOiJjNzUwMGNjOC02M2UxLTRjMmItYWU4NS02MmFkOTA0YTdmNmIiLCJ0aWQiOiIydnNUdzdrbnRpV0ZMSWhDbHNSQW1yT2FZZUgifQ.34jPJR44u40hp_xrYjShVD7DoCOOQk_QKL7XfPLsTUs",
+			baseURL:     "http://localhost:8142",
+			rpcAddr:     "localhost:8242",
+			isGRPC:      true,
+			expectError: false,
 		},
 		{
-			name:    "REST Registration",
-			jwt:     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIyMTgzMTg2MTcsImlhdCI6MTc0NDkzMzAxNywicmlkIjoiMnZzVHc3YzRXdm9tc0E5ZURrUHd2MmJNQlcyIiwic3ViIjoiYzc1MDBjYzgtNjNlMS00YzJiLWFlODUtNjJhZDkwNGE3ZjZiIiwidGlkIjoiMnZzVHc3a250aVdGTEloQ2xzUkFtck9hWWVIIn0.QZ9jtRfjMwlPYYrVZ2J_xNNGGSTsGRhEm1oGdPDSkuY",
-			baseURL: "http://localhost:8142",
-			isGRPC:  false,
+			name:          "REST Registration",
+			jwt:           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIyMTgzMTg2MTcsImlhdCI6MTc0NDkzMzAxNywicHJ2Ijp0cnVlLCJyaWQiOiIydnNUdzdjNFd2b21zQTllRGtQd3YyYk1CVzIiLCJzdWIiOiJjNzUwMGNjOC02M2UxLTRjMmItYWU4NS02MmFkOTA0YTdmNmIiLCJ0aWQiOiIydnNUdzdrbnRpV0ZMSWhDbHNSQW1yT2FZZUgifQ.34jPJR44u40hp_xrYjShVD7DoCOOQk_QKL7XfPLsTUs",
+			baseURL:       "http://localhost:8142",
+			rpcAddr:       "localhost:8242",
+			isGRPC:        false,
+			expectError:   true,
+			errorContains: "Rodents with Private Tunnel token can't register with Strata Secure endpoints",
 		},
 	}
 
@@ -56,7 +65,7 @@ func TestRegistration(t *testing.T) {
 			var err error
 
 			if tt.isGRPC {
-				grpcClient, err := NewGRPCClient(testLogger, tt.jwt, tt.baseURL)
+				grpcClient, err := NewGRPCClient(testLogger, tt.jwt, tt.rpcAddr)
 				if err != nil {
 					t.Fatalf("Failed to create gRPC client: %v", err)
 				}
@@ -73,6 +82,27 @@ func TestRegistration(t *testing.T) {
 			// Try to register
 			ctx := context.Background()
 			result, err := client.Register(ctx)
+
+			// Check for expected errors
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error but got success")
+				}
+
+				// Verify error message contains expected text
+				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf(
+						"Error doesn't contain expected text.\nExpected to contain: %s\nActual error: %v",
+						tt.errorContains,
+						err,
+					)
+				} else {
+					t.Logf("Got expected error: %v", err)
+				}
+				return
+			}
+
+			// If we don't expect an error but got one
 			if err != nil {
 				t.Fatalf("Registration failed: %v", err)
 			}

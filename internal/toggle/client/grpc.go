@@ -22,11 +22,11 @@ import (
 
 // GRPCClient provides methods to interact with the Toggle API via gRPC
 type GRPCClient struct {
-	Logger     logger.Logger
-	baseURL    string
-	jwt        string
-	conn       *grpc.ClientConn
-	client     proto.RodentServiceClient
+	Logger  logger.Logger
+	baseURL string
+	jwt     string
+	conn    *grpc.ClientConn
+	client  proto.RodentServiceClient
 }
 
 // NewGRPCClient creates a new Toggle gRPC client
@@ -46,7 +46,7 @@ func NewGRPCClient(l logger.Logger, jwt string, baseURL string) (*GRPCClient, er
 	// Get config to check environment
 	cfg := config.GetConfig()
 	var opts []grpc.DialOption
-	
+
 	// Use TLS for production environments, insecure for dev/test
 	if cfg.Environment == "prod" || cfg.Environment == "production" {
 		// Use TLS credentials for production
@@ -68,9 +68,9 @@ func NewGRPCClient(l logger.Logger, jwt string, baseURL string) (*GRPCClient, er
 		PermitWithoutStream: true,             // send pings even without active streams
 	}
 	opts = append(opts, grpc.WithKeepaliveParams(kacp))
-	
+
 	// Allow clients to receive messages larger than default max size
-	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16 * 1024 * 1024))) // 16MB
+	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16*1024*1024))) // 16MB
 
 	// Create new gRPC client with appropriate credentials
 	conn, err := grpc.Dial(baseURL, opts...)
@@ -133,29 +133,55 @@ func (c *GRPCClient) Register(ctx context.Context) (*RegistrationResult, error) 
 		return nil, fmt.Errorf("registration request failed: %w", err)
 	}
 
+	// Debug log the entire response
+	c.Logger.Debug("Received gRPC registration response",
+		"success", resp.Success,
+		"message", resp.Message,
+		"domain", resp.Domain,
+		"certificate_length", len(resp.Certificate),
+		"private_key_length", len(resp.PrivateKey),
+		"expires_on", resp.ExpiresOn,
+		"expires_on_empty", resp.ExpiresOn == "",
+	)
+
 	// If not successful, return error with the message from the server
 	if !resp.Success {
 		return nil, fmt.Errorf("registration failed: %s", resp.Message)
 	}
 
-	// Parse expires_on string into a time.Time
-	expiresOn, err := time.Parse(time.RFC3339, resp.ExpiresOn)
-	if err != nil {
-		c.Logger.Warn("Failed to parse expires_on date", "error", err)
-		// Use a default expiration time of 90 days if parsing fails
-		expiresOn = time.Now().Add(90 * 24 * time.Hour)
+	// Create result object with the basic response data
+	result := &RegistrationResult{
+		Message: resp.Message,
 	}
 
-	// Create result object with the registration response data
-	// For private networks, certificate and private key may be empty or dummy values
-	// since they aren't needed for private network communication
-	result := &RegistrationResult{
-		Message:     resp.Message,
-		Domain:      resp.Domain,
-		Certificate: resp.Certificate,
-		PrivateKey:  resp.PrivateKey,
-		ExpiresOn:   expiresOn,
+	// Check if this is just an "already registered" response
+	// which doesn't include certificate data
+	if resp.Certificate == "" && resp.Domain == "" && resp.PrivateKey == "" {
+		c.Logger.Info("Node already registered with Toggle service")
+		return result, nil
 	}
+
+	// We have certificate data, so parse the expires_on date
+	var expiresOn time.Time
+	if resp.ExpiresOn != "" {
+		c.Logger.Debug("Received expires_on value", "expires_on", resp.ExpiresOn)
+		expiresOn, err = time.Parse(time.RFC3339, resp.ExpiresOn)
+		if err != nil {
+			c.Logger.Warn("Failed to parse expires_on date", "error", err)
+			// Use a default expiration time of 15 years if parsing fails
+			expiresOn = time.Now().AddDate(15, 0, 0)
+		}
+	} else {
+		// If no expiration provided, use 15 years default
+		c.Logger.Debug("No expires_on value provided, using default expiration")
+		expiresOn = time.Now().AddDate(15, 0, 0)
+	}
+
+	// Fill in the complete registration result
+	result.Domain = resp.Domain
+	result.Certificate = resp.Certificate
+	result.PrivateKey = resp.PrivateKey
+	result.ExpiresOn = expiresOn
 
 	c.Logger.Info("Registration successful with Toggle service via gRPC",
 		"domain", result.Domain, "expiresOn", result.ExpiresOn)
@@ -181,4 +207,3 @@ func removeProtocolPrefix(url string) string {
 	}
 	return url
 }
-

@@ -100,7 +100,7 @@ func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 
 	// Create a unified Toggle client that will use either REST or gRPC
 	// based on the JWT claims
-	toggleClient, err := client.NewToggleClient(l, cfg.Toggle.JWT, cfg.Toggle.BaseURL)
+	toggleClient, err := client.NewToggleClient(l, cfg.Toggle.JWT, cfg.Toggle.BaseURL, cfg.Toggle.RPCAddr)
 	if err != nil {
 		if l != nil {
 			l.Error("Failed to create Toggle client", "error", err)

@@ -56,7 +56,8 @@ type Config struct {
 
 	Toggle struct {
 		JWT     string `mapstructure:"jwt"`     // JWT for Toggle service authentication
-		BaseURL string `mapstructure:"baseURL"` // Optional base URL for Toggle service
+		BaseURL string `mapstructure:"baseURL"` // Base URL for Toggle REST API service
+		RPCAddr string `mapstructure:"rpcAddr"` // Address for Toggle gRPC service
 	}
 
 	StrataSecure bool `mapstructure:"strataSecure"`
@@ -129,7 +130,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("logs.path", "/var/log/rodent/rodent.log")
 		viper.SetDefault("logs.retention", "7d")
 		viper.SetDefault("logs.output", "stdout")
-		viper.SetDefault("logger.logLevel", "info")
+		viper.SetDefault("logger.logLevel", "debug")
 		viper.SetDefault("logger.enableSentry", false)
 		viper.SetDefault("logger.sentryDSN", "")
 
