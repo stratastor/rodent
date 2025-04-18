@@ -6,6 +6,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -349,8 +350,47 @@ func (c *StreamConnection) Send(req *proto.RodentRequest) error {
 	}
 }
 
+// CommandHandler is a function type for handling specific command types
+type CommandHandler func(cmd *proto.CommandRequest) (*proto.CommandResponse, error)
+
+// commandHandlers stores command handlers by command type
+var commandHandlers = map[string]CommandHandler{}
+
+// RegisterCommandHandler registers a handler for a specific command type
+func RegisterCommandHandler(commandType string, handler CommandHandler) {
+	commandHandlers[commandType] = handler
+}
+
+// init registers default command handlers
+func init() {
+	// Register system.status handler (heartbeat)
+	RegisterCommandHandler("system.status", func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		// Collect basic system metrics
+		// In a production environment, this would collect real system metrics
+		metrics := map[string]interface{}{
+			"status":       "healthy",
+			"timestamp":    time.Now().Unix(),
+			"cpu_usage":    0.0,
+			"memory_usage": 0.0,
+			"disk_usage":   0.0,
+		}
+		
+		// Marshal metrics to JSON
+		payload, err := json.Marshal(metrics)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metrics: %w", err)
+		}
+		
+		return &proto.CommandResponse{
+			Success: true,
+			Message: "System status",
+			Payload: payload,
+		}, nil
+	})
+}
+
 // HandleToggleRequests starts a goroutine that processes incoming Toggle requests
-// and responds appropriately to status/heartbeat requests
+// and responds appropriately to commands including status/heartbeat requests
 func (c *StreamConnection) HandleToggleRequests() {
 	c.wg.Add(1)
 	go func() {
@@ -372,46 +412,97 @@ func (c *StreamConnection) HandleToggleRequests() {
 					// Handle command requests
 					cmd := payload.Command
 					
-					// Check if this is a status/heartbeat request
-					if cmd.CommandType == "system.status" {
-						c.client.Logger.Debug("Received heartbeat request from Toggle")
-						
-						// Respond with system status (acting as heartbeat)
-						resp := &proto.RodentRequest{
-							SessionId: c.sessionID,
-							RequestId: uuid.New().String(),
-							Payload: &proto.RodentRequest_CommandResponse{
-								CommandResponse: &proto.CommandResponse{
-									RequestId: req.RequestId,
-									Success:   true,
-									Message:   "System status",
-									Payload:   []byte(`{"status":"healthy"}`), // Could include real metrics
-								},
-							},
-						}
-						
-						if err := c.Send(resp); err != nil {
-							c.client.Logger.Warn("Failed to send status response", "error", err)
+					c.client.Logger.Debug("Received command from Toggle", 
+						"type", cmd.CommandType, 
+						"target", cmd.Target,
+						"request_id", req.RequestId)
+					
+					// Look for a registered handler for this command type
+					handler, exists := commandHandlers[cmd.CommandType]
+					
+					var response *proto.CommandResponse
+					var err error
+					
+					if exists {
+						// Execute the handler
+						response, err = handler(cmd)
+						if err != nil {
+							c.client.Logger.Error("Command handler failed", 
+								"type", cmd.CommandType, 
+								"error", err)
+							
+							// Create error response
+							response = &proto.CommandResponse{
+								RequestId: req.RequestId,
+								Success:   false,
+								Message:   fmt.Sprintf("Command failed: %v", err),
+							}
 						}
 					} else {
-						// Handle other command types...
-						c.client.Logger.Debug("Received command from Toggle", 
-							"type", cmd.CommandType, 
-							"target", cmd.Target)
-							
-						// Process command and send response
-						// This would typically pass the command to appropriate handlers
+						// No handler found
+						c.client.Logger.Warn("No handler for command type", 
+							"type", cmd.CommandType)
+						
+						response = &proto.CommandResponse{
+							RequestId: req.RequestId,
+							Success:   false,
+							Message:   fmt.Sprintf("Unsupported command type: %s", cmd.CommandType),
+						}
+					}
+					
+					// Add request ID from Toggle request if missing
+					if response.RequestId == "" {
+						response.RequestId = req.RequestId
+					}
+					
+					// Create and send the response
+					resp := &proto.RodentRequest{
+						SessionId: c.sessionID,
+						RequestId: uuid.New().String(),
+						Payload: &proto.RodentRequest_CommandResponse{
+							CommandResponse: response,
+						},
+					}
+					
+					if err := c.Send(resp); err != nil {
+						c.client.Logger.Warn("Failed to send command response", "error", err)
 					}
 					
 				case *proto.ToggleRequest_Config:
 					// Handle config updates
+					configUpdate := payload.Config
 					c.client.Logger.Debug("Received config update from Toggle", 
-						"type", payload.Config.ConfigType)
+						"type", configUpdate.ConfigType)
+					
+					// Send acknowledgment
+					ack := &proto.RodentRequest{
+						SessionId: c.sessionID,
+						RequestId: uuid.New().String(),
+						Payload: &proto.RodentRequest_Ack{
+							Ack: &proto.Acknowledgement{
+								RequestId: req.RequestId,
+								Success:   true,
+								Message:   fmt.Sprintf("Received config update type: %s", configUpdate.ConfigType),
+							},
+						},
+					}
+					
+					if err := c.Send(ack); err != nil {
+						c.client.Logger.Warn("Failed to send config update acknowledgment", "error", err)
+					}
+					
+					// TODO: Apply the config update based on the type
+					// This would likely involve unmarshaling the payload and applying changes
 					
 				case *proto.ToggleRequest_Ack:
 					// Handle acknowledgments
+					ack := payload.Ack
 					c.client.Logger.Debug("Received acknowledgment from Toggle", 
-						"request_id", payload.Ack.RequestId)
+						"request_id", ack.RequestId,
+						"success", ack.Success,
+						"message", ack.Message)
+					
+					// TODO: Update any pending request status based on the acknowledgment
 				}
 			}
 		}

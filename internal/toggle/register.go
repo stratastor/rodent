@@ -32,21 +32,11 @@ func RegisterNode(
 		return fmt.Errorf("registration request failed: %w", err)
 	}
 
-	// If we received a message without certificate data, we're already registered
-	if result.Certificate == "" {
-		logger.Info("Node already registered with Toggle service")
-		return nil
-	}
-
 	// Extract org ID for logging
 	orgID, err := toggleClient.GetOrgID()
 	if err != nil {
 		logger.Warn("Failed to extract organization ID from JWT", "error", err)
 	}
-
-	logger.Info("Registration successful with Toggle service",
-		"orgID", orgID, "domain", result.Domain,
-		"expiresOn", result.ExpiresOn)
 
 	// For nodes in private networks, we don't need to install certificates
 	// as indicated by the "prv" claim in the JWT
@@ -55,6 +45,23 @@ func RegisterNode(
 	if err != nil {
 		logger.Warn("Failed to determine network type from JWT", "error", err)
 	}
+
+	// If we received a message without certificate data, we're either already registered
+	// or we're in a private network
+	if result.Certificate == "" {
+		logger.Info("Node already registered with Toggle service")
+		
+		// For private network nodes, establish bidirectional stream
+		if isPrivate {
+			go establishStreamConnection(ctx, toggleClient, logger)
+		}
+		
+		return nil
+	}
+
+	logger.Info("Registration successful with Toggle service",
+		"orgID", orgID, "domain", result.Domain,
+		"expiresOn", result.ExpiresOn)
 
 	// Skip certificate installation if we're in development mode or a private network
 	if !cfg.Development.Enabled && !isPrivate {
@@ -74,9 +81,106 @@ func RegisterNode(
 		logger.Info("Certificate installed successfully")
 	} else if isPrivate {
 		logger.Info("Skipping certificate installation for private network node")
+		
+		// For private network nodes, establish bidirectional stream after successful registration
+		go establishStreamConnection(ctx, toggleClient, logger)
 	}
 
 	return nil
+}
+
+// establishStreamConnection establishes and maintains a bidirectional stream connection with Toggle
+// It's designed to be run as a goroutine and will keep the connection alive indefinitely,
+// handling reconnections as needed
+func establishStreamConnection(
+	ctx context.Context,
+	toggleClient client.ToggleClient,
+	logger logger.Logger,
+) {
+	// We can only use Connect with a gRPC client
+	grpcClient, ok := toggleClient.(*client.GRPCClient)
+	if !ok {
+		logger.Error("Cannot establish stream connection with non-gRPC client")
+		return
+	}
+
+	// Create a context that can be canceled independently of the parent
+	streamCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Run connection loop indefinitely with backoff
+	initialRetryDelay := 5 * time.Second
+	maxRetryDelay := 5 * time.Minute
+	retryDelay := initialRetryDelay
+	
+	for {
+		select {
+		case <-ctx.Done():
+			// Parent context was canceled, exit the goroutine
+			logger.Info("Stream connection loop terminated due to context cancellation")
+			return
+		default:
+			// Attempt to establish the connection
+			logger.Info("Establishing bidirectional stream connection with Toggle")
+			conn, err := grpcClient.Connect(streamCtx)
+			
+			if err != nil {
+				logger.Error("Failed to establish stream connection", "error", err)
+				
+				// Sleep with backoff before retrying
+				logger.Info("Retrying connection in " + retryDelay.String())
+				time.Sleep(retryDelay)
+				
+				// Increase retry delay with exponential backoff (up to max)
+				retryDelay = time.Duration(float64(retryDelay) * 1.5)
+				if retryDelay > maxRetryDelay {
+					retryDelay = maxRetryDelay
+				}
+				
+				continue
+			}
+			
+			// Connection established, reset retry delay
+			retryDelay = initialRetryDelay
+			logger.Info("Bidirectional stream established with Toggle")
+			
+			// Wait for the connection to be closed or parent context to be canceled
+			connClosed := make(chan struct{})
+			
+			// Start a goroutine to monitor the connection
+			go func() {
+				// This channel will receive all messages from Toggle
+				msgChan := conn.Receive()
+				
+				// Keep receiving until channel closes
+				for {
+					_, ok := <-msgChan
+					if !ok {
+						// Channel closed, connection is down
+						close(connClosed)
+						return
+					}
+					// Message handling is done in the HandleToggleRequests method
+				}
+			}()
+			
+			// Wait for either connection closure or context cancellation
+			select {
+			case <-connClosed:
+				logger.Warn("Stream connection closed, will reconnect")
+				// Let the loop handle reconnection after a short delay
+				time.Sleep(initialRetryDelay)
+			case <-ctx.Done():
+				// Parent context canceled, close connection and exit
+				logger.Info("Closing stream connection due to context cancellation")
+				conn.Close()
+				return
+			}
+			
+			// Always ensure the connection is closed before retrying
+			conn.Close()
+		}
+	}
 }
 
 // StartRegistrationProcess begins the async process of registering with Toggle

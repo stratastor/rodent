@@ -22,11 +22,21 @@ type ToggleClient interface {
 	
 	// GetOrgID extracts the organization ID from the JWT
 	GetOrgID() (string, error)
+	
+	// Connect establishes a bidirectional streaming connection with Toggle
+	// This is only implemented for gRPC clients; will return an error for REST clients
+	Connect(ctx context.Context) (*StreamConnection, error)
 }
 
 // RESTClientAdapter adapts the existing REST client to the ToggleClient interface
 type RESTClientAdapter struct {
 	*Client
+}
+
+// Connect implements the Connect method for the REST client
+// Since REST clients cannot establish bidirectional streams, this always returns an error
+func (a *RESTClientAdapter) Connect(ctx context.Context) (*StreamConnection, error) {
+	return nil, fmt.Errorf("streaming connections are not supported for REST clients")
 }
 
 // Register implements the Register method for the REST client
