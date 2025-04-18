@@ -6,16 +6,13 @@ package toggle
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/services/traefik"
 	"github.com/stratastor/rodent/internal/toggle/client"
-	"github.com/stratastor/rodent/pkg/httpclient"
 )
 
 const (
@@ -26,77 +23,59 @@ const (
 // RegisterNode registers this Rodent node with the Toggle service
 func RegisterNode(
 	ctx context.Context,
-	c *client.Client,
+	toggleClient client.ToggleClient,
+	logger logger.Logger,
 ) error {
-	// Extract org ID from JWT
-	orgID, err := c.GetOrgID()
-	if err != nil {
-		return fmt.Errorf("failed to extract organization ID from JWT: %w", err)
-	}
-
-	payload := map[string]string{}
-
-	registerPath := fmt.Sprintf("/api/v1/toggle/organizations/%s/rodent-nodes", orgID)
-
-	reqCfg := httpclient.RequestConfig{
-		Path: registerPath,
-		Body: payload,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-	}
-
-	resp, err := c.HTTPClient.NewRequest(reqCfg).Post()
+	// Call the register method
+	result, err := toggleClient.Register(ctx)
 	if err != nil {
 		return fmt.Errorf("registration request failed: %w", err)
 	}
 
-	if resp != nil {
-		if resp.StatusCode() == http.StatusOK {
-			c.Logger.Info("Node already registered with Toggle service", "orgID", orgID)
-			return nil
-		}
+	// If we received a message without certificate data, we're already registered
+	if result.Certificate == "" {
+		logger.Info("Node already registered with Toggle service")
+		return nil
 	}
 
-	if resp.StatusCode() != http.StatusCreated {
-		return fmt.Errorf("registration failed with status %d: %s",
-			resp.StatusCode(), resp.String())
+	// Extract org ID for logging
+	orgID, err := toggleClient.GetOrgID()
+	if err != nil {
+		logger.Warn("Failed to extract organization ID from JWT", "error", err)
 	}
 
-	// Parse the response which now contains certificate information
-	var regResponse struct {
-		Message     string    `json:"message"`
-		Domain      string    `json:"domain"`
-		Certificate string    `json:"certificate"`
-		PrivateKey  string    `json:"private_key"`
-		ExpiresOn   time.Time `json:"expires_on"`
-	}
+	logger.Info("Registration successful with Toggle service",
+		"orgID", orgID, "domain", result.Domain,
+		"expiresOn", result.ExpiresOn)
 
-	if err := json.Unmarshal(resp.Body(), &regResponse); err != nil {
-		return fmt.Errorf("failed to parse registration response: %w", err)
-	}
-
-	c.Logger.Info("Registration successful with Toggle service",
-		"orgID", orgID, "domain", regResponse.Domain,
-		"expiresOn", regResponse.ExpiresOn)
-
+	// For nodes in private networks, we don't need to install certificates
+	// as indicated by the "prv" claim in the JWT
 	cfg := config.GetConfig()
-	if !cfg.Development.Enabled {
-		traefikSvc, err := traefik.NewClient(c.Logger)
+	isPrivate, err := client.IsPrivateNetwork(cfg.Toggle.JWT)
+	if err != nil {
+		logger.Warn("Failed to determine network type from JWT", "error", err)
+	}
+
+	// Skip certificate installation if we're in development mode or a private network
+	if !cfg.Development.Enabled && !isPrivate {
+		traefikSvc, err := traefik.NewClient(logger)
 		if err != nil {
 			return fmt.Errorf("failed to create Traefik client: %w", err)
 		}
 		if err := traefikSvc.InstallCertificate(ctx, traefik.CertificateData{
-			Domain:      regResponse.Domain,
-			Certificate: regResponse.Certificate,
-			PrivateKey:  regResponse.PrivateKey,
-			ExpiresOn:   regResponse.ExpiresOn,
+			Domain:      result.Domain,
+			Certificate: result.Certificate,
+			PrivateKey:  result.PrivateKey,
+			ExpiresOn:   result.ExpiresOn,
 		}); err != nil {
 			return fmt.Errorf("failed to install certificate: %w", err)
 		}
 
-		c.Logger.Info("Certificate installed successfully")
+		logger.Info("Certificate installed successfully")
+	} else if isPrivate {
+		logger.Info("Skipping certificate installation for private network node")
 	}
+
 	return nil
 }
 
@@ -119,8 +98,9 @@ func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 		return
 	}
 
-	// Create a Toggle client
-	client, err := client.NewClient(l, cfg.Toggle.JWT, cfg.Toggle.BaseURL)
+	// Create a unified Toggle client that will use either REST or gRPC
+	// based on the JWT claims
+	toggleClient, err := client.NewToggleClient(l, cfg.Toggle.JWT, cfg.Toggle.BaseURL)
 	if err != nil {
 		if l != nil {
 			l.Error("Failed to create Toggle client", "error", err)
@@ -128,18 +108,18 @@ func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 		return
 	}
 
-	go runRegistrationProcess(ctx, client, l)
+	go runRegistrationProcess(ctx, toggleClient, l)
 }
 
 func runRegistrationProcess(
 	ctx context.Context,
-	client *client.Client,
+	toggleClient client.ToggleClient,
 	l logger.Logger,
 ) {
 	retryInterval := DefaultRetryInterval
 
 	for {
-		err := RegisterNode(ctx, client)
+		err := RegisterNode(ctx, toggleClient, l)
 		if err == nil {
 			// Registration successful
 			return

@@ -7,10 +7,8 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/stratastor/logger"
@@ -188,46 +186,5 @@ func (c *Client) ReportServiceState(ctx context.Context, event state.StateChange
 }
 
 func (c *Client) GetOrgID() (string, error) {
-	return extractSubFromJWT(c.jwt)
-}
-
-// extractSubFromJWT extracts the 'sub' claim from a JWT
-func extractSubFromJWT(tokenString string) (string, error) {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid JWT format")
-	}
-
-	// Decode the payload (second part)
-	payload, err := decodeBase64UrlSafe(parts[1])
-	if err != nil {
-		return "", fmt.Errorf("failed to decode JWT payload: %w", err)
-	}
-
-	var claims map[string]interface{}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("failed to parse JWT claims: %w", err)
-	}
-
-	// Extract the 'sub' claim
-	sub, ok := claims["sub"].(string)
-	if !ok {
-		return "", fmt.Errorf("sub claim not found or not a string in JWT")
-	}
-
-	return sub, nil
-}
-
-// decodeBase64UrlSafe decodes base64url-encoded data
-func decodeBase64UrlSafe(s string) ([]byte, error) {
-	// Add padding if necessary
-	if m := len(s) % 4; m != 0 {
-		s += strings.Repeat("=", 4-m)
-	}
-
-	// Replace URL-safe chars with standard base64 chars
-	s = strings.ReplaceAll(s, "-", "+")
-	s = strings.ReplaceAll(s, "_", "/")
-
-	return base64.StdEncoding.DecodeString(s)
+	return ExtractSubFromJWT(c.jwt)
 }
