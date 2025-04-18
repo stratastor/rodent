@@ -63,9 +63,9 @@ func NewGRPCClient(l logger.Logger, jwt string, baseURL string) (*GRPCClient, er
 
 	// Add keepalive parameters for long-lived connections
 	kacp := keepalive.ClientParameters{
-		Time:                10 * time.Second, // send pings every 10 seconds if there is no activity
-		Timeout:             20 * time.Second, // wait 20 seconds for ping ack before considering the connection dead
-		PermitWithoutStream: true,             // send pings even without active streams
+		Time:                180 * time.Second, // send pings every 180 seconds if there is no activity
+		Timeout:             60 * time.Second,  // wait 60 seconds for ping ack before considering the connection dead
+		PermitWithoutStream: false,             // only send pings when there are active streams (server may disable pings without streams)
 	}
 	opts = append(opts, grpc.WithKeepaliveParams(kacp))
 
