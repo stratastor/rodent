@@ -6,7 +6,6 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -76,10 +75,16 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 		stopChan: make(
 			chan struct{},
 		), // Channel to signal goroutines to stop
-		outboundChan:    make(chan *proto.RodentRequest, 200), // Increased buffer for outbound messages
-		inboundChan:     make(chan *proto.ToggleRequest, 500), // Significantly increased buffer for inbound messages
-		backoffStrategy: newBackoff(),                         // Initialize backoff strategy
-		circuitBreaker:  newCircuitBreaker(),                  // Initialize circuit breaker for connection stability
+		outboundChan: make(
+			chan *proto.RodentRequest,
+			200,
+		), // Increased buffer for outbound messages
+		inboundChan: make(
+			chan *proto.ToggleRequest,
+			500,
+		), // Significantly increased buffer for inbound messages
+		backoffStrategy: newBackoff(),        // Initialize backoff strategy
+		circuitBreaker:  newCircuitBreaker(), // Initialize circuit breaker for connection stability
 		isReconnecting:  false,
 	}
 
@@ -88,9 +93,9 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 	go conn.sendLoop()    // Handles sending messages to Toggle
 	go conn.receiveLoop() // Handles receiving messages from Toggle
 
-	// Start the request handler to process incoming Toggle requests
-	// Use the improved handler that correctly handles system.status requests
-	conn.ModifyHandleToggleRequests()
+	// Start the message handler to process incoming Toggle requests
+	// This handles all types of messages from Toggle in a consistent way
+	conn.StartMessageHandler()
 
 	c.Logger.Info("Connected to Toggle via streaming gRPC", "sessionID", sessionID)
 
@@ -156,12 +161,12 @@ func (c *StreamConnection) receiveLoop() {
 				}
 			}
 
-			// Add debug logging for tracking message flow 
+			// Add debug logging for tracking message flow
 			if cmd, ok := resp.Payload.(*proto.ToggleRequest_Command); ok {
 				command := cmd.Command
-				if command.CommandType == "system.status" || 
+				if command.CommandType == "system.status" ||
 					(command.CommandType == "status" && command.Target == "system") {
-					c.client.Logger.Debug("Received system.status request", 
+					c.client.Logger.Debug("Received system.status request",
 						"request_id", resp.RequestId,
 						"timestamp", time.Now().Unix())
 				}
@@ -227,71 +232,7 @@ func (c *StreamConnection) Send(req *proto.RodentRequest) error {
 	}
 }
 
-// init registers default command handlers
-func init() {
-	// The Toggle server sends "system.status" commands to check on node health
-	RegisterCommandHandler(
-		"system.status",
-		func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-			// Collect basic system metrics
-			// In a production environment, this would collect real system metrics
-			metrics := map[string]interface{}{
-				"status":       "healthy",
-				"timestamp":    time.Now().Unix(),
-				"cpu_usage":    0.0,
-				"memory_usage": 0.0,
-				"disk_usage":   0.0,
-			}
-
-			// Marshal metrics to JSON
-			payload, err := json.Marshal(metrics)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal metrics: %w", err)
-			}
-
-			return &proto.CommandResponse{
-				Success: true,
-				Message: "System status",
-				Payload: payload,
-			}, nil
-		},
-	)
-
-	// Also register "status" since the server might use this format with "system" target
-	RegisterCommandHandler(
-		"status",
-		func(cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-			// If not the system target, return unsupported
-			if cmd.Target != "system" {
-				return nil, fmt.Errorf("unsupported target for status command: %s", cmd.Target)
-			}
-
-			// Collect basic system metrics (same as system.status)
-			metrics := map[string]interface{}{
-				"status":       "healthy",
-				"timestamp":    time.Now().Unix(),
-				"cpu_usage":    0.0,
-				"memory_usage": 0.0,
-				"disk_usage":   0.0,
-			}
-
-			// Marshal metrics to JSON
-			payload, err := json.Marshal(metrics)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal metrics: %w", err)
-			}
-
-			return &proto.CommandResponse{
-				Success: true,
-				Message: "System status",
-				Payload: payload,
-			}, nil
-		},
-	)
-}
-
-// HandleToggleRequests has been moved to connect_handler.go
-// The function starts a goroutine that processes incoming Toggle requests
+// All command handling is now in message_handler.go
 
 // Receive returns a channel to receive messages from the Toggle server
 func (c *StreamConnection) Receive() <-chan *proto.ToggleRequest {
@@ -363,6 +304,8 @@ func (c *StreamConnection) SendEvent(eventType, source string, payload []byte) e
 }
 
 // SendCommandResponse sends a response to a command request
+// requestID is the original request ID from Toggle which must be preserved
+// in both the outer RodentRequest and inner CommandResponse for correlation
 func (c *StreamConnection) SendCommandResponse(
 	requestID string,
 	success bool,
@@ -371,10 +314,10 @@ func (c *StreamConnection) SendCommandResponse(
 ) error {
 	req := &proto.RodentRequest{
 		SessionId: c.sessionID,
-		RequestId: uuid.New().String(),
+		RequestId: requestID, // Use the original request ID for correlation
 		Payload: &proto.RodentRequest_CommandResponse{
 			CommandResponse: &proto.CommandResponse{
-				RequestId: requestID,
+				RequestId: requestID, // Also use original request ID here
 				Success:   success,
 				Message:   message,
 				Payload:   payload,
@@ -386,6 +329,8 @@ func (c *StreamConnection) SendCommandResponse(
 }
 
 // SendAcknowledgement sends an acknowledgement message
+// requestID is the original request ID from Toggle which must be preserved
+// in both the outer RodentRequest and inner Acknowledgement for correlation
 func (c *StreamConnection) SendAcknowledgement(
 	requestID string,
 	success bool,
@@ -393,10 +338,10 @@ func (c *StreamConnection) SendAcknowledgement(
 ) error {
 	req := &proto.RodentRequest{
 		SessionId: c.sessionID,
-		RequestId: uuid.New().String(),
+		RequestId: requestID, // Use the original request ID for correlation
 		Payload: &proto.RodentRequest_Ack{
 			Ack: &proto.Acknowledgement{
-				RequestId: requestID,
+				RequestId: requestID, // Also use original request ID here
 				Success:   success,
 				Message:   message,
 			},

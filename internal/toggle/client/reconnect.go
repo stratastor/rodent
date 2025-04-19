@@ -128,8 +128,8 @@ func (c *StreamConnection) reestablishConnection(ctx context.Context) error {
 	go c.sendLoop()
 	go c.receiveLoop()
 	
-	// Restart the request handler with the improved version
-	c.ModifyHandleToggleRequests()
+	// Restart the message handler
+	c.StartMessageHandler()
 
 	return nil
 }

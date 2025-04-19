@@ -137,6 +137,9 @@ func (m *ConnectionMonitor) Start() {
 	m.isRunning = true
 	m.connectionMutex.Unlock()
 	
+	// Register all domain-specific handlers
+	RegisterAllHandlers()
+	
 	go m.monitorConnection()
 }
 
