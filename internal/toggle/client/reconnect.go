@@ -38,10 +38,10 @@ func (c *StreamConnection) tryReconnect() {
 		return
 	}
 
-	// Create a new context that can be used for reconnecting
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// Create a new long-lived context that won't be canceled when reconnection completes
+	// This is critical because canceling this context would terminate the new GRPC stream
+	ctx := context.Background()
+	
 	// Keep trying until we succeed or get a permanent error
 	for {
 		select {
@@ -120,6 +120,7 @@ func (c *StreamConnection) reestablishConnection(ctx context.Context) error {
 	}
 
 	// Replace the old stream with the new one
+	// Important: store both the new stream and its context to prevent premature cancellation
 	c.stream = stream
 	c.streamCtx = streamCtx
 
