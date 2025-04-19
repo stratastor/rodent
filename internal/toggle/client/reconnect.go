@@ -32,7 +32,7 @@ func (c *StreamConnection) tryReconnect() {
 	// Check if the circuit breaker allows reconnection attempts
 	if !c.circuitBreaker.allowRequest() {
 		circuitState := c.circuitBreaker.getState()
-		c.client.Logger.Warn("Circuit breaker preventing reconnection", 
+		c.client.Logger.Warn("Circuit breaker preventing reconnection",
 			"state", circuitState,
 			"next_retry_in", c.circuitBreaker.resetTimeout)
 		return
@@ -41,7 +41,7 @@ func (c *StreamConnection) tryReconnect() {
 	// Create a new long-lived context that won't be canceled when reconnection completes
 	// This is critical because canceling this context would terminate the new GRPC stream
 	ctx := context.Background()
-	
+
 	// Keep trying until we succeed or get a permanent error
 	for {
 		select {
@@ -51,17 +51,17 @@ func (c *StreamConnection) tryReconnect() {
 		default:
 			// Calculate delay based on backoff strategy
 			delay := c.backoffStrategy.nextDelay()
-			
+
 			// Use a longer initial delay to reduce rapid cycling
 			if c.backoffStrategy.attempts == 1 {
 				delay = 30 * time.Second // Start with 30 seconds minimum delay on first attempt
 			}
-			
-			c.client.Logger.Info("Reconnecting to Toggle service", 
-				"attempt", c.backoffStrategy.attempts, 
+
+			c.client.Logger.Info("Reconnecting to Toggle service",
+				"attempt", c.backoffStrategy.attempts,
 				"delay", delay,
 				"circuit_state", c.circuitBreaker.getState())
-			
+
 			// Wait based on backoff
 			select {
 			case <-time.After(delay):
@@ -72,35 +72,43 @@ func (c *StreamConnection) tryReconnect() {
 
 			// Try to establish a new connection
 			if err := c.reestablishConnection(ctx); err != nil {
-				c.client.Logger.Error("Failed to reconnect", 
-					"error", err, 
+				c.client.Logger.Error("Failed to reconnect",
+					"error", err,
 					"attempt", c.backoffStrategy.attempts)
-				
+
 				// Record the failure in the circuit breaker
 				c.circuitBreaker.recordFailure()
-				
+
 				// Check if this is a permanent error
 				if !shouldReconnect(err) {
-					c.client.Logger.Error("Permanent error during reconnection, giving up", "error", err)
+					c.client.Logger.Error(
+						"Permanent error during reconnection, giving up",
+						"error",
+						err,
+					)
 					close(c.stopChan)
 					return
 				}
-				
+
 				// Check if the circuit breaker has opened after this failure
 				if !c.circuitBreaker.allowRequest() {
-					c.client.Logger.Warn("Circuit breaker opened after failed reconnection attempts", 
-						"state", c.circuitBreaker.getState(),
-						"will_retry_after", c.circuitBreaker.resetTimeout)
+					c.client.Logger.Warn(
+						"Circuit breaker opened after failed reconnection attempts",
+						"state",
+						c.circuitBreaker.getState(),
+						"will_retry_after",
+						c.circuitBreaker.resetTimeout,
+					)
 					return
 				}
-				
+
 				// Transient error, continue trying
 				continue
 			}
-			
+
 			// Successfully reconnected
-			c.client.Logger.Info("Successfully reconnected to Toggle service", "sessionID", c.sessionID)
-			c.backoffStrategy.reset() // Reset backoff for next time
+			c.client.Logger.Info("Successfully reconnected to Toggle service")
+			c.backoffStrategy.reset()        // Reset backoff for next time
 			c.circuitBreaker.recordSuccess() // Record success in circuit breaker
 			return
 		}
@@ -128,7 +136,7 @@ func (c *StreamConnection) reestablishConnection(ctx context.Context) error {
 	c.wg.Add(2)
 	go c.sendLoop()
 	go c.receiveLoop()
-	
+
 	// Restart the message handler
 	c.StartMessageHandler()
 

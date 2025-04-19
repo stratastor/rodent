@@ -24,7 +24,6 @@ import (
 type StreamConnection struct {
 	client          *GRPCClient
 	stream          proto.RodentService_ConnectClient
-	sessionID       string
 	streamCtx       context.Context
 	stopChan        chan struct{}
 	outboundChan    chan *proto.RodentRequest
@@ -63,14 +62,10 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 		return nil, fmt.Errorf("failed to connect to Toggle streaming service: %w", err)
 	}
 
-	// Generate a unique session ID for this connection
-	sessionID := uuid.New().String()
-
 	// Create a new StreamConnection to manage the bidirectional stream
 	conn := &StreamConnection{
 		client:    c,
 		stream:    stream,
-		sessionID: sessionID,
 		streamCtx: streamCtx,
 		stopChan: make(
 			chan struct{},
@@ -97,7 +92,7 @@ func (c *GRPCClient) Connect(ctx context.Context) (*StreamConnection, error) {
 	// This handles all types of messages from Toggle in a consistent way
 	conn.StartMessageHandler()
 
-	c.Logger.Info("Connected to Toggle via streaming gRPC", "sessionID", sessionID)
+	c.Logger.Info("Connected to Toggle via streaming gRPC")
 
 	return conn, nil
 }
@@ -111,11 +106,6 @@ func (c *StreamConnection) sendLoop() {
 		case <-c.stopChan:
 			return
 		case req := <-c.outboundChan:
-			// Add session ID if not already set
-			if req.SessionId == "" {
-				req.SessionId = c.sessionID
-			}
-
 			// Send the message
 			if err := c.stream.Send(req); err != nil {
 				c.client.Logger.Error("Failed to send message to Toggle", "error", err)
@@ -281,14 +271,13 @@ func (c *StreamConnection) Close() error {
 		}
 	}
 
-	c.client.Logger.Info("Closed Toggle connection", "sessionID", c.sessionID)
+	c.client.Logger.Info("Closed Toggle connection")
 	return nil
 }
 
 // SendEvent sends an event notification to Toggle
 func (c *StreamConnection) SendEvent(eventType, source string, payload []byte) error {
 	req := &proto.RodentRequest{
-		SessionId: c.sessionID,
 		RequestId: uuid.New().String(),
 		Payload: &proto.RodentRequest_Event{
 			Event: &proto.EventNotification{
@@ -313,7 +302,6 @@ func (c *StreamConnection) SendCommandResponse(
 	payload []byte,
 ) error {
 	req := &proto.RodentRequest{
-		SessionId: c.sessionID,
 		RequestId: requestID, // Use the original request ID for correlation
 		Payload: &proto.RodentRequest_CommandResponse{
 			CommandResponse: &proto.CommandResponse{
@@ -337,7 +325,6 @@ func (c *StreamConnection) SendAcknowledgement(
 	message string,
 ) error {
 	req := &proto.RodentRequest{
-		SessionId: c.sessionID,
 		RequestId: requestID, // Use the original request ID for correlation
 		Payload: &proto.RodentRequest_Ack{
 			Ack: &proto.Acknowledgement{

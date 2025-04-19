@@ -44,7 +44,7 @@ func (c *StreamConnection) StartMessageHandler() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		
+
 		for {
 			select {
 			case <-c.stopChan:
@@ -54,7 +54,7 @@ func (c *StreamConnection) StartMessageHandler() {
 					c.client.Logger.Warn("Inbound channel closed unexpectedly")
 					return
 				}
-				
+
 				// Process each request in its own goroutine to prevent blocking
 				go c.processToggleRequest(req)
 			}
@@ -79,21 +79,24 @@ func (c *StreamConnection) processToggleRequest(req *proto.ToggleRequest) {
 }
 
 // handleCommandRequest processes command requests from Toggle
-func (c *StreamConnection) handleCommandRequest(req *proto.ToggleRequest, cmd *proto.CommandRequest) {
+func (c *StreamConnection) handleCommandRequest(
+	req *proto.ToggleRequest,
+	cmd *proto.CommandRequest,
+) {
 	cmdType := cmd.CommandType
 	target := cmd.Target
-	
+
 	c.client.Logger.Debug("Processing command request from Toggle",
 		"request_id", req.RequestId,
 		"command_type", cmdType,
 		"target", target)
-	
+
 	// Find registered handler
 	handler, exists := commandHandlers[cmdType]
-	
+
 	var response *proto.CommandResponse
 	var err error
-	
+
 	if exists {
 		// Execute the registered handler with the full Toggle request context
 		response, err = handler(req, cmd)
@@ -102,7 +105,7 @@ func (c *StreamConnection) handleCommandRequest(req *proto.ToggleRequest, cmd *p
 				"request_id", req.RequestId,
 				"command_type", cmdType,
 				"error", err)
-			
+
 			// Create error response
 			response = &proto.CommandResponse{
 				RequestId: req.RequestId,
@@ -116,29 +119,28 @@ func (c *StreamConnection) handleCommandRequest(req *proto.ToggleRequest, cmd *p
 			"request_id", req.RequestId,
 			"command_type", cmdType,
 			"registered_handlers", fmt.Sprintf("%v", GetRegisteredCommands()))
-		
+
 		response = &proto.CommandResponse{
 			RequestId: req.RequestId,
 			Success:   false,
 			Message:   fmt.Sprintf("Unsupported command type: %s", cmdType),
 		}
 	}
-	
+
 	// Ensure response has the request ID
 	if response.RequestId == "" {
 		response.RequestId = req.RequestId
 	}
-	
+
 	// Send response using the same original request ID
 	// This is CRITICAL: Toggle needs matching request IDs to correlate requests and responses
 	rodentReq := &proto.RodentRequest{
-		SessionId: c.sessionID,
 		RequestId: req.RequestId, // Always use the original request ID
 		Payload: &proto.RodentRequest_CommandResponse{
 			CommandResponse: response,
 		},
 	}
-	
+
 	if err := c.Send(rodentReq); err != nil {
 		c.client.Logger.Error("Failed to send command response",
 			"request_id", req.RequestId,
@@ -152,14 +154,16 @@ func (c *StreamConnection) handleCommandRequest(req *proto.ToggleRequest, cmd *p
 }
 
 // handleConfigRequest processes configuration updates from Toggle
-func (c *StreamConnection) handleConfigRequest(req *proto.ToggleRequest, config *proto.ConfigUpdate) {
+func (c *StreamConnection) handleConfigRequest(
+	req *proto.ToggleRequest,
+	config *proto.ConfigUpdate,
+) {
 	c.client.Logger.Debug("Received config update from Toggle",
 		"request_id", req.RequestId,
 		"config_type", config.ConfigType)
-	
+
 	// Send acknowledgment with the same request ID for correlation
 	rodentReq := &proto.RodentRequest{
-		SessionId: c.sessionID,
 		RequestId: req.RequestId, // Use the original request ID
 		Payload: &proto.RodentRequest_Ack{
 			Ack: &proto.Acknowledgement{
@@ -169,24 +173,27 @@ func (c *StreamConnection) handleConfigRequest(req *proto.ToggleRequest, config 
 			},
 		},
 	}
-	
+
 	if err := c.Send(rodentReq); err != nil {
 		c.client.Logger.Error("Failed to send config update acknowledgment",
 			"request_id", req.RequestId,
 			"error", err)
 	}
-	
+
 	// TODO: Apply the config update based on the type
 }
 
 // handleAcknowledgment processes acknowledgments from Toggle
-func (c *StreamConnection) handleAcknowledgment(req *proto.ToggleRequest, ack *proto.Acknowledgement) {
+func (c *StreamConnection) handleAcknowledgment(
+	req *proto.ToggleRequest,
+	ack *proto.Acknowledgement,
+) {
 	c.client.Logger.Debug("Received acknowledgment from Toggle",
 		"request_id", req.RequestId,
 		"ack_request_id", ack.RequestId,
 		"success", ack.Success,
 		"message", ack.Message)
-	
+
 	// TODO: Update any pending request status based on the acknowledgment
 }
 
@@ -194,25 +201,31 @@ func (c *StreamConnection) handleAcknowledgment(req *proto.ToggleRequest, ack *p
 func init() {
 	// Register the system.status handler
 	RegisterCommandHandler("system.status", handleSystemStatus)
-	
+
 	// Also register "status" with system target
-	RegisterCommandHandler("status", func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		// Check if this is a system target
-		if cmd.Target != "system" {
-			return &proto.CommandResponse{
-				RequestId: req.RequestId,
-				Success:   false,
-				Message:   fmt.Sprintf("Unsupported target for status command: %s", cmd.Target),
-			}, nil
-		}
-		
-		// Delegate to the system.status handler
-		return handleSystemStatus(req, cmd)
-	})
+	RegisterCommandHandler(
+		"status",
+		func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+			// Check if this is a system target
+			if cmd.Target != "system" {
+				return &proto.CommandResponse{
+					RequestId: req.RequestId,
+					Success:   false,
+					Message:   fmt.Sprintf("Unsupported target for status command: %s", cmd.Target),
+				}, nil
+			}
+
+			// Delegate to the system.status handler
+			return handleSystemStatus(req, cmd)
+		},
+	)
 }
 
 // handleSystemStatus is the default handler for system status requests
-func handleSystemStatus(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+func handleSystemStatus(
+	req *proto.ToggleRequest,
+	cmd *proto.CommandRequest,
+) (*proto.CommandResponse, error) {
 	// Collect basic system metrics
 	metrics := map[string]interface{}{
 		"status":       "healthy",
@@ -221,13 +234,13 @@ func handleSystemStatus(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*p
 		"memory_usage": 0.0,
 		"disk_usage":   0.0,
 	}
-	
+
 	// Marshal metrics to JSON
 	payload, err := json.Marshal(metrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal system metrics: %w", err)
 	}
-	
+
 	// Return response with the same request ID for correlation
 	return &proto.CommandResponse{
 		RequestId: req.RequestId, // CRITICAL: Use original request ID
