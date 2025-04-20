@@ -89,12 +89,20 @@ func parseJSONPayload(cmd *proto.CommandRequest, out interface{}) error {
 	return json.Unmarshal(cmd.Payload, out)
 }
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+// Define context keys - using typed constants to avoid string literal warnings
+const (
+	requestIDKey = contextKey("request_id")
+)
+
 // Helper to create a valid context for gRPC handlers
 func createHandlerContext(req *proto.ToggleRequest) context.Context {
 	// Create a context with request ID
 	ctx := context.Background()
 	if req.RequestId != "" {
-		ctx = context.WithValue(ctx, "request_id", req.RequestId)
+		ctx = context.WithValue(ctx, requestIDKey, req.RequestId)
 	}
 	return ctx
 }
