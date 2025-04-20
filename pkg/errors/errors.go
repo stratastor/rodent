@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
 // Create sentinel errors for common cases
@@ -216,4 +218,104 @@ func GetErrorWithCode(err error, code ErrorCode) *RodentError {
 	}
 
 	return nil
+}
+
+// ToProto converts a RodentError to a proto.RodentError for gRPC responses
+func (e *RodentError) ToProto() *proto.RodentError {
+	if e == nil {
+		return nil
+	}
+
+	protoErr := &proto.RodentError{
+		Code:     int32(e.Code),
+		Domain:   string(e.Domain),
+		Message:  e.Message,
+		Details:  e.Details,
+		Metadata: make(map[string]string),
+	}
+
+	// Copy metadata if present
+	if e.Metadata != nil {
+		for k, v := range e.Metadata {
+			protoErr.Metadata[k] = v
+		}
+	}
+
+	return protoErr
+}
+
+// FromProto creates a RodentError from a proto.RodentError
+func FromProto(protoErr *proto.RodentError) *RodentError {
+	if protoErr == nil {
+		return nil
+	}
+
+	rodentErr := &RodentError{
+		Code:       ErrorCode(protoErr.Code),
+		Domain:     Domain(protoErr.Domain),
+		Message:    protoErr.Message,
+		Details:    protoErr.Details,
+		HTTPStatus: errorCodeToHTTPStatus(ErrorCode(protoErr.Code)),
+		Metadata:   make(map[string]string),
+	}
+
+	// Copy metadata if present
+	if protoErr.Metadata != nil {
+		for k, v := range protoErr.Metadata {
+			rodentErr.Metadata[k] = v
+		}
+	}
+
+	return rodentErr
+}
+
+// errorCodeToHTTPStatus maps an error code to an HTTP status code
+func errorCodeToHTTPStatus(code ErrorCode) int {
+	if def, ok := errorDefinitions[code]; ok {
+		return def.httpStatus
+	}
+	return http.StatusInternalServerError
+}
+
+// ErrorResponseWithPayload creates a CommandResponse with error information from a RodentError
+func ErrorResponseWithPayload(requestID string, err error, payload []byte) *proto.CommandResponse {
+	var rodentErr *RodentError
+	var message string
+
+	// Check if the error is a RodentError
+	if IsRodentError(err) {
+		rodentErr = err.(*RodentError)
+		message = rodentErr.Error()
+	} else if errors.As(err, &rodentErr) {
+		// Check if the error wraps a RodentError
+		message = rodentErr.Error()
+	} else {
+		// Create a generic error if it's not a RodentError
+		message = err.Error()
+		rodentErr = New(ServerInternalError, message)
+	}
+
+	return &proto.CommandResponse{
+		RequestId: requestID,
+		Success:   false,
+		Message:   message,
+		Payload:   payload,
+		Error:     rodentErr.ToProto(),
+	}
+}
+
+// ErrorResponse creates a CommandResponse with error information from a RodentError
+// This is a simpler version without additional payload data
+func ErrorResponse(requestID string, err error) *proto.CommandResponse {
+	return ErrorResponseWithPayload(requestID, err, nil)
+}
+
+// SuccessResponse creates a CommandResponse indicating success
+func SuccessResponse(requestID string, message string, payload []byte) *proto.CommandResponse {
+	return &proto.CommandResponse{
+		RequestId: requestID,
+		Success:   true,
+		Message:   message,
+		Payload:   payload,
+	}
 }

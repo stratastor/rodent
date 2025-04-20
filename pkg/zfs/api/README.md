@@ -1,97 +1,89 @@
-# ZFS Management HTTP API Documentation
+# ZFS API
+
+This package provides both REST and gRPC APIs for ZFS dataset and pool operations.
 
 ## Overview
 
-This API allows for the management of ZFS pools, datasets, snapshots, and related features. The API is structured to support both RESTful operations for pools and a body-based approach for dataset operations to handle inputs with special characters that's tricky to escape.
+The ZFS API package provides a comprehensive interface for managing ZFS datasets and pools. It offers:
 
-## API Endpoints
+- REST API endpoints for HTTP-based interactions
+- gRPC handlers for low-latency, binary protocol interactions
+- Consistent error handling through the shared errors package
+- Proper validation and security measures
 
-### [Datasets](./dataset_api_doc.md)
+## REST API
 
-- `GET /api/v1/dataset` (List datasets)
-- `DELETE /api/v1/dataset` (Destroy a dataset)
-- `POST /api/v1/dataset/rename` (Rename a dataset)
-- `POST /api/v1/dataset/diff` (Get differences between datasets)
-- `GET /api/v1/dataset/properties` (List all properties of a dataset)
-- `GET /api/v1/dataset/property` (Get a specific property of a dataset)
-- `PUT /api/v1/dataset/property` (Set a property of a dataset)
-- `PUT /api/v1/dataset/property/inherit` (Inherit a property)
-- `GET /api/v1/dataset/filesystems` (List filesystems)
-- `POST /api/v1/dataset/filesystem` (Create a filesystem)
-- `POST /api/v1/dataset/filesystem/mount` (Mount a filesystem)
-- `POST /api/v1/dataset/filesystem/unmount` (Unmount a filesystem)
-- `GET /api/v1/dataset/volumes` (List volumes)
-- `POST /api/v1/dataset/volume` (Create a volume)
-- `GET /api/v1/dataset/snapshots` (List snapshots)
-- `POST /api/v1/dataset/snapshot` (Create a snapshot)
-- `POST /api/v1/dataset/snapshot/rollback` (Roll back to a snapshot)
-- `POST /api/v1/dataset/clone` (Create a clone from a snapshot)
-- `POST /api/v1/dataset/clone/promote` (Promote a clone)
-- `GET /api/v1/dataset/bookmarks` (List bookmarks)
-- `POST /api/v1/dataset/bookmark` (Create a bookmark)
-- `POST /api/v1/dataset/transfer/send` (Send a dataset)
-- `GET /api/v1/dataset/transfer/resume-token` (Get the resume token for a transfer)
+The REST API is implemented using the Gin web framework and provides traditional HTTP endpoints for:
 
-### [Pools](./pool_api_doc.md)
+- Dataset operations
+- Pool operations
+- Property management
+- Snapshot and clone operations
+- And more
 
-- `POST /api/v1/pools` (Create a pool)
-- `GET /api/v1/pools` (List pools)
-- `DELETE /api/v1/pools/:name` (Destroy a pool)
-- `POST /api/v1/pools/import` (Import a pool)
-- `POST /api/v1/pools/:name/export` (Export a pool)
-- `GET /api/v1/pools/:name/status` (Get the status of a pool)
-- `GET /api/v1/pools/:name/properties/:property` (Get a property of a pool)
-- `PUT /api/v1/pools/:name/properties/:property` (Set a property of a pool)
-- `POST /api/v1/pools/:name/scrub` (Scrub a pool)
-- `POST /api/v1/pools/:name/resilver` (Resilver a pool)
-- `POST /api/v1/pools/:name/devices/attach` (Attach a device to a pool)
-- `POST /api/v1/pools/:name/devices/detach` (Detach a device from a pool)
-- `POST /api/v1/pools/:name/devices/replace` (Replace a device in a pool)
+See the dataset_api_doc.md and pool_api_doc.md files for detailed documentation of the REST API endpoints.
 
-## Gin routes with appropriate methods
+## gRPC API
 
-```sh
-[GIN-debug] GET    /health                   --> github.com/stratastor/rodent/pkg/server.Start.func1 (3 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listDatasets-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/delete --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).destroyDataset-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/rename --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).renameDataset-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/diff --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).diffDataset-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/properties/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listProperties-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/property/fetch --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getProperty-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/property --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).setProperty-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/property/inherit --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).inheritProperty-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/filesystems/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listFilesystems-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/filesystem --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createFilesystem-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/filesystem/mount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).mountDataset-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/filesystem/unmount --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unmountDataset-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/volumes/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listVolumes-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/volume --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createVolume-fm (7 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/snapshots/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listSnapshots-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/snapshot --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createSnapshot-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/snapshot/rollback --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).rollbackSnapshot-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/clone --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createClone-fm (7 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/clone/promote --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).promoteClone-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/bookmarks/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listBookmarks-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/bookmark --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).createBookmark-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/permissions/list --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).listPermissions-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).allowPermissions-fm (6 handlers)
-[GIN-debug] DELETE /api/v1/rodent/zfs/dataset/permissions --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unallowPermissions-fm (6 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/share --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).shareDataset-fm (4 handlers)
-[GIN-debug] DELETE /api/v1/rodent/zfs/dataset/share --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).unshareDataset-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/transfer/send --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).sendDataset-fm (4 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/dataset/transfer/resume-token/fetch --> github.com/stratastor/rodent/pkg/zfs/api.(*DatasetHandler).getResumeToken-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools  --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).createPool-fm (8 handlers)
-[GIN-debug] GET    /api/v1/rodent/zfs/pools  --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).listPools-fm (4 handlers)
-[GIN-debug] DELETE /api/v1/rodent/zfs/pools/:name --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).destroyPool-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/import --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).importPool-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/export --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).exportPool-fm (5 handlers)
-[GIN-debug] GET    /api/v1/rodent/zfs/pools/:name/status --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getPoolStatus-fm (5 handlers)
-[GIN-debug] GET    /api/v1/rodent/zfs/pools/:name/properties --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getProperties-fm (5 handlers)
-[GIN-debug] GET    /api/v1/rodent/zfs/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).getProperty-fm (6 handlers)
-[GIN-debug] PUT    /api/v1/rodent/zfs/pools/:name/properties/:property --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).setProperty-fm (7 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/scrub --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).scrubPool-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/resilver --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).resilverPool-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/devices/attach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).attachDevice-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/devices/detach --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).detachDevice-fm (5 handlers)
-[GIN-debug] POST   /api/v1/rodent/zfs/pools/:name/devices/replace --> github.com/stratastor/rodent/pkg/zfs/api.(*PoolHandler).replaceDevice-fm (5 handlers)
+The gRPC API provides the same functionality as the REST API but uses Google's Remote Procedure Call framework with Protocol Buffers for efficient serialization and communication.
+
+All ZFS commands are mapped to specific gRPC command types and handlers in the base.proto definition file.
+
+### Command Type Structure
+
+Command requests follow this pattern in the proto definition:
+
+```protobuf
+message CommandRequest {
+  string command_type = 1; // E.g., "zfs.dataset.create", "zfs.pool.status"
+  string target = 2;       // Target resource (optional)
+  bytes payload = 3;       // JSON-encoded command parameters
+}
 ```
+
+Where:
+- `command_type` identifies the operation (e.g., "zfs.pool.list", "zfs.dataset.create")
+- `payload` contains the necessary parameters as JSON
+
+### Error Handling
+
+gRPC responses include a structured error object when operations fail:
+
+```protobuf
+message CommandResponse {
+  string request_id = 1;   // Matches the request
+  bool success = 2;
+  string message = 3;
+  bytes payload = 4;       // JSON-encoded response data
+  
+  // Error information when success = false
+  RodentError error = 5;   // Structured error information
+}
+```
+
+This allows consumers to handle errors consistently across both REST and gRPC interfaces.
+
+### Usage Example
+
+To list all ZFS pools via gRPC:
+
+```
+// Command type: "zfs.pool.list"
+// Payload: {} (empty JSON object)
+```
+
+To create a ZFS dataset:
+
+```
+// Command type: "zfs.dataset.create"
+// Payload: {"name": "tank/myfs", "properties": {"mountpoint": "/mnt/myfs"}}
+```
+
+## Handler Implementation
+
+Both REST and gRPC handlers follow consistent patterns:
+1. Parse and validate input parameters
+2. Call the appropriate manager method with context
+3. Return structured responses with proper error handling
+
+This ensures that both APIs behave similarly and provide consistent interfaces for consumers.

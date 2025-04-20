@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
@@ -95,10 +96,10 @@ func (c *StreamConnection) handleCommandRequest(
 	handler, exists := commandHandlers[cmdType]
 
 	var response *proto.CommandResponse
-	var err error
 
 	if exists {
 		// Execute the registered handler with the full Toggle request context
+		var err error
 		response, err = handler(req, cmd)
 		if err != nil {
 			c.client.Logger.Error("Command handler failed",
@@ -106,12 +107,8 @@ func (c *StreamConnection) handleCommandRequest(
 				"command_type", cmdType,
 				"error", err)
 
-			// Create error response
-			response = &proto.CommandResponse{
-				RequestId: req.RequestId,
-				Success:   false,
-				Message:   fmt.Sprintf("Command failed: %v", err),
-			}
+			// Create structured error response
+			response = errors.ErrorResponse(req.RequestId, err)
 		}
 	} else {
 		// No handler found
@@ -120,11 +117,10 @@ func (c *StreamConnection) handleCommandRequest(
 			"command_type", cmdType,
 			"registered_handlers", fmt.Sprintf("%v", GetRegisteredCommands()))
 
-		response = &proto.CommandResponse{
-			RequestId: req.RequestId,
-			Success:   false,
-			Message:   fmt.Sprintf("Unsupported command type: %s", cmdType),
-		}
+		// Create error with unsupported command information
+		errMsg := fmt.Sprintf("Unsupported command type: %s", cmdType)
+		rodentErr := errors.New(errors.ServerRequestValidation, errMsg)
+		response = errors.ErrorResponse(req.RequestId, rodentErr)
 	}
 
 	// Ensure response has the request ID
@@ -208,11 +204,9 @@ func init() {
 		func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 			// Check if this is a system target
 			if cmd.Target != "system" {
-				return &proto.CommandResponse{
-					RequestId: req.RequestId,
-					Success:   false,
-					Message:   fmt.Sprintf("Unsupported target for status command: %s", cmd.Target),
-				}, nil
+				err := errors.New(errors.ServerRequestValidation, 
+					fmt.Sprintf("Unsupported target for status command: %s", cmd.Target))
+				return errors.ErrorResponse(req.RequestId, err), nil
 			}
 
 			// Delegate to the system.status handler
@@ -238,14 +232,13 @@ func handleSystemStatus(
 	// Marshal metrics to JSON
 	payload, err := json.Marshal(metrics)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal system metrics: %w", err)
+		return nil, errors.Wrap(err, errors.ServerResponseError)
 	}
 
 	// Return response with the same request ID for correlation
-	return &proto.CommandResponse{
-		RequestId: req.RequestId, // CRITICAL: Use original request ID
-		Success:   true,
-		Message:   "System status response",
-		Payload:   payload,
-	}, nil
+	return errors.SuccessResponse(
+		req.RequestId, 
+		"System status response",
+		payload,
+	), nil
 }

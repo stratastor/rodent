@@ -51,7 +51,7 @@ func newCircuitBreaker() *circuitBreaker {
 func (cb *circuitBreaker) recordSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.failureCount = 0
 	cb.state = "closed"
 }
@@ -60,15 +60,15 @@ func (cb *circuitBreaker) recordSuccess() {
 func (cb *circuitBreaker) recordFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.lastFailureTime = time.Now()
-	
+
 	if cb.state == "half-open" {
 		// Failed in half-open state, immediately open the circuit
 		cb.state = "open"
 		return
 	}
-	
+
 	if cb.state == "closed" {
 		cb.failureCount++
 		if cb.failureCount >= cb.failureThreshold {
@@ -81,7 +81,7 @@ func (cb *circuitBreaker) recordFailure() {
 func (cb *circuitBreaker) allowRequest() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	switch cb.state {
 	case "closed":
 		return true
@@ -115,7 +115,7 @@ func NewConnectionMonitor(
 	logger logger.Logger,
 ) *ConnectionMonitor {
 	ctx, cancel := context.WithCancel(parentCtx)
-	
+
 	return &ConnectionMonitor{
 		ctx:            ctx,
 		cancel:         cancel,
@@ -136,10 +136,10 @@ func (m *ConnectionMonitor) Start() {
 	}
 	m.isRunning = true
 	m.connectionMutex.Unlock()
-	
+
 	// Register all domain-specific handlers
 	RegisterAllHandlers()
-	
+
 	go m.monitorConnection()
 }
 
@@ -147,21 +147,21 @@ func (m *ConnectionMonitor) Start() {
 func (m *ConnectionMonitor) Stop() {
 	m.connectionMutex.Lock()
 	defer m.connectionMutex.Unlock()
-	
+
 	if !m.isRunning {
 		return // Not running
 	}
-	
+
 	// Cancel our context to stop all running goroutines
 	m.cancel()
 	m.isRunning = false
-	
+
 	// Close any existing connection
 	if m.connection != nil {
 		m.connection.Close()
 		m.connection = nil
 	}
-	
+
 	m.isConnected = false
 }
 
@@ -180,12 +180,12 @@ func (m *ConnectionMonitor) monitorConnection() {
 		m.logger.Error("Cannot establish stream connection with non-gRPC client")
 		return
 	}
-	
+
 	// Run connection loop indefinitely with improved backoff and circuit breaker
-	initialRetryDelay := 30 * time.Second  // Increased initial delay
-	maxRetryDelay := 15 * time.Minute      // Increased max delay
+	initialRetryDelay := 30 * time.Second // Increased initial delay
+	maxRetryDelay := 15 * time.Minute     // Increased max delay
 	retryDelay := initialRetryDelay
-	
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -198,7 +198,7 @@ func (m *ConnectionMonitor) monitorConnection() {
 				m.logger.Warn("Circuit breaker preventing connection attempt",
 					"state", m.circuitBreaker.getState(),
 					"will_retry_after", m.circuitBreaker.resetTimeout)
-					
+
 				// Sleep for a while before checking again
 				select {
 				case <-time.After(1 * time.Minute):
@@ -208,72 +208,72 @@ func (m *ConnectionMonitor) monitorConnection() {
 					return
 				}
 			}
-			
+
 			// Attempt to establish the connection
 			m.logger.Info("Establishing bidirectional stream connection with Toggle")
 			conn, err := grpcClient.Connect(m.ctx)
-			
+
 			if err != nil {
 				m.logger.Error("Failed to establish stream connection", "error", err)
 				m.circuitBreaker.recordFailure()
-				
+
 				// Update connection status
 				m.connectionMutex.Lock()
 				m.isConnected = false
 				m.connectionMutex.Unlock()
-				
+
 				// Sleep with backoff before retrying
 				sleepDuration := retryDelay
 				m.logger.Info("Retrying connection in " + sleepDuration.String())
-				
+
 				select {
 				case <-time.After(sleepDuration):
 					// Continue to retry
 				case <-m.ctx.Done():
 					return
 				}
-				
+
 				// Increase retry delay with exponential backoff (up to max)
 				retryDelay = time.Duration(float64(retryDelay) * 1.5)
 				if retryDelay > maxRetryDelay {
 					retryDelay = maxRetryDelay
 				}
-				
+
 				continue
 			}
-			
+
 			// Connection established, reset retry delay and update status
 			retryDelay = initialRetryDelay
 			m.circuitBreaker.recordSuccess()
-			
+
 			m.connectionMutex.Lock()
 			m.connection = conn
 			m.isConnected = true
 			m.connectionMutex.Unlock()
-			
+
 			m.logger.Info("Bidirectional stream established with Toggle")
-			
+
 			// Wait for the connection to be closed or context cancellation
 			connectionClosed := m.waitForConnectionClose(conn)
-			
+
 			// Handle connection closure
 			select {
 			case <-connectionClosed:
 				m.logger.Warn("Stream connection closed, will reconnect after delay")
-				
+
 				// Update connection status
 				m.connectionMutex.Lock()
 				m.isConnected = false
 				m.connection = nil
 				m.connectionMutex.Unlock()
-				
+
 				// Sleep for a bit before trying again to avoid rapid cycling
 				time.Sleep(initialRetryDelay * 2)
-				
+
 			case <-m.ctx.Done():
 				// Parent context canceled, close connection and exit
 				m.logger.Info("Closing stream connection due to context cancellation")
-				
+
 				m.connectionMutex.Lock()
 				if m.connection != nil {
 					m.connection.Close()
@@ -281,7 +281,7 @@ func (m *ConnectionMonitor) monitorConnection() {
 				}
 				m.isConnected = false
 				m.connectionMutex.Unlock()
-				
+
 				return
 			}
 		}
@@ -292,17 +292,17 @@ func (m *ConnectionMonitor) monitorConnection() {
 // when the connection is closed
 func (m *ConnectionMonitor) waitForConnectionClose(conn *client.StreamConnection) <-chan struct{} {
 	connClosed := make(chan struct{})
-	
+
 	// Start a goroutine to monitor the connection
 	go func() {
 		// Monitor the stop channel instead of consuming messages
 		// This avoids competing with the message processor for messages
 		<-conn.StopChan()
-		
+
 		// Connection is down
 		close(connClosed)
-		return
+		// return
 	}()
-	
+
 	return connClosed
 }

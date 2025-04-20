@@ -22,7 +22,7 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
-// DatasetHandler provides HTTP endpoints for ZFS dataset operations.
+// DatasetHandler provides HTTP and gRPC endpoints for ZFS dataset operations.
 // It implements the following features:
 //   - Filesystem creation and management
 //   - Volume creation and management
@@ -35,7 +35,7 @@ type DatasetHandler struct {
 	manager *dataset.Manager
 }
 
-// PoolHandler provides HTTP endpoints for ZFS pool operations.
+// PoolHandler provides HTTP and gRPC endpoints for ZFS pool operations.
 // It implements the following features:
 //   - Pool creation and destruction
 //   - Import/export operations
