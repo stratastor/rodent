@@ -4,70 +4,74 @@
 
 package api
 
+import (
+	"github.com/stratastor/toggle-rodent-proto/proto"
+)
+
 // Command type constants for ZFS operations
-// These should match the enum in base.proto
+// These use the shared constants from the proto package
 const (
 	// Pool operations
-	CmdPoolList          = "zfs.pool.list"
-	CmdPoolStatus        = "zfs.pool.status"
-	CmdPoolCreate        = "zfs.pool.create"
-	CmdPoolDestroy       = "zfs.pool.destroy"
-	CmdPoolImport        = "zfs.pool.import"
-	CmdPoolExport        = "zfs.pool.export"
-	CmdPoolPropertyList  = "zfs.pool.property.list"
-	CmdPoolPropertyGet   = "zfs.pool.property.get"
-	CmdPoolPropertySet   = "zfs.pool.property.set"
-	CmdPoolScrub         = "zfs.pool.scrub"
-	CmdPoolResilver      = "zfs.pool.resilver"
-	CmdPoolDeviceAttach  = "zfs.pool.device.attach"
-	CmdPoolDeviceDetach  = "zfs.pool.device.detach"
-	CmdPoolDeviceReplace = "zfs.pool.device.replace"
+	CmdPoolList          = proto.ZFSCmdPoolList
+	CmdPoolStatus        = proto.ZFSCmdPoolStatus
+	CmdPoolCreate        = proto.ZFSCmdPoolCreate
+	CmdPoolDestroy       = proto.ZFSCmdPoolDestroy
+	CmdPoolImport        = proto.ZFSCmdPoolImport
+	CmdPoolExport        = proto.ZFSCmdPoolExport
+	CmdPoolPropertyList  = proto.ZFSCmdPoolPropertyList
+	CmdPoolPropertyGet   = proto.ZFSCmdPoolPropertyGet
+	CmdPoolPropertySet   = proto.ZFSCmdPoolPropertySet
+	CmdPoolScrub         = proto.ZFSCmdPoolScrub
+	CmdPoolResilver      = proto.ZFSCmdPoolResilver
+	CmdPoolDeviceAttach  = proto.ZFSCmdPoolDeviceAttach
+	CmdPoolDeviceDetach  = proto.ZFSCmdPoolDeviceDetach
+	CmdPoolDeviceReplace = proto.ZFSCmdPoolDeviceReplace
 
 	// Dataset operations
-	CmdDatasetList   = "zfs.dataset.list"
-	CmdDatasetDelete = "zfs.dataset.delete"
-	CmdDatasetRename = "zfs.dataset.rename"
-	CmdDatasetDiff   = "zfs.dataset.diff"
+	CmdDatasetList   = proto.ZFSCmdDatasetList
+	CmdDatasetDelete = proto.ZFSCmdDatasetDelete
+	CmdDatasetRename = proto.ZFSCmdDatasetRename
+	CmdDatasetDiff   = proto.ZFSCmdDatasetDiff
 
 	// Property operations
-	CmdDatasetPropertyList    = "zfs.dataset.property.list"
-	CmdDatasetPropertyGet     = "zfs.dataset.property.get"
-	CmdDatasetPropertySet     = "zfs.dataset.property.set"
-	CmdDatasetPropertyInherit = "zfs.dataset.property.inherit"
+	CmdDatasetPropertyList    = proto.ZFSCmdDatasetPropertyList
+	CmdDatasetPropertyGet     = proto.ZFSCmdDatasetPropertyGet
+	CmdDatasetPropertySet     = proto.ZFSCmdDatasetPropertySet
+	CmdDatasetPropertyInherit = proto.ZFSCmdDatasetPropertyInherit
 
 	// Filesystem operations
-	CmdFilesystemList    = "zfs.filesystem.list"
-	CmdFilesystemCreate  = "zfs.filesystem.create"
-	CmdFilesystemMount   = "zfs.filesystem.mount"
-	CmdFilesystemUnmount = "zfs.filesystem.unmount"
+	CmdFilesystemList    = proto.ZFSCmdFilesystemList
+	CmdFilesystemCreate  = proto.ZFSCmdFilesystemCreate
+	CmdFilesystemMount   = proto.ZFSCmdFilesystemMount
+	CmdFilesystemUnmount = proto.ZFSCmdFilesystemUnmount
 
 	// Volume operations
-	CmdVolumeList   = "zfs.volume.list"
-	CmdVolumeCreate = "zfs.volume.create"
+	CmdVolumeList   = proto.ZFSCmdVolumeList
+	CmdVolumeCreate = proto.ZFSCmdVolumeCreate
 
 	// Snapshot operations
-	CmdSnapshotList     = "zfs.snapshot.list"
-	CmdSnapshotCreate   = "zfs.snapshot.create"
-	CmdSnapshotRollback = "zfs.snapshot.rollback"
+	CmdSnapshotList     = proto.ZFSCmdSnapshotList
+	CmdSnapshotCreate   = proto.ZFSCmdSnapshotCreate
+	CmdSnapshotRollback = proto.ZFSCmdSnapshotRollback
 
 	// Clone operations
-	CmdCloneCreate  = "zfs.clone.create"
-	CmdClonePromote = "zfs.clone.promote"
+	CmdCloneCreate  = proto.ZFSCmdCloneCreate
+	CmdClonePromote = proto.ZFSCmdClonePromote
 
 	// Bookmark operations
-	CmdBookmarkList   = "zfs.bookmark.list"
-	CmdBookmarkCreate = "zfs.bookmark.create"
+	CmdBookmarkList   = proto.ZFSCmdBookmarkList
+	CmdBookmarkCreate = proto.ZFSCmdBookmarkCreate
 
 	// Permission operations
-	CmdPermissionList    = "zfs.permission.list"
-	CmdPermissionAllow   = "zfs.permission.allow"
-	CmdPermissionUnallow = "zfs.permission.unallow"
+	CmdPermissionList    = proto.ZFSCmdPermissionList
+	CmdPermissionAllow   = proto.ZFSCmdPermissionAllow
+	CmdPermissionUnallow = proto.ZFSCmdPermissionUnallow
 
 	// Share operations
-	CmdShareDataset   = "zfs.share.dataset"
-	CmdUnshareDataset = "zfs.unshare.dataset"
+	CmdShareDataset   = proto.ZFSCmdShareDataset
+	CmdUnshareDataset = proto.ZFSCmdUnshareDataset
 
 	// Data transfer operations
-	CmdTransferSend        = "zfs.transfer.send"
-	CmdTransferResumeToken = "zfs.transfer.resume_token"
+	CmdTransferSend        = proto.ZFSCmdTransferSend
+	CmdTransferResumeToken = proto.ZFSCmdTransferResumeToken
 )
