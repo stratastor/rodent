@@ -42,7 +42,10 @@ func RegisterZFSGRPCHandlers(poolHandler *PoolHandler, datasetHandler *DatasetHa
 	client.RegisterCommandHandler(CmdDatasetPropertyList, handleDatasetPropertyList(datasetHandler))
 	client.RegisterCommandHandler(CmdDatasetPropertyGet, handleDatasetPropertyGet(datasetHandler))
 	client.RegisterCommandHandler(CmdDatasetPropertySet, handleDatasetPropertySet(datasetHandler))
-	client.RegisterCommandHandler(CmdDatasetPropertyInherit, handleDatasetPropertyInherit(datasetHandler))
+	client.RegisterCommandHandler(
+		CmdDatasetPropertyInherit,
+		handleDatasetPropertyInherit(datasetHandler),
+	)
 
 	// Filesystem operations
 	client.RegisterCommandHandler(CmdFilesystemList, handleFilesystemList(datasetHandler))
@@ -108,10 +111,32 @@ func createHandlerContext(req *proto.ToggleRequest) context.Context {
 }
 
 // Helper to create a successful response with JSON payload
-func successResponse(requestID string, message string, data interface{}) (*proto.CommandResponse, error) {
+func successResponse(
+	requestID string,
+	message string,
+	data interface{},
+) (*proto.CommandResponse, error) {
 	payload, err := json.Marshal(map[string]interface{}{
 		"result": data,
 	})
+	if err != nil {
+		return nil, errors.Wrap(err, errors.ServerResponseError)
+	}
+
+	return &proto.CommandResponse{
+		RequestId: requestID,
+		Success:   true,
+		Message:   message,
+		Payload:   payload,
+	}, nil
+}
+
+func successPoolResponse(
+	requestID string,
+	message string,
+	data interface{},
+) (*proto.CommandResponse, error) {
+	payload, err := json.Marshal(data)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.ServerResponseError)
 	}

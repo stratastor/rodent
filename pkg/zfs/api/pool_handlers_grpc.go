@@ -23,7 +23,7 @@ func handlePoolList(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolList)
 		}
 
-		return successResponse(req.RequestId, "ZFS pools list", pools)
+		return successPoolResponse(req.RequestId, "ZFS pools list", pools)
 	}
 }
 
@@ -51,7 +51,7 @@ func handlePoolStatus(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolStatus)
 		}
 
-		return successResponse(req.RequestId, "Pool status", status)
+		return successPoolResponse(req.RequestId, "Pool status", status)
 	}
 }
 
@@ -69,7 +69,10 @@ func handlePoolCreate(h *PoolHandler) client.CommandHandler {
 		}
 
 		if len(createConfig.VDevSpec) == 0 {
-			return nil, errors.New(errors.ServerRequestValidation, "at least one device specification is required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"at least one device specification is required",
+			)
 		}
 
 		// Create context for the request
@@ -81,7 +84,7 @@ func handlePoolCreate(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolCreate)
 		}
 
-		return successResponse(req.RequestId, "Pool created successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool created successfully", nil)
 	}
 }
 
@@ -110,7 +113,7 @@ func handlePoolDestroy(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolDestroy)
 		}
 
-		return successResponse(req.RequestId, "Pool destroyed successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool destroyed successfully", nil)
 	}
 }
 
@@ -131,7 +134,7 @@ func handlePoolImport(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolImport)
 		}
 
-		return successResponse(req.RequestId, "Pool imported successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool imported successfully", nil)
 	}
 }
 
@@ -160,7 +163,7 @@ func handlePoolExport(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolExport)
 		}
 
-		return successResponse(req.RequestId, "Pool exported successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool exported successfully", nil)
 	}
 }
 
@@ -188,7 +191,7 @@ func handlePoolPropertyList(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolGetProperty)
 		}
 
-		return successResponse(req.RequestId, "Pool properties", properties)
+		return successPoolResponse(req.RequestId, "Pool properties", properties)
 	}
 }
 
@@ -205,7 +208,10 @@ func handlePoolPropertyGet(h *PoolHandler) client.CommandHandler {
 		}
 
 		if propertyParam.Name == "" || propertyParam.Property == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "pool name and property name are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"pool name and property name are required",
+			)
 		}
 
 		// Create context for the request
@@ -217,7 +223,7 @@ func handlePoolPropertyGet(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolGetProperty)
 		}
 
-		return successResponse(req.RequestId, "Pool property", property)
+		return successPoolResponse(req.RequestId, "Pool property", property)
 	}
 }
 
@@ -235,19 +241,27 @@ func handlePoolPropertySet(h *PoolHandler) client.CommandHandler {
 		}
 
 		if setPropertyParam.Name == "" || setPropertyParam.Property == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "pool name and property name are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"pool name and property name are required",
+			)
 		}
 
 		// Create context for the request
 		ctx := createHandlerContext(req)
 
 		// Call the manager's SetProperty method
-		err := h.manager.SetProperty(ctx, setPropertyParam.Name, setPropertyParam.Property, setPropertyParam.Value)
+		err := h.manager.SetProperty(
+			ctx,
+			setPropertyParam.Name,
+			setPropertyParam.Property,
+			setPropertyParam.Value,
+		)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolSetProperty)
 		}
 
-		return successResponse(req.RequestId, "Pool property set successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool property set successfully", nil)
 	}
 }
 
@@ -281,7 +295,7 @@ func handlePoolScrub(h *PoolHandler) client.CommandHandler {
 			action = "stopped"
 		}
 
-		return successResponse(req.RequestId, "Pool scrub "+action+" successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool scrub "+action+" successfully", nil)
 	}
 }
 
@@ -309,7 +323,7 @@ func handlePoolResilver(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolResilverFailed)
 		}
 
-		return successResponse(req.RequestId, "Pool resilver started successfully", nil)
+		return successPoolResponse(req.RequestId, "Pool resilver started successfully", nil)
 	}
 }
 
@@ -331,19 +345,27 @@ func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 		}
 
 		if attachParam.TargetDevice == "" || attachParam.NewDevice == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "target and new device paths are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"target and new device paths are required",
+			)
 		}
 
 		// Create context for the request
 		ctx := createHandlerContext(req)
 
 		// Call the manager's AttachDevice method
-		err := h.manager.AttachDevice(ctx, attachParam.PoolName, attachParam.TargetDevice, attachParam.NewDevice)
+		err := h.manager.AttachDevice(
+			ctx,
+			attachParam.PoolName,
+			attachParam.TargetDevice,
+			attachParam.NewDevice,
+		)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
 
-		return successResponse(req.RequestId, "Device attached successfully", nil)
+		return successPoolResponse(req.RequestId, "Device attached successfully", nil)
 	}
 }
 
@@ -376,7 +398,7 @@ func handlePoolDeviceDetach(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
 
-		return successResponse(req.RequestId, "Device detached successfully", nil)
+		return successPoolResponse(req.RequestId, "Device detached successfully", nil)
 	}
 }
 
@@ -398,18 +420,26 @@ func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 		}
 
 		if replaceParam.OldDevice == "" || replaceParam.NewDevice == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "old and new device paths are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"old and new device paths are required",
+			)
 		}
 
 		// Create context for the request
 		ctx := createHandlerContext(req)
 
 		// Call the manager's ReplaceDevice method
-		err := h.manager.ReplaceDevice(ctx, replaceParam.PoolName, replaceParam.OldDevice, replaceParam.NewDevice)
+		err := h.manager.ReplaceDevice(
+			ctx,
+			replaceParam.PoolName,
+			replaceParam.OldDevice,
+			replaceParam.NewDevice,
+		)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
 
-		return successResponse(req.RequestId, "Device replaced successfully", nil)
+		return successPoolResponse(req.RequestId, "Device replaced successfully", nil)
 	}
 }
