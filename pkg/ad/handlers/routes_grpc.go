@@ -13,60 +13,32 @@ import (
 	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
-// Command operation constants for AD gRPC handlers
-const (
-	// User operations
-	CmdUserList   = "ad.user.list"
-	CmdUserGet    = "ad.user.get"
-	CmdUserCreate = "ad.user.create"
-	CmdUserUpdate = "ad.user.update"
-	CmdUserDelete = "ad.user.delete"
-	CmdUserGroups = "ad.user.groups"
-
-	// Group operations
-	CmdGroupList          = "ad.group.list"
-	CmdGroupGet           = "ad.group.get"
-	CmdGroupCreate        = "ad.group.create"
-	CmdGroupUpdate        = "ad.group.update"
-	CmdGroupDelete        = "ad.group.delete"
-	CmdGroupMembers       = "ad.group.members"
-	CmdGroupAddMembers    = "ad.group.members.add"
-	CmdGroupRemoveMembers = "ad.group.members.remove"
-
-	// Computer operations
-	CmdComputerList   = "ad.computer.list"
-	CmdComputerGet    = "ad.computer.get"
-	CmdComputerCreate = "ad.computer.create"
-	CmdComputerUpdate = "ad.computer.update"
-	CmdComputerDelete = "ad.computer.delete"
-)
-
 // RegisterADGRPCHandlers registers all AD-related command handlers with Toggle
 func RegisterADGRPCHandlers(adHandler *ADHandler) {
 	// User operations
-	client.RegisterCommandHandler(CmdUserList, handleUserList(adHandler))
-	client.RegisterCommandHandler(CmdUserGet, handleUserGet(adHandler))
-	client.RegisterCommandHandler(CmdUserCreate, handleUserCreate(adHandler))
-	client.RegisterCommandHandler(CmdUserUpdate, handleUserUpdate(adHandler))
-	client.RegisterCommandHandler(CmdUserDelete, handleUserDelete(adHandler))
-	client.RegisterCommandHandler(CmdUserGroups, handleUserGroups(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserList, handleUserList(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserGet, handleUserGet(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserCreate, handleUserCreate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserUpdate, handleUserUpdate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserDelete, handleUserDelete(adHandler))
+	client.RegisterCommandHandler(proto.CmdADUserGroups, handleUserGroups(adHandler))
 
 	// Group operations
-	client.RegisterCommandHandler(CmdGroupList, handleGroupList(adHandler))
-	client.RegisterCommandHandler(CmdGroupGet, handleGroupGet(adHandler))
-	client.RegisterCommandHandler(CmdGroupCreate, handleGroupCreate(adHandler))
-	client.RegisterCommandHandler(CmdGroupUpdate, handleGroupUpdate(adHandler))
-	client.RegisterCommandHandler(CmdGroupDelete, handleGroupDelete(adHandler))
-	client.RegisterCommandHandler(CmdGroupMembers, handleGroupMembers(adHandler))
-	client.RegisterCommandHandler(CmdGroupAddMembers, handleGroupAddMembers(adHandler))
-	client.RegisterCommandHandler(CmdGroupRemoveMembers, handleGroupRemoveMembers(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupList, handleGroupList(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupGet, handleGroupGet(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupCreate, handleGroupCreate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupUpdate, handleGroupUpdate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupDelete, handleGroupDelete(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupMembers, handleGroupMembers(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupAddMembers, handleGroupAddMembers(adHandler))
+	client.RegisterCommandHandler(proto.CmdADGroupRemoveMembers, handleGroupRemoveMembers(adHandler))
 
 	// Computer operations
-	client.RegisterCommandHandler(CmdComputerList, handleComputerList(adHandler))
-	client.RegisterCommandHandler(CmdComputerGet, handleComputerGet(adHandler))
-	client.RegisterCommandHandler(CmdComputerCreate, handleComputerCreate(adHandler))
-	client.RegisterCommandHandler(CmdComputerUpdate, handleComputerUpdate(adHandler))
-	client.RegisterCommandHandler(CmdComputerDelete, handleComputerDelete(adHandler))
+	client.RegisterCommandHandler(proto.CmdADComputerList, handleComputerList(adHandler))
+	client.RegisterCommandHandler(proto.CmdADComputerGet, handleComputerGet(adHandler))
+	client.RegisterCommandHandler(proto.CmdADComputerCreate, handleComputerCreate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADComputerUpdate, handleComputerUpdate(adHandler))
+	client.RegisterCommandHandler(proto.CmdADComputerDelete, handleComputerDelete(adHandler))
 }
 
 // Helper for parsing JSON payload from a command request

@@ -141,7 +141,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: userListReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdUserList,
+				CommandType: proto.CmdADUserList,
 				Payload:     []byte("{}"),
 			},
 		},
@@ -155,7 +155,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: groupListReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdGroupList,
+				CommandType: proto.CmdADGroupList,
 				Payload:     []byte("{}"),
 			},
 		},
@@ -201,7 +201,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: createUserReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdUserCreate,
+				CommandType: proto.CmdADUserCreate,
 				Payload:     userCreatePayload,
 			},
 		},
@@ -239,7 +239,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: createGroupReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdGroupCreate,
+				CommandType: proto.CmdADGroupCreate,
 				Payload:     groupCreatePayload,
 			},
 		},
@@ -271,7 +271,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: getUserReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdUserGet,
+				CommandType: proto.CmdADUserGet,
 				Payload:     getUserPayload,
 			},
 		},
@@ -303,7 +303,7 @@ func (s *MockToggleServer) Connect(stream proto.RodentService_ConnectServer) err
 		RequestId: errorReqID,
 		Payload: &proto.ToggleRequest_Command{
 			Command: &proto.CommandRequest{
-				CommandType: CmdUserGet,
+				CommandType: proto.CmdADUserGet,
 				Payload:     errorPayload,
 			},
 		},
