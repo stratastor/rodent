@@ -302,7 +302,6 @@ func (h *ADHandler) ListGroups(c *gin.Context) {
 		return
 	}
 
-	// TODO: entries must be destructured; ldap.Entry to a json friendly struct
 	c.JSON(http.StatusOK, entries)
 }
 

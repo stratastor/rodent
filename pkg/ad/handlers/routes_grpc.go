@@ -31,7 +31,10 @@ func RegisterADGRPCHandlers(adHandler *ADHandler) {
 	client.RegisterCommandHandler(proto.CmdADGroupDelete, handleGroupDelete(adHandler))
 	client.RegisterCommandHandler(proto.CmdADGroupMembers, handleGroupMembers(adHandler))
 	client.RegisterCommandHandler(proto.CmdADGroupAddMembers, handleGroupAddMembers(adHandler))
-	client.RegisterCommandHandler(proto.CmdADGroupRemoveMembers, handleGroupRemoveMembers(adHandler))
+	client.RegisterCommandHandler(
+		proto.CmdADGroupRemoveMembers,
+		handleGroupRemoveMembers(adHandler),
+	)
 
 	// Computer operations
 	client.RegisterCommandHandler(proto.CmdADComputerList, handleComputerList(adHandler))
@@ -188,22 +191,22 @@ func handleUserUpdate(h *ADHandler) client.CommandHandler {
 func handleUserDelete(h *ADHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			CN string `json:"cn"`
+			Username string `json:"username"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ServerRequestValidation))
 		}
 
-		if payload.CN == "" {
+		if payload.Username == "" {
 			return errorResponse(
 				req.RequestId,
-				errors.New(errors.ServerRequestValidation, "CN is required"),
+				errors.New(errors.ServerRequestValidation, "username is required"),
 			)
 		}
 
 		// Call the client's Delete method
-		if err := h.client.DeleteUser(payload.CN); err != nil {
+		if err := h.client.DeleteUser(payload.Username); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ADDeleteUserFailed))
 		}
 
@@ -357,21 +360,21 @@ func handleGroupUpdate(h *ADHandler) client.CommandHandler {
 func handleGroupDelete(h *ADHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			CN string `json:"cn"`
+			Groupname string `json:"groupname"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ServerRequestValidation))
 		}
 
-		if payload.CN == "" {
+		if payload.Groupname == "" {
 			return errorResponse(
 				req.RequestId,
-				errors.New(errors.ServerRequestValidation, "CN is required"),
+				errors.New(errors.ServerRequestValidation, "groupname is required"),
 			)
 		}
 		// Call the client's Delete method
-		if err := h.client.DeleteGroup(payload.CN); err != nil {
+		if err := h.client.DeleteGroup(payload.Groupname); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ADDeleteGroupFailed))
 		}
 
@@ -415,18 +418,18 @@ func handleGroupMembers(h *ADHandler) client.CommandHandler {
 func handleGroupAddMembers(h *ADHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			CN      string   `json:"cn"`
-			Members []string `json:"members"`
+			Groupname string   `json:"groupname"`
+			Members   []string `json:"members"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ServerRequestValidation))
 		}
 
-		if payload.CN == "" {
+		if payload.Groupname == "" {
 			return errorResponse(
 				req.RequestId,
-				errors.New(errors.ServerRequestValidation, "CN is required"),
+				errors.New(errors.ServerRequestValidation, "groupname is required"),
 			)
 		}
 
@@ -438,7 +441,7 @@ func handleGroupAddMembers(h *ADHandler) client.CommandHandler {
 		}
 
 		// Call the client's AddMembersToGroup method
-		if err := h.client.AddMembersToGroup(payload.Members, payload.CN); err != nil {
+		if err := h.client.AddMembersToGroup(payload.Members, payload.Groupname); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ADUpdateGroupFailed))
 		}
 
@@ -451,18 +454,18 @@ func handleGroupAddMembers(h *ADHandler) client.CommandHandler {
 func handleGroupRemoveMembers(h *ADHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			CN      string   `json:"cn"`
-			Members []string `json:"members"`
+			Groupname string   `json:"groupname"`
+			Members   []string `json:"members"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ServerRequestValidation))
 		}
 
-		if payload.CN == "" {
+		if payload.Groupname == "" {
 			return errorResponse(
 				req.RequestId,
-				errors.New(errors.ServerRequestValidation, "CN is required"),
+				errors.New(errors.ServerRequestValidation, "groupname is required"),
 			)
 		}
 
@@ -474,7 +477,7 @@ func handleGroupRemoveMembers(h *ADHandler) client.CommandHandler {
 		}
 
 		// Call the client's RemoveMembersFromGroup method
-		if err := h.client.RemoveMembersFromGroup(payload.Members, payload.CN); err != nil {
+		if err := h.client.RemoveMembersFromGroup(payload.Members, payload.Groupname); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ADUpdateGroupFailed))
 		}
 
@@ -595,22 +598,22 @@ func handleComputerUpdate(h *ADHandler) client.CommandHandler {
 func handleComputerDelete(h *ADHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			CN string `json:"cn"`
+			Computername string `json:"computername"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ServerRequestValidation))
 		}
 
-		if payload.CN == "" {
+		if payload.Computername == "" {
 			return errorResponse(
 				req.RequestId,
-				errors.New(errors.ServerRequestValidation, "CN is required"),
+				errors.New(errors.ServerRequestValidation, "computername is required"),
 			)
 		}
 
 		// Call the client's Delete method
-		if err := h.client.DeleteComputer(payload.CN); err != nil {
+		if err := h.client.DeleteComputer(payload.Computername); err != nil {
 			return errorResponse(req.RequestId, errors.Wrap(err, errors.ADDeleteComputerFailed))
 		}
 
