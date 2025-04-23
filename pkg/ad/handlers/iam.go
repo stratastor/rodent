@@ -29,6 +29,14 @@ func NewADHandler() (*ADHandler, error) {
 	}, nil
 }
 
+// NewADHandlerWithClient creates a new handler with an existing AD client
+// This is useful for gRPC handlers that share a client with the REST API
+func NewADHandlerWithClient(client *ad.ADClient) *ADHandler {
+	return &ADHandler{
+		client: client,
+	}
+}
+
 // Close closes the underlying AD client connection
 func (h *ADHandler) Close() {
 	if h.client != nil {
