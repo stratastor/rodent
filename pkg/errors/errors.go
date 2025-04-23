@@ -227,11 +227,12 @@ func (e *RodentError) ToProto() *proto.RodentError {
 	}
 
 	protoErr := &proto.RodentError{
-		Code:     int32(e.Code),
-		Domain:   string(e.Domain),
-		Message:  e.Message,
-		Details:  e.Details,
-		Metadata: make(map[string]string),
+		Code:       int32(e.Code),
+		Domain:     string(e.Domain),
+		Message:    e.Message,
+		Details:    e.Details,
+		HttpStatus: int32(e.HTTPStatus),
+		Metadata:   make(map[string]string),
 	}
 
 	// Copy metadata if present
