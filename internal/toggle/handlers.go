@@ -10,6 +10,7 @@ import (
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	adHandlers "github.com/stratastor/rodent/pkg/ad/handlers"
 	"github.com/stratastor/rodent/pkg/facl"
+	faclAPI "github.com/stratastor/rodent/pkg/facl/api"
 	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	zfsAPI "github.com/stratastor/rodent/pkg/zfs/api"
@@ -54,9 +55,17 @@ func RegisterAllHandlers() {
 		panic(err)
 	}
 
-	// Create and register SMB shares handler for gRPC
-	aclManager := facl.NewACLManager(sl, nil)
-	// Create SMB managers
+	// Create and register FACL handler for gRPC
+	faclLogger, err := logger.NewTag(logger.Config{LogLevel: cfg.Server.LogLevel}, "toggle.facl")
+	if err != nil {
+		panic(err)
+	}
+	aclManager := facl.NewACLManager(faclLogger, nil)
+	aclHandler := faclAPI.NewACLHandler(aclManager, faclLogger)
+	faclAPI.RegisterFACLGRPCHandlers(aclHandler)
+	l.Info("Registered FACL gRPC handlers")
+
+	// Create SMB managers and register SMB shares handler for gRPC
 	smbManager, err := smb.NewManager(sl, genexec, aclManager)
 	if err != nil {
 		l.Error("Failed to create SMB manager", "error", err)
