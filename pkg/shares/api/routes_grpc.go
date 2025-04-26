@@ -24,17 +24,39 @@ func RegisterSharesGRPCHandlers(sharesHandler *SharesHandler) {
 	client.RegisterCommandHandler(proto.CmdSharesSMBDelete, handleSMBDelete(sharesHandler))
 	client.RegisterCommandHandler(proto.CmdSharesSMBStats, handleSMBStats(sharesHandler))
 	client.RegisterCommandHandler(proto.CmdSharesSMBBulkUpdate, handleSMBBulkUpdate(sharesHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBRegenerateConfig,
+		handleSMBRegenerateConfig(sharesHandler),
+	)
 
 	// SMB global config operations
 	client.RegisterCommandHandler(proto.CmdSharesSMBGlobalGet, handleSMBGlobalGet(sharesHandler))
-	client.RegisterCommandHandler(proto.CmdSharesSMBGlobalUpdate, handleSMBGlobalUpdate(sharesHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBGlobalUpdate,
+		handleSMBGlobalUpdate(sharesHandler),
+	)
 
 	// SMB service operations
-	client.RegisterCommandHandler(proto.CmdSharesSMBServiceStatus, handleSMBServiceStatus(sharesHandler))
-	client.RegisterCommandHandler(proto.CmdSharesSMBServiceStart, handleSMBServiceStart(sharesHandler))
-	client.RegisterCommandHandler(proto.CmdSharesSMBServiceStop, handleSMBServiceStop(sharesHandler))
-	client.RegisterCommandHandler(proto.CmdSharesSMBServiceRestart, handleSMBServiceRestart(sharesHandler))
-	client.RegisterCommandHandler(proto.CmdSharesSMBServiceReload, handleSMBServiceReload(sharesHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBServiceStatus,
+		handleSMBServiceStatus(sharesHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBServiceStart,
+		handleSMBServiceStart(sharesHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBServiceStop,
+		handleSMBServiceStop(sharesHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBServiceRestart,
+		handleSMBServiceRestart(sharesHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSharesSMBServiceReload,
+		handleSMBServiceReload(sharesHandler),
+	)
 }
 
 // Helper for parsing JSON payload from a command request
@@ -71,7 +93,7 @@ func handleSMBList(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the manager's ListSharesByType method
 		result, err := h.smbManager.ListSharesByType(ctx, "smb")
 		if err != nil {
@@ -302,7 +324,7 @@ func handleSMBGlobalGet(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the manager's GetGlobalConfig method
 		config, err := h.smbManager.GetGlobalConfig(ctx)
 		if err != nil {
@@ -342,7 +364,11 @@ func handleSMBGlobalUpdate(h *SharesHandler) client.CommandHandler {
 		response := map[string]interface{}{
 			"message": "Global SMB configuration updated successfully",
 		}
-		return successResponse(req.RequestId, "Global SMB configuration updated successfully", response)
+		return successResponse(
+			req.RequestId,
+			"Global SMB configuration updated successfully",
+			response,
+		)
 	}
 }
 
@@ -356,7 +382,10 @@ func handleSMBBulkUpdate(h *SharesHandler) client.CommandHandler {
 
 		// Validate bulk update configuration
 		if len(config.Parameters) == 0 {
-			return nil, errors.New(errors.SharesInvalidInput, "At least one parameter must be specified for bulk update")
+			return nil, errors.New(
+				errors.SharesInvalidInput,
+				"At least one parameter must be specified for bulk update",
+			)
 		}
 
 		// Create a context
@@ -382,7 +411,7 @@ func handleSMBServiceStatus(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the manager's GetSMBServiceStatus method
 		status, err := h.smbManager.GetSMBServiceStatus(ctx)
 		if err != nil {
@@ -398,7 +427,7 @@ func handleSMBServiceStart(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the service's Start method
 		if err := h.smbService.Start(ctx); err != nil {
 			return nil, err
@@ -417,7 +446,7 @@ func handleSMBServiceStop(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the service's Stop method
 		if err := h.smbService.Stop(ctx); err != nil {
 			return nil, err
@@ -436,7 +465,7 @@ func handleSMBServiceRestart(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the service's Restart method
 		if err := h.smbService.Restart(ctx); err != nil {
 			return nil, err
@@ -455,7 +484,7 @@ func handleSMBServiceReload(h *SharesHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		// Create a context
 		ctx := context.Background()
-		
+
 		// Call the service's ReloadConfig method
 		if err := h.smbService.ReloadConfig(ctx); err != nil {
 			return nil, err
@@ -465,6 +494,33 @@ func handleSMBServiceReload(h *SharesHandler) client.CommandHandler {
 		response := map[string]interface{}{
 			"message": "SMB service configuration reloaded successfully",
 		}
-		return successResponse(req.RequestId, "SMB service configuration reloaded successfully", response)
+		return successResponse(
+			req.RequestId,
+			"SMB service configuration reloaded successfully",
+			response,
+		)
+	}
+}
+
+// handleSMBRegenerateConfig returns a handler for importing existing SMB configuration
+func handleSMBRegenerateConfig(h *SharesHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		// Create a context
+		ctx := context.Background()
+
+		// Call the manager's GenerateConfig method
+		if err := h.smbManager.GenerateConfig(ctx); err != nil {
+			return nil, err
+		}
+
+		// Return success response
+		response := map[string]interface{}{
+			"message": "Existing SMB configuration imported successfully",
+		}
+		return successResponse(
+			req.RequestId,
+			"Existing SMB configuration imported successfully",
+			response,
+		)
 	}
 }

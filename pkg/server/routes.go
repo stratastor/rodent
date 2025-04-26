@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -151,6 +152,16 @@ func registerSharesRoutes(engine *gin.Engine) error {
 	if err != nil {
 		return fmt.Errorf("failed to create SMB manager: %w", err)
 	}
+
+	// Attempt to generate config on startup by importing existing smb.conf if needed
+	// This is done in a goroutine to avoid blocking initialization
+	go func() {
+		// Create a background context for this operation
+		ctx := context.Background()
+		if err := smbManager.GenerateConfig(ctx); err != nil {
+			l.Warn("Failed to generate initial SMB configuration", "error", err)
+		}
+	}()
 
 	// Create SMB service manager
 	smbService := smb.NewServiceManager(l)

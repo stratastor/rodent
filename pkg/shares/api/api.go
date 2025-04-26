@@ -64,6 +64,9 @@ func (h *SharesHandler) RegisterRoutes(router *gin.RouterGroup) {
 			smb.POST("/service/stop", h.stopSMBService)
 			smb.POST("/service/restart", h.restartSMBService)
 			smb.POST("/service/reload", h.reloadSMBService)
+
+			// Config import operation
+			smb.POST("/regenerate-config", h.RegenerateSMBConfig)
 		}
 
 		// NFS and iSCSI can be added similarly when implementing them
@@ -492,5 +495,17 @@ func (h *SharesHandler) reloadSMBService(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "SMB service configuration reloaded successfully",
+	})
+}
+
+// RegenerateSMBConfig imports existing SMB configuration into Rodent-managed shares
+func (h *SharesHandler) RegenerateSMBConfig(c *gin.Context) {
+	if err := h.smbManager.GenerateConfig(c.Request.Context()); err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Existing SMB configuration imported successfully",
 	})
 }

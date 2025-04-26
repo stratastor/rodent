@@ -94,13 +94,15 @@ func NewManager(
 	}
 	templates[GlobalTemplate] = globalTemplate
 
-	return &Manager{
+	manager := &Manager{
 		logger:     logger,
 		executor:   executor,
 		configDir:  SharesConfigDir,
 		templates:  templates,
 		aclManager: aclManager,
-	}, nil
+	}
+
+	return manager, nil
 }
 
 func (m *Manager) validateShareConfig(config *SMBShareConfig) error {
@@ -727,6 +729,134 @@ func (m *Manager) ReloadConfig(ctx context.Context) error {
 	return nil
 }
 
+// GenerateConfig imports existing SMB configurations into Rodent-managed shares
+// It backs up the existing smb.conf file, parses it to find shares and global config,
+// and creates individual share config files that Rodent can manage.
+func (m *Manager) GenerateConfig(ctx context.Context) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Check if we already have share configs in SharesConfigDir
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
+	if err != nil {
+		return errors.Wrap(err, errors.SharesOperationFailed).
+			WithMetadata("operation", "check_existing_configs")
+	}
+
+	// Only consider backing up conf if SharesConfigDir is empty (except for global.conf)
+	hasExistingShareConfigs := false
+	for _, file := range files {
+		if filepath.Base(file) != "global.conf" {
+			hasExistingShareConfigs = true
+			break
+		}
+	}
+
+	// If we already have share configs managed by Rodent, skip import
+	if !hasExistingShareConfigs {
+		m.logger.Info("Existing Rodent-managed SMB shares found, not backing up original config")
+		// Backup existing SMB config file
+		backupPath, err := BackupConfigFile(DefaultSMBConfigPath)
+		if err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "backup_smb_config")
+		}
+		if backupPath != "" {
+			m.logger.Info("Backed up existing SMB configuration", "backup_path", backupPath)
+		}
+	}
+
+	// Parse existing SMB config file if it exists
+	if _, err := os.Stat(DefaultSMBConfigPath); os.IsNotExist(err) {
+		m.logger.Info("No existing SMB configuration found, generating defaults")
+		return nil
+	}
+
+	// Parse existing config
+	parser, err := NewSMBConfigParser(DefaultSMBConfigPath)
+	if err != nil {
+		return err
+	}
+
+	// Parse global section first
+	globalConfig, err := parser.ParseGlobalSection()
+	if err != nil {
+		return err
+	}
+
+	// Check if we already have a global config
+	globalConfigPath := filepath.Join(m.configDir, "global.conf")
+	if _, err := os.Stat(globalConfigPath); os.IsNotExist(err) {
+		// Save the parsed global config
+		data, err := json.MarshalIndent(globalConfig, "", "  ")
+		if err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "marshal_global_config")
+		}
+
+		if err := os.WriteFile(globalConfigPath, data, 0644); err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "save_global_config")
+		}
+
+		// Generate SMB global config section
+		if err := m.generateGlobalConfig(globalConfig); err != nil {
+			return err
+		}
+
+		m.logger.Info("Imported global SMB configuration")
+	} else {
+		m.logger.Info("Using existing Rodent-managed global SMB configuration")
+	}
+
+	// Parse all share sections
+	shares, err := parser.ParseShares()
+	if err != nil {
+		return err
+	}
+
+	// Import each share that doesn't already exist in our config
+	importCount := 0
+	for name, share := range shares {
+		// Check if we already have this share
+		configFile := filepath.Join(m.configDir, name+ConfigFileExt)
+		if _, err := os.Stat(configFile); !os.IsNotExist(err) {
+			m.logger.Info(
+				"Share already exists in Rodent configuration, skipping import",
+				"share",
+				name,
+			)
+			continue
+		}
+
+		// Make sure the share has all required fields
+		m.EnsureShareDefaults(share)
+
+		// Save the share config
+		if err := CreateShareConfigFromSection(m.configDir, share); err != nil {
+			m.logger.Warn("Failed to import share", "share", name, "error", err)
+			continue
+		}
+
+		// Generate SMB share config
+		if err := m.generateShareConfig(share); err != nil {
+			m.logger.Warn("Failed to generate SMB config for share", "share", name, "error", err)
+			continue
+		}
+
+		importCount++
+	}
+
+	m.logger.Info("Imported existing SMB shares", "count", importCount)
+
+	// Update main SMB configuration
+	if err := m.updateMainConfig(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // UpdateGlobalConfig updates the global SMB configuration
 func (m *Manager) UpdateGlobalConfig(ctx context.Context, config *SMBGlobalConfig) error {
 	m.mutex.Lock()
@@ -899,12 +1029,47 @@ func (m *Manager) updateMainConfig() error {
 			WithMetadata("operation", "read_global_config")
 	}
 
-	// Find all individual share config files
+	// Check if we have existing files in SharesConfigDir
 	shareConfigs, err := filepath.Glob(filepath.Join(SharesConfigDir, "*"+SmbConfigFileExt))
 	if err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "find_share_configs")
 	}
+
+	// If no rodent-managed shares exist, we should preserve the existing smb.conf
+	// The only change would be to update the global section if we have one
+	if len(shareConfigs) <= 1 && len(globalData) > 0 {
+		// Read existing smb.conf to preserve non-share sections
+		existingConfig, readErr := os.ReadFile(DefaultSMBConfigPath)
+
+		// If we have an existing config and can read it
+		if readErr == nil && len(existingConfig) > 0 {
+			// Parse out non-share sections and preserve them
+			nonShareSections, preservedShares := preserveSpecialSections(string(existingConfig))
+
+			// Add special sections after the global section
+			if nonShareSections != "" {
+				content.WriteString(nonShareSections)
+				content.WriteString("\n\n")
+			}
+
+			// Add preserved shares at the end
+			if preservedShares != "" {
+				content.WriteString("# Preserved shares from existing smb.conf\n")
+				content.WriteString(preservedShares)
+			}
+
+			// Write updated config
+			if err := os.WriteFile(DefaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
+				return errors.Wrap(err, errors.SharesOperationFailed).
+					WithMetadata("operation", "write_config")
+			}
+
+			return nil
+		}
+	}
+
+	// Standard path for rodent-managed shares
 
 	// Append each share configuration
 	content.WriteString(
@@ -933,6 +1098,91 @@ func (m *Manager) updateMainConfig() error {
 	}
 
 	return nil
+}
+
+// preserveSpecialSections extracts special sections from smb.conf that should be preserved
+// Returns two strings: non-share special sections and non-rodent managed shares
+func preserveSpecialSections(content string) (string, string) {
+	var specialSections strings.Builder
+	var preservedShares strings.Builder
+
+	// Regular expressions for parsing
+	sectionRegex := regexp.MustCompile(`\[(.*?)\]`)
+
+	// Split content into lines and process by section
+	lines := strings.Split(content, "\n")
+
+	var currentSection string
+	var sectionContent strings.Builder
+	var inRodentSection bool
+
+	for _, line := range lines {
+		// Check for section header
+		if matches := sectionRegex.FindStringSubmatch(line); len(matches) > 1 {
+			// Process previous section
+			if sectionContent.Len() > 0 {
+				sectionData := sectionContent.String()
+
+				// Add to appropriate output
+				if inRodentSection {
+					// Don't preserve Rodent sections
+				} else if currentSection == "global" ||
+					currentSection == "homes" ||
+					currentSection == "printers" ||
+					currentSection == "print$" {
+					// Special sections but not global (which is handled separately)
+					if currentSection != "global" {
+						specialSections.WriteString("[" + currentSection + "]\n")
+						specialSections.WriteString(sectionData)
+						specialSections.WriteString("\n\n")
+					}
+				} else {
+					// Regular shares not managed by Rodent
+					preservedShares.WriteString("[" + currentSection + "]\n")
+					preservedShares.WriteString(sectionData)
+					preservedShares.WriteString("\n\n")
+				}
+			}
+
+			// Start new section
+			currentSection = matches[1]
+			sectionContent.Reset()
+
+			// Check if managed by Rodent
+			inRodentSection = strings.Contains(line, "managed by StrataSTOR Rodent")
+			continue
+		}
+
+		// Add line to current section content
+		if currentSection != "" && !inRodentSection {
+			sectionContent.WriteString(line)
+			sectionContent.WriteString("\n")
+		}
+	}
+
+	// Handle the last section
+	if sectionContent.Len() > 0 && !inRodentSection {
+		sectionData := sectionContent.String()
+
+		if currentSection == "global" ||
+			currentSection == "homes" ||
+			currentSection == "printers" ||
+			currentSection == "print$" {
+			// Special sections but not global
+			if currentSection != "global" {
+				specialSections.WriteString("[" + currentSection + "]\n")
+				specialSections.WriteString(sectionData)
+				specialSections.WriteString("\n\n")
+			}
+		} else {
+			// Regular shares not managed by Rodent
+			preservedShares.WriteString("[" + currentSection + "]\n")
+			preservedShares.WriteString(sectionData)
+			preservedShares.WriteString("\n\n")
+		}
+	}
+
+	return specialSections.String(), preservedShares.String()
 }
 
 // generateShareConfig generates SMB configuration for a share
