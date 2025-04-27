@@ -278,6 +278,20 @@ func errorCodeToHTTPStatus(code ErrorCode) int {
 	return http.StatusInternalServerError
 }
 
+func GetHTTPStatus(err error) int {
+	if err == nil {
+		return http.StatusInternalServerError
+	}
+
+	// Check if the error is a RodentError
+	if re, ok := err.(*RodentError); ok {
+		return re.HTTPStatus
+	}
+
+	// If not a RodentError, return internal server error
+	return http.StatusInternalServerError
+}
+
 // ErrorResponseWithPayload creates a CommandResponse with error information from a RodentError
 func ErrorResponseWithPayload(requestID string, err error, payload []byte) *proto.CommandResponse {
 	var rodentErr *RodentError

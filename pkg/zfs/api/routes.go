@@ -124,6 +124,11 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 				h.rollbackSnapshot)
 		}
 
+		// Auto-snapshot operations - register the auto-snapshot routes
+		// This initializes the snapshot manager and registers all the routes
+		// under the /dataset/autosnapshot path
+		_ = RegisterAutoSnapshotRoutes(dataset, h.manager)
+
 		// Clone operations
 		clone := dataset.Group("/clone")
 		{

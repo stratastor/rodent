@@ -28,6 +28,7 @@ const (
 	DomainLifecycle Domain = "LIFECYCLE"
 	DomainAD        Domain = "AD"
 	DomainShares    Domain = "SHARES"
+	DomainMisc      Domain = "MISC"
 )
 
 // ErrorCode represents unique error identifiers
@@ -79,6 +80,9 @@ const (
 	ConfigMarshalFailed                    // Config serialization failed
 	ConfigUnmarshalFailed                  // Config deserialization failed
 	ConfigHomeDirectoryError               // Error getting home directory
+	ConfigReadError                        // Error reading config
+	ConfigWriteError                       // Error writing config
+	ConfigParseError                       // Error parsing config
 )
 const (
 	// Server Errors (1100-1199)
@@ -131,6 +135,7 @@ const (
 	ZFSPoolNotFound                   // Pool not found
 	ZFSPermissionDenied               // Permission denied
 	ZFSPropertyError                  // Property operation failed
+	SchedulerError                    // Scheduler error
 	ZFSPropertyValueTooLong
 	ZFSInvalidPropertyValue
 	ZFSMountError // Mount operation failed
@@ -143,6 +148,7 @@ const (
 	ZFSQuotaExceeded
 	ZFSQuotaInvalid
 	ZFSPermissionError
+	ZFSRequestValidationError
 
 	ZFSNameLeadingSlash
 	ZFSNameEmptyComponent
@@ -183,6 +189,7 @@ const (
 	ZFSSnapshotFailed // Snapshot operation failed
 	ZFSSnapshotInvalidName
 	ZFSSnapshotInvalidProperty
+	ZFSSnapshotPolicyError // Auto-snapshot policy operation failed
 
 	ZFSBookmarkFailed
 	ZFSBookmarkInvalidName
@@ -257,6 +264,8 @@ const (
 const (
 	// Rodent Errors (1600-1699)
 	RodentMisc = 1600 + iota // Miscellaneous program error
+	FSError
+	NotFoundError // Not found error
 )
 
 const (
@@ -330,6 +339,21 @@ var errorDefinitions = map[ErrorCode]struct {
 	},
 	ConfigHomeDirectoryError: {
 		"Failed to get home directory",
+		DomainConfig,
+		http.StatusInternalServerError,
+	},
+	ConfigReadError: {
+		"Error reading configuration",
+		DomainConfig,
+		http.StatusInternalServerError,
+	},
+	ConfigWriteError: {
+		"Error writing configuration",
+		DomainConfig,
+		http.StatusInternalServerError,
+	},
+	ConfigParseError: {
+		"Error parsing configuration",
 		DomainConfig,
 		http.StatusInternalServerError,
 	},
@@ -516,6 +540,11 @@ var errorDefinitions = map[ErrorCode]struct {
 		DomainZFS,
 		http.StatusInternalServerError,
 	},
+	SchedulerError: {
+		"Scheduler operation failed",
+		DomainZFS,
+		http.StatusInternalServerError,
+	},
 	ZFSPropertyValueTooLong: {"ZFS property value too long ", DomainZFS, http.StatusBadRequest},
 	ZFSInvalidPropertyValue: {"ZFS invalid property value", DomainZFS, http.StatusBadRequest},
 	ZFSMountError: {
@@ -534,6 +563,11 @@ var errorDefinitions = map[ErrorCode]struct {
 		http.StatusForbidden,
 	},
 	ZFSInvalidSize: {"Invalid size specified", DomainZFS, http.StatusBadRequest},
+	ZFSRequestValidationError: {
+		"ZFS validation error",
+		DomainZFS,
+		http.StatusBadRequest,
+	},
 
 	ZFSBookmarkFailed: {
 		"Failed to create/list bookmark",
@@ -605,6 +639,11 @@ var errorDefinitions = map[ErrorCode]struct {
 		"Invalid snapshot property value",
 		DomainZFS,
 		http.StatusBadRequest,
+	},
+	ZFSSnapshotPolicyError: {
+		"Auto-snapshot policy operation failed",
+		DomainZFS,
+		http.StatusInternalServerError,
 	},
 
 	ZFSBookmarkInvalidName: {"Invalid bookmark name", DomainZFS, http.StatusBadRequest},
@@ -747,7 +786,9 @@ var errorDefinitions = map[ErrorCode]struct {
 	},
 
 	// Rodent errors
-	RodentMisc: {"Miscellaneous program error", DomainLifecycle, http.StatusInternalServerError},
+	RodentMisc:    {"Miscellaneous program error", DomainLifecycle, http.StatusInternalServerError},
+	FSError:       {"Filesystem error", DomainMisc, http.StatusInternalServerError},
+	NotFoundError: {"Not found", DomainMisc, http.StatusNotFound},
 
 	// ACL errors
 	FACLInvalidInput: {
