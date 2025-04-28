@@ -77,7 +77,7 @@ func (m *Manager) List(ctx context.Context, cfg ListConfig) (ListResult, error) 
 		args = append(args, "-r")
 	}
 	if cfg.Depth != "" {
-		args = append(args, "-d", fmt.Sprintf("%s", cfg.Depth))
+		args = append(args, "-d", cfg.Depth)
 	}
 	if len(cfg.Properties) > 0 {
 		args = append(args, "-o", strings.Join(cfg.Properties, ","))
@@ -125,6 +125,9 @@ func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) (DestroyResult,
 	if dc.RecursiveDestroyDependents {
 		args = append(args, "-R")
 	}
+	if dc.DeferDestroy {
+		args = append(args, "-d")
+	}
 	if dc.Force {
 		args = append(args, "-f")
 	}
@@ -146,8 +149,8 @@ func (m *Manager) Destroy(ctx context.Context, dc DestroyConfig) (DestroyResult,
 	}
 
 	// Parse output lines
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(out), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

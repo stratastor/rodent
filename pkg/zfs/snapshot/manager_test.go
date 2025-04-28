@@ -327,7 +327,7 @@ func TestNewSnapshotPolicy(t *testing.T) {
 	// Test with empty name pattern
 	params.SnapNamePattern = ""
 	policy = NewSnapshotPolicy(params)
-	assert.Equal(t, "auto-%Y-%m-%d-%H%M%S", policy.SnapNamePattern)
+	assert.Equal(t, "autosnap-test-policy-%Y-%m-%d-%H%M%S", policy.SnapNamePattern)
 
 	// Test with custom name pattern
 	params.SnapNamePattern = "custom-%Y%m%d"
@@ -388,6 +388,7 @@ func TestManager_Integration(t *testing.T) {
 	if testFS == "" {
 		t.Skip("Skipping integration test - RODENT_TEST_FS environment variable not set")
 	}
+	t.Logf("Using test filesystem: %s", testFS)
 
 	// Create a temp dir for config
 	tempDir, err := os.MkdirTemp("", "snapshot-test-")
@@ -401,9 +402,12 @@ func TestManager_Integration(t *testing.T) {
 	// Test constructor
 	manager, err := NewManager(dsManager)
 	require.NoError(t, err)
+	t.Logf("Created manager: %+v", manager)
 
 	// Override config path for testing
-	manager.configPath = filepath.Join(tempDir, "test-config.yml")
+	// manager.configPath = filepath.Join(tempDir, "test-config.yml")
+	manager.setConfigPath(filepath.Join(tempDir, "test-config.yml"))
+	t.Logf("Using config path: %s", manager.configPath)
 
 	// Test adding a policy
 	params := EditPolicyParams{
@@ -474,7 +478,9 @@ func TestManager_Integration(t *testing.T) {
 	assert.Equal(t, updateParams.RetentionPolicy.Count, updatedPolicy.RetentionPolicy.Count)
 
 	// Only run the snapshot test if RUN_SNAPSHOT_TEST is set
-	if os.Getenv("RUN_SNAPSHOT_TEST") == "1" {
+	if runTest := os.Getenv("RUN_SNAPSHOT_TEST"); runTest != "" && runTest != "0" &&
+		runTest != "false" {
+		t.Logf("Running snapshot test for policy ID: %s", policyID)
 		// Test running the policy
 		runParams := RunPolicyParams{
 			ID:            policyID,

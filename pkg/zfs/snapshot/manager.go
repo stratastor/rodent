@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
+	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -32,17 +34,21 @@ const (
 
 // Manager implements the SchedulerInterface for managing ZFS auto-snapshots
 type Manager struct {
-	configPath      string
-	config          SnapshotConfig
-	dsManager       *dataset.Manager
-	scheduler       gocron.Scheduler
-	jobMapping      map[string][]string // Maps policyID to list of job IDs
-	lastErrorBackup time.Time
-	mu              sync.RWMutex
+	logger     logger.Logger
+	configPath string
+	config     SnapshotConfig
+	dsManager  *dataset.Manager
+	scheduler  gocron.Scheduler
+	jobMapping map[string][]string // Maps policyID to list of job IDs
+	mu         sync.RWMutex
 }
 
 // NewManager creates a new snapshot manager
 func NewManager(dsManager *dataset.Manager) (*Manager, error) {
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "snapshot")
+	if err != nil {
+		return nil, errors.Wrap(err, errors.LoggerError)
+	}
 	// Ensure the config directory exists
 	configDir := constants.SystemConfigDir
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -58,6 +64,7 @@ func NewManager(dsManager *dataset.Manager) (*Manager, error) {
 	}
 
 	manager := &Manager{
+		logger:     l,
 		configPath: configPath,
 		dsManager:  dsManager,
 		scheduler:  scheduler,
@@ -69,6 +76,11 @@ func NewManager(dsManager *dataset.Manager) (*Manager, error) {
 	}
 
 	return manager, nil
+}
+
+// setConfigPath sets the config path for the manager. This is useful for testing.
+func (m *Manager) setConfigPath(path string) {
+	m.configPath = path
 }
 
 // createJob creates a gocron job for the given policy and schedule
@@ -203,7 +215,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		// Note: Interval is not supported for yearly schedules with CronJob
 		// Cron expression with seconds: second minute hour day month day-of-week
 		hour, min, sec := parseAtTime(schedule.AtTime)
-		cronExpr := fmt.Sprintf("%d %d %d %d %d *", 
+		cronExpr := fmt.Sprintf("%d %d %d %d %d *",
 			sec, min, hour, schedule.DayOfMonth, int(schedule.Month))
 		jobDef = gocron.CronJob(
 			cronExpr,
@@ -265,15 +277,15 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 
 		// Increment run count
 		monitor.RunCount++
-		
-		// If this job has a limited number of runs and we've reached the limit, 
+
+		// If this job has a limited number of runs and we've reached the limit,
 		// mark it as completed
 		if schedule.LimitedRuns > 0 && monitor.RunCount >= schedule.LimitedRuns {
 			monitor.Status = "completed"
 		} else {
 			monitor.Status = "success"
 		}
-		
+
 		m.config.Monitors[policy.ID] = monitor
 	})
 
@@ -332,7 +344,7 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 			ScheduleIndex: scheduleIndex,
 		}, errors.New(errors.NotFoundError, "policy not found")
 	}
-	
+
 	// Validate scheduleIndex is within range
 	if scheduleIndex >= len(policy.Schedules) {
 		return CreateSnapshotResult{
@@ -421,9 +433,8 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 	// Get all snapshots for this dataset
 	ctx := context.Background()
 	listCfg := dataset.ListConfig{
-		Name:      policy.Dataset,
-		Type:      "snapshot",
-		Recursive: policy.Recursive,
+		Name: policy.Dataset,
+		Type: "snapshot",
 	}
 
 	result, err := m.dsManager.List(ctx, listCfg)
@@ -501,6 +512,10 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 					Name: snap.Name,
 				},
 				Force: policy.RetentionPolicy.ForceDestroy,
+				// TODO: Support DeferDestroy in the SnapshotPolicy
+				DeferDestroy: true,
+				// TODO: Support RecursiveDestroyDependents in the SnapshotPolicy
+				RecursiveDestroyChildren: policy.Recursive,
 			}
 
 			_, err := m.dsManager.Destroy(ctx, destroyCfg)
@@ -745,12 +760,12 @@ func (m *Manager) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error
 	// Check schedule index
 	if params.ScheduleIndex >= len(policy.Schedules) {
 		return CreateSnapshotResult{
-			PolicyID:      params.ID,
-			ScheduleIndex: params.ScheduleIndex,
-		}, errors.New(
-			errors.ZFSRequestValidationError,
-			"schedule index out of range",
-		)
+				PolicyID:      params.ID,
+				ScheduleIndex: params.ScheduleIndex,
+			}, errors.New(
+				errors.ZFSRequestValidationError,
+				"schedule index out of range",
+			)
 	}
 
 	// Create snapshot
@@ -925,6 +940,9 @@ func (m *Manager) SaveConfig() error {
 				time.Now().Format(defaultErrorBackupFmt),
 			)
 			if backupErr := os.WriteFile(backupPath, currentData, 0644); backupErr != nil {
+				m.logger.Error("Failed to create backup of current config",
+					"error", backupErr,
+					"path", backupPath)
 				// Log but continue
 			}
 		}

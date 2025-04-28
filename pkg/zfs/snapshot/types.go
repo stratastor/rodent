@@ -161,7 +161,7 @@ func NewSnapshotPolicy(params EditPolicyParams) SnapshotPolicy {
 	}
 
 	if policy.SnapNamePattern == "" {
-		policy.SnapNamePattern = "auto-%Y-%m-%d-%H%M%S"
+		policy.SnapNamePattern = fmt.Sprintf("autosnap-%s-%%Y-%%m-%%d-%%H%%M%%S", params.Name)
 	}
 
 	return policy

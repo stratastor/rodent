@@ -266,6 +266,7 @@ const (
 	RodentMisc = 1600 + iota // Miscellaneous program error
 	FSError
 	NotFoundError // Not found error
+	LoggerError   // Logger error
 )
 
 const (
@@ -789,6 +790,11 @@ var errorDefinitions = map[ErrorCode]struct {
 	RodentMisc:    {"Miscellaneous program error", DomainLifecycle, http.StatusInternalServerError},
 	FSError:       {"Filesystem error", DomainMisc, http.StatusInternalServerError},
 	NotFoundError: {"Not found", DomainMisc, http.StatusNotFound},
+	LoggerError: {
+		"Logger error",
+		DomainMisc,
+		http.StatusInternalServerError,
+	},
 
 	// ACL errors
 	FACLInvalidInput: {

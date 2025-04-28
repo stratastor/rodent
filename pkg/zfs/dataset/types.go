@@ -87,8 +87,12 @@ type DestroyConfig struct {
 	NameConfig
 	RecursiveDestroyDependents bool `json:"recursive_destroy_dependents"` // Recursively destroy  all  dependents,  including  cloned file systems outside the target hierarchy
 	RecursiveDestroyChildren   bool `json:"recursive_destroy_children"`   // Recursively destroy all children
-	Force                      bool `json:"force"`
-	DryRun                     bool `json:"dry_run"`
+	// DeferDestroy: Rather than returning error if the given snapshot is ineligible for
+	// immediate destruction, mark it for deferred, automatic destruction once
+	//  it becomes eligible.
+	DeferDestroy bool `json:"defer_destroy"`
+	Force        bool `json:"force"`
+	DryRun       bool `json:"dry_run"`
 }
 
 // DestroyResult represents the output of a destroy operation

@@ -205,46 +205,11 @@ func LoadConfig(configFilePath string) *Config {
 			l.Info("Config file loaded successfully", "path", viper.ConfigFileUsed())
 			configPath = viper.ConfigFileUsed()
 
-			// Handle case-sensitivity in YAML - check if upper-case AD is used
-			if viper.IsSet("AD") {
-				l.Info("Detected uppercase AD section, fixing case-sensitivity issues")
-
-				// Copy uppercase AD values to lowercase ad
-				if adPwd := viper.GetString("AD.adminPassword"); adPwd != "" {
-					viper.Set("ad.adminPassword", adPwd)
-				}
-				if adURL := viper.GetString("AD.ldapURL"); adURL != "" {
-					viper.Set("ad.ldapURL", adURL)
-				}
-				if adBaseDN := viper.GetString("AD.baseDN"); adBaseDN != "" {
-					viper.Set("ad.baseDN", adBaseDN)
-				}
-				if adAdminDN := viper.GetString("AD.adminDN"); adAdminDN != "" {
-					viper.Set("ad.adminDN", adAdminDN)
-				}
-
-				// Update config on disk to fix the case issue
-				var fixedCfg Config
-				if err := viper.Unmarshal(&fixedCfg); err != nil {
-					l.Error("Failed to unmarshal fixed config", "err", err)
-				} else {
-					// Save instance before writing to disk
-					instance = &fixedCfg
-
-					// Write corrected config back to system path
-					l.Info("Saving case-corrected config to system path", "path", systemConfigPath)
-					if err := SaveConfig(systemConfigPath); err != nil {
-						l.Error("Failed to save case-corrected configuration", "err", err)
-					}
-				}
+			var cfg Config
+			if err := viper.Unmarshal(&cfg); err != nil {
+				l.Error("Failed to parse configuration", "err", err)
 			} else {
-				// Normal case - unmarshal config
-				var cfg Config
-				if err := viper.Unmarshal(&cfg); err != nil {
-					l.Error("Failed to parse configuration", "err", err)
-				} else {
-					instance = &cfg
-				}
+				instance = &cfg
 			}
 		}
 
