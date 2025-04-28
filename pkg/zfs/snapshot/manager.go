@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"maps"
+
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 	"github.com/stratastor/logger"
@@ -44,25 +46,48 @@ type Manager struct {
 }
 
 // NewManager creates a new snapshot manager
-func NewManager(dsManager *dataset.Manager) (*Manager, error) {
+func NewManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
+	// Initialize logger
 	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "snapshot")
 	if err != nil {
 		return nil, errors.Wrap(err, errors.LoggerError)
 	}
+
+	l.Info("Initializing snapshot manager")
+
 	// Ensure the config directory exists
 	configDir := constants.SystemConfigDir
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if cfgDir != "" {
+		configDir = cfgDir
+	}
+
+	l.Debug("Ensuring config directory exists", "dir", configDir)
+	// Check if directory already exists before creation
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		l.Debug("Config directory does not exist, creating it", "dir", configDir)
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			l.Error("Failed to create config directory", "dir", configDir, "error", err)
+			return nil, errors.Wrap(err, errors.FSError).WithMetadata("path", configDir)
+		}
+	} else if err != nil {
+		l.Error("Failed to check config directory", "dir", configDir, "error", err)
 		return nil, errors.Wrap(err, errors.FSError).WithMetadata("path", configDir)
+	} else {
+		l.Debug("Config directory already exists", "dir", configDir)
 	}
 
 	configPath := filepath.Join(configDir, configFileName)
+	l.Debug("Using config path", "path", configPath)
 
 	// Create the scheduler with default options
+	l.Debug("Creating scheduler")
 	scheduler, err := gocron.NewScheduler()
 	if err != nil {
+		l.Error("Failed to create scheduler", "error", err)
 		return nil, errors.Wrap(err, errors.SchedulerError)
 	}
 
+	// Initialize the manager with empty config
 	manager := &Manager{
 		logger:     l,
 		configPath: configPath,
@@ -75,24 +100,36 @@ func NewManager(dsManager *dataset.Manager) (*Manager, error) {
 		},
 	}
 
+	l.Info("Snapshot manager initialized successfully")
 	return manager, nil
-}
-
-// setConfigPath sets the config path for the manager. This is useful for testing.
-func (m *Manager) setConfigPath(path string) {
-	m.configPath = path
 }
 
 // createJob creates a gocron job for the given policy and schedule
 func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, error) {
 	if scheduleIndex >= len(policy.Schedules) {
+		m.logger.Error("Schedule index out of range",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"schedules_len", len(policy.Schedules))
 		return "", errors.New(errors.ZFSRequestValidationError, "schedule index out of range")
 	}
 
 	schedule := policy.Schedules[scheduleIndex]
 	if !schedule.Enabled {
+		m.logger.Debug("Skipping disabled schedule",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"schedule_type", schedule.Type)
 		return "", nil // Skip disabled schedules
 	}
+
+	m.logger.Debug("Creating job for schedule",
+		"policy_id", policy.ID,
+		"policy_name", policy.Name,
+		"schedule_index", scheduleIndex,
+		"schedule_type", schedule.Type)
 
 	jobName := fmt.Sprintf(schedulerJobNameFmt, policy.ID, scheduleIndex)
 	jobOpts := []gocron.JobOption{
@@ -155,7 +192,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		m.mu.Unlock()
 
 		// Save config with updated monitor status
-		_ = m.SaveConfig()
+		_ = m.SaveConfig(false)
 
 		return result, err
 	}
@@ -247,6 +284,13 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		m.mu.Lock()
 		defer m.mu.Unlock()
 
+		m.logger.Debug("Before job run event triggered",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"job_id", jobID.String(),
+			"job_name", jobName)
+
 		// Update the monitor's status before the job runs
 		monitor, exists := m.config.Monitors[policy.ID]
 		if !exists {
@@ -266,6 +310,13 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		m.mu.Lock()
 		defer m.mu.Unlock()
 
+		m.logger.Debug("After job run event triggered",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"job_id", jobID.String(),
+			"job_name", jobName)
+
 		// Update the monitor with run count
 		monitor, exists := m.config.Monitors[policy.ID]
 		if !exists {
@@ -282,6 +333,12 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		// mark it as completed
 		if schedule.LimitedRuns > 0 && monitor.RunCount >= schedule.LimitedRuns {
 			monitor.Status = "completed"
+			m.logger.Info("Job reached limited runs limit",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name,
+				"schedule_index", scheduleIndex,
+				"run_count", monitor.RunCount,
+				"limited_runs", schedule.LimitedRuns)
 		} else {
 			monitor.Status = "success"
 		}
@@ -302,11 +359,25 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 	)
 
 	if err != nil {
+		m.logger.Error("Failed to create job",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"schedule_type", schedule.Type,
+			"error", err)
 		return "", errors.Wrap(err, errors.SchedulerError)
 	}
 
+	jobID := job.ID().String()
+	m.logger.Info("Created job successfully",
+		"policy_id", policy.ID,
+		"policy_name", policy.Name,
+		"schedule_index", scheduleIndex,
+		"schedule_type", schedule.Type,
+		"job_id", jobID)
+
 	// Return the job ID for mapping
-	return job.ID().String(), nil
+	return jobID, nil
 }
 
 // parseAtTime parses a time string in the format "HH:MM" or "HH:MM:SS"
@@ -326,6 +397,10 @@ func parseAtTime(atTime string) (hour, min, sec uint) {
 
 // createSnapshot creates a snapshot for the given policy and schedule
 func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnapshotResult, error) {
+	m.logger.Debug("Creating snapshot",
+		"policy_id", policyID,
+		"schedule_index", scheduleIndex)
+
 	m.mu.RLock()
 	var policy SnapshotPolicy
 	found := false
@@ -340,6 +415,9 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 	m.mu.RUnlock()
 
 	if !found {
+		m.logger.Error("Policy not found",
+			"policy_id", policyID,
+			"schedule_index", scheduleIndex)
 		return CreateSnapshotResult{
 			ScheduleIndex: scheduleIndex,
 		}, errors.New(errors.NotFoundError, "policy not found")
@@ -347,11 +425,22 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 
 	// Validate scheduleIndex is within range
 	if scheduleIndex >= len(policy.Schedules) {
+		m.logger.Error("Schedule index out of range",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"schedule_index", scheduleIndex,
+			"schedules_len", len(policy.Schedules))
 		return CreateSnapshotResult{
 			PolicyID:      policyID,
 			ScheduleIndex: scheduleIndex,
 		}, errors.New(errors.ZFSRequestValidationError, "schedule index out of range")
 	}
+
+	m.logger.Debug("Creating snapshot for dataset",
+		"policy_id", policyID,
+		"policy_name", policy.Name,
+		"dataset", policy.Dataset,
+		"schedule_index", scheduleIndex)
 
 	// Generate snapshot name based on pattern
 	snapName := expandSnapNamePattern(policy.SnapNamePattern, time.Now())
@@ -368,8 +457,20 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 
 	// Create the snapshot
 	ctx := context.Background()
+	m.logger.Debug("Calling dataset manager to create snapshot",
+		"policy_id", policyID,
+		"dataset", policy.Dataset,
+		"snap_name", snapName,
+		"recursive", policy.Recursive)
+
 	err := m.dsManager.CreateSnapshot(ctx, snapshotCfg)
 	if err != nil {
+		m.logger.Error("Failed to create snapshot",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"dataset", policy.Dataset,
+			"snap_name", snapName,
+			"error", err)
 		return CreateSnapshotResult{
 			PolicyID:      policyID,
 			ScheduleIndex: scheduleIndex,
@@ -377,6 +478,12 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 			Error:         err,
 		}, err
 	}
+
+	m.logger.Debug("Created snapshot successfully",
+		"policy_id", policyID,
+		"policy_name", policy.Name,
+		"dataset", policy.Dataset,
+		"snap_name", snapName)
 
 	// Update policy status
 	m.mu.Lock()
@@ -393,10 +500,23 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 	// Prune old snapshots if retention policy is set
 	prunedSnapshots := []string{}
 	if policy.RetentionPolicy.Count > 0 || policy.RetentionPolicy.OlderThan > 0 {
+		m.logger.Debug("Pruning old snapshots based on retention policy",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"dataset", policy.Dataset,
+			"retention_count", policy.RetentionPolicy.Count,
+			"retention_older_than", policy.RetentionPolicy.OlderThan)
+
 		prunedSnapshots, err = m.pruneSnapshots(policy)
 		if err != nil {
 			// Log the error but don't fail the snapshot creation
-			// For now, just update the error string
+			m.logger.Error("Snapshot pruning failed",
+				"policy_id", policyID,
+				"policy_name", policy.Name,
+				"dataset", policy.Dataset,
+				"error", err)
+
+			// Update the error string
 			m.mu.Lock()
 			for i, p := range m.config.Policies {
 				if p.ID == policyID {
@@ -408,12 +528,24 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 				}
 			}
 			m.mu.Unlock()
+		} else if len(prunedSnapshots) > 0 {
+			m.logger.Debug("Successfully pruned snapshots",
+				"policy_id", policyID,
+				"policy_name", policy.Name,
+				"dataset", policy.Dataset,
+				"pruned_count", len(prunedSnapshots))
 		}
 	}
 
 	// Save config after successful snapshot
-	if err := m.SaveConfig(); err != nil {
+	if err := m.SaveConfig(false); err != nil {
 		// Log but don't fail
+		m.logger.Error("Failed to save config after snapshot creation",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"dataset", policy.Dataset,
+			"snap_name", snapName,
+			"error", err)
 	}
 
 	return CreateSnapshotResult{
@@ -547,13 +679,26 @@ func expandSnapNamePattern(pattern string, t time.Time) string {
 
 // AddPolicy adds a new policy to the manager
 func (m *Manager) AddPolicy(params EditPolicyParams) (string, error) {
+	m.logger.Info("Adding new snapshot policy",
+		"name", params.Name,
+		"dataset", params.Dataset,
+		"schedules_count", len(params.Schedules))
+
 	// Create a new policy
 	policy := NewSnapshotPolicy(params)
 
 	// Validate the policy
 	if err := ValidatePolicy(policy); err != nil {
+		m.logger.Error("Policy validation failed",
+			"name", params.Name,
+			"dataset", params.Dataset,
+			"error", err)
 		return "", err
 	}
+
+	m.logger.Debug("Policy validation successful",
+		"id", policy.ID,
+		"name", policy.Name)
 
 	// Check if policy with the same ID already exists
 	m.mu.Lock()
@@ -561,12 +706,17 @@ func (m *Manager) AddPolicy(params EditPolicyParams) (string, error) {
 
 	for _, p := range m.config.Policies {
 		if p.ID == policy.ID {
+			m.logger.Error("Policy with same ID already exists",
+				"id", policy.ID,
+				"name", policy.Name)
 			return "", errors.New(
 				errors.ZFSRequestValidationError,
 				"policy with the same ID already exists",
 			)
 		}
 	}
+
+	m.logger.Debug("No duplicate policy found", "id", policy.ID)
 
 	// Add policy to the config
 	m.config.Policies = append(m.config.Policies, policy)
@@ -588,11 +738,37 @@ func (m *Manager) AddPolicy(params EditPolicyParams) (string, error) {
 		}
 	}
 
-	// Save the updated config
-	if err := m.SaveConfig(); err != nil {
-		return policy.ID, errors.Wrap(err, errors.ConfigWriteError)
+	// Save the updated config with a timeout to avoid hangs
+	m.logger.Debug("Adding policy: About to save config", "policy_id", policy.ID)
+
+	saveDone := make(chan error, 1)
+	go func() {
+		saveDone <- m.SaveConfig(true) // Skip lock since we already hold it
+	}()
+
+	// Wait for save with a timeout
+	select {
+	case err := <-saveDone:
+		if err != nil {
+			m.logger.Error("Failed to save config after adding policy",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name,
+				"error", err)
+			return policy.ID, errors.Wrap(err, errors.ConfigWriteError)
+		}
+		m.logger.Debug("Config save completed successfully", "policy_id", policy.ID)
+	case <-time.After(5 * time.Second):
+		m.logger.Error("Timeout while saving config after adding policy",
+			"policy_id", policy.ID,
+			"policy_name", policy.Name)
+		return policy.ID, errors.New(errors.ConfigWriteError, "timeout while saving config")
 	}
 
+	m.logger.Info("Successfully added policy",
+		"policy_id", policy.ID,
+		"policy_name", policy.Name,
+		"dataset", policy.Dataset,
+		"enabled_schedules", len(policy.Schedules))
 	return policy.ID, nil
 }
 
@@ -665,9 +841,30 @@ func (m *Manager) UpdatePolicy(params EditPolicyParams) error {
 		}
 	}
 
-	// Save the updated config
-	if err := m.SaveConfig(); err != nil {
-		return errors.Wrap(err, errors.ConfigWriteError)
+	// Save the updated config with a timeout to avoid hangs
+	m.logger.Debug("UpdatePolicy: About to save config", "policy_id", updatedPolicy.ID)
+
+	saveDone := make(chan error, 1)
+	go func() {
+		saveDone <- m.SaveConfig(true) // Skip lock since we already hold it
+	}()
+
+	// Wait for save with a timeout
+	select {
+	case err := <-saveDone:
+		if err != nil {
+			m.logger.Error("Failed to save config after updating policy",
+				"policy_id", updatedPolicy.ID,
+				"policy_name", updatedPolicy.Name,
+				"error", err)
+			return errors.Wrap(err, errors.ConfigWriteError)
+		}
+		m.logger.Debug("Config save completed successfully", "policy_id", updatedPolicy.ID)
+	case <-time.After(5 * time.Second):
+		m.logger.Error("Timeout while saving config after updating policy",
+			"policy_id", updatedPolicy.ID,
+			"policy_name", updatedPolicy.Name)
+		return errors.New(errors.ConfigWriteError, "timeout while saving config")
 	}
 
 	return nil
@@ -675,32 +872,52 @@ func (m *Manager) UpdatePolicy(params EditPolicyParams) error {
 
 // RemovePolicy removes a policy
 func (m *Manager) RemovePolicy(policyID string) error {
+	m.logger.Debug("Removing policy", "policy_id", policyID)
+
 	// Find the policy
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	policyIndex := -1
+	var policyName string
 	for i, p := range m.config.Policies {
 		if p.ID == policyID {
 			policyIndex = i
+			policyName = p.Name
 			break
 		}
 	}
 
 	if policyIndex == -1 {
+		m.logger.Warn("Policy not found for removal", "policy_id", policyID)
 		return errors.New(errors.NotFoundError, "policy not found")
 	}
 
+	m.logger.Debug("Found policy for removal",
+		"policy_id", policyID,
+		"policy_name", policyName,
+		"policy_index", policyIndex)
+
 	// Remove jobs for this policy
 	if jobIDs, ok := m.jobMapping[policyID]; ok {
+		m.logger.Debug("Removing jobs for policy",
+			"policy_id", policyID,
+			"jobs_count", len(jobIDs))
+
 		for _, jobID := range jobIDs {
 			jobUUID, parseErr := uuid.Parse(jobID)
 			if parseErr != nil {
-				// Log parse error but continue
+				m.logger.Warn("Failed to parse job UUID",
+					"job_id", jobID,
+					"error", parseErr)
 				continue
 			}
 			if err := m.scheduler.RemoveJob(jobUUID); err != nil {
-				// Log but continue
+				m.logger.Warn("Failed to remove job",
+					"job_id", jobID,
+					"error", err)
+			} else {
+				m.logger.Debug("Removed job successfully", "job_id", jobID)
 			}
 		}
 		delete(m.jobMapping, policyID)
@@ -710,15 +927,42 @@ func (m *Manager) RemovePolicy(policyID string) error {
 	m.config.Policies = append(
 		m.config.Policies[:policyIndex],
 		m.config.Policies[policyIndex+1:]...)
+	m.logger.Debug("Removed policy from config", "policy_id", policyID)
 
 	// Remove monitors for this policy
 	delete(m.config.Monitors, policyID)
+	m.logger.Debug("Removed monitors for policy", "policy_id", policyID)
 
-	// Save the updated config
-	if err := m.SaveConfig(); err != nil {
-		return errors.Wrap(err, errors.ConfigWriteError)
+	// Save the updated config with a timeout to avoid hangs
+	m.logger.Debug("RemovePolicy: About to save config", "policy_id", policyID)
+
+	saveDone := make(chan error, 1)
+	go func() {
+		saveDone <- m.SaveConfig(true) // Skip lock since we already hold it
+	}()
+
+	// Wait for save with a timeout
+	select {
+	case err := <-saveDone:
+		if err != nil {
+			m.logger.Error("Failed to save config after removing policy",
+				"policy_id", policyID,
+				"policy_name", policyName,
+				"error", err)
+			return errors.Wrap(err, errors.ConfigWriteError)
+		}
+		m.logger.Debug("Config save completed successfully after removing policy",
+			"policy_id", policyID)
+	case <-time.After(5 * time.Second):
+		m.logger.Error("Timeout while saving config after removing policy",
+			"policy_id", policyID,
+			"policy_name", policyName)
+		return errors.New(errors.ConfigWriteError, "timeout while saving config")
 	}
 
+	m.logger.Info("Successfully removed policy",
+		"policy_id", policyID,
+		"policy_name", policyName)
 	return nil
 }
 
@@ -779,26 +1023,54 @@ func (m *Manager) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error
 
 // Start starts the scheduler
 func (m *Manager) Start() error {
+	m.logger.Info("Starting snapshot scheduler")
+
 	// Load config first
 	if err := m.LoadConfig(); err != nil {
+		m.logger.Error("Failed to load config", "error", err)
 		return err
 	}
 
+	m.logger.Debug("Config loaded successfully")
+
 	// Create jobs for all enabled policies
 	m.mu.Lock()
+	enabledPolicyCount := 0
+	enabledScheduleCount := 0
+	createdJobCount := 0
+
 	for _, policy := range m.config.Policies {
 		if policy.Enabled {
+			enabledPolicyCount++
+			m.logger.Debug("Processing enabled policy",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name)
+
 			m.jobMapping[policy.ID] = []string{}
 			for j, schedule := range policy.Schedules {
 				if schedule.Enabled {
+					enabledScheduleCount++
+					m.logger.Debug("Creating job for enabled schedule",
+						"policy_id", policy.ID,
+						"policy_name", policy.Name,
+						"schedule_index", j,
+						"schedule_type", schedule.Type)
+
 					jobID, err := m.createJob(policy, j)
 					if err != nil {
 						m.mu.Unlock()
+						m.logger.Error("Failed to create job",
+							"policy_id", policy.ID,
+							"policy_name", policy.Name,
+							"schedule_index", j,
+							"schedule_type", schedule.Type,
+							"error", err)
 						return errors.Wrap(err, errors.SchedulerError).
 							WithMetadata("policy_id", policy.ID).
 							WithMetadata("schedule_index", fmt.Sprintf("%d", j))
 					}
 					if jobID != "" {
+						createdJobCount++
 						m.jobMapping[policy.ID] = append(m.jobMapping[policy.ID], jobID)
 					}
 				}
@@ -807,32 +1079,49 @@ func (m *Manager) Start() error {
 	}
 	m.mu.Unlock()
 
+	m.logger.Info("Created snapshot jobs",
+		"enabled_policies", enabledPolicyCount,
+		"enabled_schedules", enabledScheduleCount,
+		"created_jobs", createdJobCount)
+
 	// Start the scheduler
 	m.scheduler.Start()
+	m.logger.Info("Snapshot scheduler started")
 
 	return nil
 }
 
 // Stop stops the scheduler
 func (m *Manager) Stop() error {
+	m.logger.Info("Stopping snapshot scheduler")
+
 	// Stop the scheduler
 	err := m.scheduler.Shutdown()
 	if err != nil {
+		m.logger.Error("Failed to shut down scheduler", "error", err)
 		return errors.Wrap(err, errors.SchedulerError)
 	}
+	m.logger.Debug("Scheduler shut down successfully")
 
 	// Save the config
-	if err := m.SaveConfig(); err != nil {
+	if err := m.SaveConfig(false); err != nil {
+		m.logger.Error("Failed to save config during shutdown", "error", err)
 		return errors.Wrap(err, errors.ConfigWriteError)
 	}
 
+	m.logger.Info("Snapshot scheduler stopped successfully")
 	return nil
 }
 
 // LoadConfig loads the config from file
 func (m *Manager) LoadConfig() error {
+	m.logger.Debug("Loading config from file", "path", m.configPath)
+
 	// Check if config file exists
 	if _, err := os.Stat(m.configPath); os.IsNotExist(err) {
+		m.logger.Info("Config file does not exist, creating empty config",
+			"path", m.configPath)
+
 		// No config file, use empty config
 		m.mu.Lock()
 		m.config = SnapshotConfig{
@@ -842,25 +1131,42 @@ func (m *Manager) LoadConfig() error {
 		m.mu.Unlock()
 
 		// Create initial config file
-		return m.SaveConfig()
+		return m.SaveConfig(false)
 	}
 
 	// Read config file
 	data, err := os.ReadFile(m.configPath)
 	if err != nil {
+		m.logger.Error("Failed to read config file",
+			"path", m.configPath,
+			"error", err)
 		return errors.Wrap(err, errors.ConfigReadError)
 	}
+
+	m.logger.Debug("Read config file successfully",
+		"path", m.configPath,
+		"size", len(data))
 
 	// Unmarshal config
 	var config SnapshotConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
+		m.logger.Error("Failed to unmarshal config file",
+			"path", m.configPath,
+			"error", err)
+
 		// Backup the bad config file
 		backupPath := m.configPath + fmt.Sprintf(
 			errorFileSuffixFmt,
 			time.Now().Format(defaultErrorBackupFmt),
 		)
 		if backupErr := os.WriteFile(backupPath, data, 0644); backupErr != nil {
+			m.logger.Error("Failed to create backup of invalid config",
+				"backup_path", backupPath,
+				"error", backupErr)
 			// Log but continue
+		} else {
+			m.logger.Info("Created backup of invalid config",
+				"backup_path", backupPath)
 		}
 
 		// Use empty config
@@ -872,7 +1178,7 @@ func (m *Manager) LoadConfig() error {
 		m.mu.Unlock()
 
 		// Create new config file
-		saveErr := m.SaveConfig()
+		saveErr := m.SaveConfig(false)
 		if saveErr != nil {
 			return errors.Wrap(saveErr, errors.ConfigWriteError)
 		}
@@ -882,22 +1188,40 @@ func (m *Manager) LoadConfig() error {
 
 	// Validate all policies
 	var validPolicies []SnapshotPolicy
-	for _, policy := range config.Policies {
+	for i, policy := range config.Policies {
 		if err := ValidatePolicy(policy); err == nil {
 			validPolicies = append(validPolicies, policy)
 		} else {
-			// Log invalid policy but continue
+			m.logger.Warn("Invalid policy in config, skipping",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name,
+				"policy_index", i,
+				"error", err)
+			// Continue with other policies
 		}
 	}
 
+	m.logger.Debug("Validated policies",
+		"total_policies", len(config.Policies),
+		"valid_policies", len(validPolicies))
+
 	// If some policies were invalid, create a backup
 	if len(validPolicies) < len(config.Policies) {
+		m.logger.Info("Some policies are invalid, creating backup and using only valid policies",
+			"invalid_count", len(config.Policies)-len(validPolicies))
+
 		backupPath := m.configPath + fmt.Sprintf(
 			errorFileSuffixFmt,
 			time.Now().Format(defaultErrorBackupFmt),
 		)
 		if backupErr := os.WriteFile(backupPath, data, 0644); backupErr != nil {
+			m.logger.Error("Failed to create backup of config with invalid policies",
+				"backup_path", backupPath,
+				"error", backupErr)
 			// Log but continue
+		} else {
+			m.logger.Info("Created backup of config with invalid policies",
+				"backup_path", backupPath)
 		}
 
 		// Update config with only valid policies
@@ -911,47 +1235,93 @@ func (m *Manager) LoadConfig() error {
 
 	// If any policies were filtered out, save the valid config
 	if len(validPolicies) < len(config.Policies) {
-		if saveErr := m.SaveConfig(); saveErr != nil {
+		m.logger.Info("Saving config with only valid policies")
+		if saveErr := m.SaveConfig(false); saveErr != nil {
+			m.logger.Error("Failed to save config with valid policies", "error", saveErr)
 			return errors.Wrap(saveErr, errors.ConfigWriteError)
 		}
 	}
 
+	m.logger.Info("Successfully loaded config",
+		"path", m.configPath,
+		"policies_count", len(m.config.Policies),
+		"monitors_count", len(m.config.Monitors))
 	return nil
 }
 
 // SaveConfig saves the config to file
-func (m *Manager) SaveConfig() error {
-	m.mu.RLock()
+// If skipLock is true, the method assumes the caller already holds the lock
+// and will skip acquiring it to avoid deadlocks
+func (m *Manager) SaveConfig(skipLock bool) error {
+	m.logger.Debug("SaveConfig: Starting", "path", m.configPath)
+
+	// Check if we should skip lock acquisition
+	if skipLock {
+		m.logger.Debug("SaveConfig: Skipping lock acquisition as requested")
+	}
+
+	// Take a copy of the config under lock (or use directly if lock already held)
+	var configCopy SnapshotConfig
+
+	if !skipLock {
+		// Standard path - acquire lock ourselves
+		m.mu.RLock()
+		m.logger.Debug("SaveConfig: Acquired read lock")
+
+		// Create a deep copy of the config
+		configCopy = SnapshotConfig{
+			Policies: make([]SnapshotPolicy, len(m.config.Policies)),
+			Monitors: make(map[string]JobMonitor, len(m.config.Monitors)),
+		}
+
+		// Copy policies
+		copy(configCopy.Policies, m.config.Policies)
+
+		// Copy monitors
+		maps.Copy(configCopy.Monitors, m.config.Monitors)
+
+		m.mu.RUnlock()
+		m.logger.Debug("SaveConfig: Released read lock")
+	} else {
+		// Lock is already held by caller - use the config directly
+		// Create a deep copy of the config without acquiring lock
+		configCopy = SnapshotConfig{
+			Policies: make([]SnapshotPolicy, len(m.config.Policies)),
+			Monitors: make(map[string]JobMonitor, len(m.config.Monitors)),
+		}
+
+		// Copy policies
+		copy(configCopy.Policies, m.config.Policies)
+
+		// Copy monitors
+		maps.Copy(configCopy.Monitors, m.config.Monitors)
+	}
+
+	m.logger.Debug("SaveConfig: Config copy taken",
+		"policies_count", len(configCopy.Policies),
+		"monitors_count", len(configCopy.Monitors))
 
 	// Marshal config to YAML
-	data, err := yaml.Marshal(m.config)
-	m.mu.RUnlock()
-
+	data, err := yaml.Marshal(configCopy)
 	if err != nil {
+		m.logger.Error("SaveConfig: Marshal failed", "error", err)
 		return errors.Wrap(err, errors.ConfigWriteError)
 	}
 
-	// Create backup of current config
-	if _, err := os.Stat(m.configPath); err == nil {
-		currentData, readErr := os.ReadFile(m.configPath)
-		if readErr == nil {
-			backupPath := m.configPath + fmt.Sprintf(
-				backupFileSuffixFmt,
-				time.Now().Format(defaultErrorBackupFmt),
-			)
-			if backupErr := os.WriteFile(backupPath, currentData, 0644); backupErr != nil {
-				m.logger.Error("Failed to create backup of current config",
-					"error", backupErr,
-					"path", backupPath)
-				// Log but continue
-			}
-		}
-	}
+	m.logger.Debug("SaveConfig: Marshaled config", "size", len(data))
 
-	// Write config file
+	// Write to file directly
+	m.logger.Debug("SaveConfig: Writing to file", "path", m.configPath)
 	if err := os.WriteFile(m.configPath, data, 0644); err != nil {
+		m.logger.Error("SaveConfig: Write failed",
+			"path", m.configPath,
+			"error", err)
 		return errors.Wrap(err, errors.ConfigWriteError)
 	}
 
+	m.logger.Debug("SaveConfig: Successfully saved config file",
+		"path", m.configPath,
+		"size", len(data),
+		"policies_count", len(configCopy.Policies))
 	return nil
 }

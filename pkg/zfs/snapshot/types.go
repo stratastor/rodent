@@ -133,7 +133,7 @@ type SchedulerInterface interface {
 	Start() error
 	Stop() error
 	LoadConfig() error
-	SaveConfig() error
+	SaveConfig(skipLock bool) error
 }
 
 // NewSnapshotPolicy creates a new snapshot policy with default values

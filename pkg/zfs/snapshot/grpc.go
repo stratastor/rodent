@@ -17,7 +17,7 @@ type GRPCHandler struct {
 
 // NewGRPCHandler creates a new snapshot gRPC handler
 func NewGRPCHandler(dsManager *dataset.Manager) (*GRPCHandler, error) {
-	manager, err := NewManager(dsManager)
+	manager, err := NewManager(dsManager, "")
 	if err != nil {
 		return nil, err
 	}

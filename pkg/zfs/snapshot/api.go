@@ -22,7 +22,7 @@ type Handler struct {
 
 // NewHandler creates a new snapshot handler
 func NewHandler(dsManager *dataset.Manager) (*Handler, error) {
-	manager, err := NewManager(dsManager)
+	manager, err := NewManager(dsManager, "")
 	if err != nil {
 		return nil, err
 	}

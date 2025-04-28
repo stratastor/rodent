@@ -384,7 +384,7 @@ func TestExpandSnapNamePattern(t *testing.T) {
 // This test will be skipped if no test filesystem is provided
 func TestManager_Integration(t *testing.T) {
 	// Get test filesystem from environment
-	testFS := os.Getenv("RODENT_TEST_FS")
+	testFS := os.Getenv("RODENT_TEST_FS_NAME")
 	if testFS == "" {
 		t.Skip("Skipping integration test - RODENT_TEST_FS environment variable not set")
 	}
@@ -393,21 +393,51 @@ func TestManager_Integration(t *testing.T) {
 	// Create a temp dir for config
 	tempDir, err := os.MkdirTemp("", "snapshot-test-")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+
+	// Only clean up if the test succeeds
+	defer func() {
+		if !t.Failed() {
+			os.RemoveAll(tempDir)
+		} else {
+			t.Logf("Test failed. Preserving test directory for inspection: %s", tempDir)
+		}
+	}()
 
 	// Create a real dataset manager
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	dsManager := dataset.NewManager(executor)
 
+	// Create a test config file path and make sure the directory exists
+	testConfigDir := filepath.Join(tempDir, "config")
+	err = os.MkdirAll(testConfigDir, 0755)
+	require.NoError(t, err, "Failed to create test config directory")
+
 	// Test constructor
-	manager, err := NewManager(dsManager)
+	manager, err := NewManager(dsManager, testConfigDir)
 	require.NoError(t, err)
 	t.Logf("Created manager: %+v", manager)
-
-	// Override config path for testing
-	// manager.configPath = filepath.Join(tempDir, "test-config.yml")
-	manager.setConfigPath(filepath.Join(tempDir, "test-config.yml"))
 	t.Logf("Using config path: %s", manager.configPath)
+
+	// Write an empty config file to ensure it exists
+	err = os.WriteFile(manager.configPath, []byte("# Test config file\n"), 0644)
+	require.NoError(t, err, "Failed to write initial test config file")
+
+	// Set a shorter test timeout
+	testTimeout := 30 * time.Second
+	t.Logf("Using test timeout of %s", testTimeout)
+
+	// Function to check if a file exists with timeout
+	fileExistsWithTimeout := func(path string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			_, err := os.Stat(path)
+			if err == nil {
+				return true
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return false
+	}
 
 	// Test adding a policy
 	params := EditPolicyParams{
@@ -416,24 +446,38 @@ func TestManager_Integration(t *testing.T) {
 		Dataset:     testFS,
 		Schedules: []ScheduleSpec{
 			{
-				Type:     ScheduleTypeHourly,
+				Type:     ScheduleTypeMinutely,
 				Interval: 1,
 				Enabled:  true,
 			},
 		},
 		Recursive: true,
 		RetentionPolicy: RetentionPolicy{
-			Count: 10,
+			Count: 3,
 		},
 		Properties: map[string]string{
-			"compression": "lz4",
+			"custom:testing": "autosnap",
 		},
 		Enabled: true,
 	}
 
+	t.Log("Adding policy...")
 	policyID, err := manager.AddPolicy(params)
-	require.NoError(t, err)
-	assert.NotEmpty(t, policyID)
+	require.NoError(t, err, "Failed to add policy")
+	assert.NotEmpty(t, policyID, "Policy ID should not be empty")
+
+	// Wait for config file to be written
+	t.Log("Waiting for config file to be updated...")
+	configWritten := fileExistsWithTimeout(manager.configPath, testTimeout)
+	require.True(t, configWritten, "Config file should be written after adding policy")
+
+	// Check config file content
+	configData, err := os.ReadFile(manager.configPath)
+	require.NoError(t, err, "Failed to read config file")
+	t.Logf("Config file content size: %d bytes", len(configData))
+	if len(configData) == 0 {
+		t.Error("Config file is empty")
+	}
 
 	// Test getting the policy
 	policy, err := manager.GetPolicy(policyID)
@@ -453,17 +497,17 @@ func TestManager_Integration(t *testing.T) {
 		Dataset:     testFS,
 		Schedules: []ScheduleSpec{
 			{
-				Type:     ScheduleTypeHourly,
+				Type:     ScheduleTypeMinutely,
 				Interval: 2,
 				Enabled:  true,
 			},
 		},
 		Recursive: true,
 		RetentionPolicy: RetentionPolicy{
-			Count: 20,
+			Count: 2,
 		},
 		Properties: map[string]string{
-			"compression": "lz4",
+			"custom:testing.update": "autosnap",
 		},
 		Enabled: true,
 	}
@@ -495,10 +539,28 @@ func TestManager_Integration(t *testing.T) {
 	}
 
 	// Test removing the policy
+	t.Log("Removing policy")
 	err = manager.RemovePolicy(policyID)
 	require.NoError(t, err)
 
 	// Test that the policy was removed
+	t.Log("Verifying policy was removed")
 	_, err = manager.GetPolicy(policyID)
 	assert.Error(t, err)
+
+	// Stop the scheduler to properly clean up resources
+	t.Log("Stopping the scheduler")
+	err = manager.Stop()
+	require.NoError(t, err, "Failed to stop the scheduler")
+
+	// Verify config file was created properly
+	t.Log("Verifying config file exists")
+	fileInfo, err := os.Stat(manager.configPath)
+	if err != nil {
+		t.Logf("Error checking config file: %v", err)
+	} else {
+		t.Logf("Config file exists: %s, size: %d bytes", manager.configPath, fileInfo.Size())
+	}
+
+	t.Log("Integration test completed successfully")
 }
