@@ -43,16 +43,12 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 			policies.POST("",
 				ValidateSnapshotPolicyConfig(),
 				h.createPolicy)
-		}
-
-		policy := autosnapshots.Group("/policy")
-		{
-			policy.GET("/:id", h.getPolicy)
-			policy.PUT("/:id",
+			policies.GET("/:id", h.getPolicy)
+			policies.PUT("/:id",
 				ValidateSnapshotPolicyConfig(),
 				h.updatePolicy)
-			policy.DELETE("/:id", h.deletePolicy)
-			policy.POST("/:id/run",
+			policies.DELETE("/:id", h.deletePolicy)
+			policies.POST("/:id/run",
 				ValidateRunPolicyParams(),
 				h.runPolicy)
 		}
@@ -213,33 +209,14 @@ func (h *Handler) runPolicy(c *gin.Context) {
 		return
 	}
 
-	// Get optional schedule index
-	scheduleIndexStr := c.DefaultQuery("schedule_index", "0")
-	scheduleIndex, err := strconv.Atoi(scheduleIndexStr)
-	if err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			errors.New(errors.ZFSRequestValidationError, "invalid schedule_index"),
-		)
+	var params RunPolicyParams
+	if err := c.ShouldBindJSON(&params); err != nil {
+		c.JSON(http.StatusBadRequest, errors.New(errors.ZFSRequestValidationError, err.Error()))
 		return
 	}
 
-	// Get optional dry run parameter
-	dryRunStr := c.DefaultQuery("dry_run", "false")
-	dryRun, err := strconv.ParseBool(dryRunStr)
-	if err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			errors.New(errors.ZFSRequestValidationError, "invalid dry_run value"),
-		)
-		return
-	}
-
-	params := RunPolicyParams{
-		ID:            id,
-		ScheduleIndex: scheduleIndex,
-		DryRun:        dryRun,
-	}
+	// Set the ID from path parameter (this takes precedence over any ID in the body)
+	params.ID = id
 
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
