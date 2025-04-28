@@ -50,6 +50,12 @@ func registerZFSRoutes(engine *gin.Engine) {
 		datasetHandler.RegisterRoutes(v1)
 		poolHandler.RegisterRoutes(v1)
 
+		schedulers := v1.Group("/schedulers")
+		{
+			// Register auto-snapshot routes
+			_ = api.RegisterAutoSnapshotRoutes(schedulers, datasetManager)
+		}
+
 		// Health check routes
 		// v1.GET("/health", healthCheck)
 	}
