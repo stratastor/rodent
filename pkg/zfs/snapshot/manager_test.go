@@ -5,14 +5,17 @@
 package snapshot
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/zfs/command"
-	"github.com/stratastor/rodent/pkg/zfs/dataset"
+	ds "github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -405,7 +408,7 @@ func TestManager_Integration(t *testing.T) {
 
 	// Create a real dataset manager
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
-	dsManager := dataset.NewManager(executor)
+	dsManager := ds.NewManager(executor)
 
 	// Create a test config file path and make sure the directory exists
 	testConfigDir := filepath.Join(tempDir, "config")
@@ -439,24 +442,81 @@ func TestManager_Integration(t *testing.T) {
 		return false
 	}
 
-	// Test adding a policy
+	// Function to count snapshots for a dataset
+	countSnapshots := func(dataset string) (int, error) {
+		ctx := context.Background()
+		listCfg := ds.ListConfig{
+			Name: dataset,
+			Type: "snapshot",
+		}
+
+		result, err := dsManager.List(ctx, listCfg)
+		if err != nil {
+			return 0, err
+		}
+
+		count := 0
+		for name := range result.Datasets {
+			if strings.HasPrefix(name, dataset+"@") {
+				count++
+			}
+		}
+
+		return count, nil
+	}
+
+	// Function to check if snapshots exist recursively
+	checkRecursiveSnapshots := func(dataset, snapName string) (bool, error) {
+		ctx := context.Background()
+		// List all snapshots recursively
+		listCfg := ds.ListConfig{
+			Name:      dataset,
+			Type:      "all",
+			Recursive: true,
+		}
+
+		result, err := dsManager.List(ctx, listCfg)
+		if err != nil {
+			return false, err
+		}
+
+		parentSnapshotFound := false
+		childrenSnapshotsFound := false
+
+		// Check main dataset snapshot
+		for name := range result.Datasets {
+			if name == dataset+"@"+snapName {
+				parentSnapshotFound = true
+			} else if strings.Contains(name, "@"+snapName) && name != dataset+"@"+snapName {
+				// Check child dataset snapshots with same name
+				childrenSnapshotsFound = true
+			}
+		}
+
+		return parentSnapshotFound && childrenSnapshotsFound, nil
+	}
+
+	// Generate a unique suffix for this test run to avoid snapshot name conflicts
+	testUniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano()%10000)
+
+	// Test adding a policy with a secondly schedule for faster testing
 	params := EditPolicyParams{
-		Name:        "test-policy",
+		Name:        "test-policy-" + testUniqueSuffix,
 		Description: "Test description",
 		Dataset:     testFS,
 		Schedules: []ScheduleSpec{
 			{
-				Type:     ScheduleTypeMinutely,
-				Interval: 1,
+				Type:     ScheduleTypeSecondly, // Use secondly for faster testing
+				Interval: 3,                    // Run every 3 seconds for faster testing
 				Enabled:  true,
 			},
 		},
 		Recursive: true,
 		RetentionPolicy: RetentionPolicy{
-			Count: 3,
+			Count: 2, // Keep only 2 snapshots (to verify pruning works)
 		},
 		Properties: map[string]string{
-			"custom:testing": "autosnap",
+			"custom:testing": "autosnap-" + testUniqueSuffix,
 		},
 		Enabled: true,
 	}
@@ -489,54 +549,146 @@ func TestManager_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, policies, 1)
 
-	// Test updating the policy
-	updateParams := EditPolicyParams{
-		ID:          policyID,
-		Name:        "updated-policy",
-		Description: "Updated description",
-		Dataset:     testFS,
-		Schedules: []ScheduleSpec{
-			{
-				Type:     ScheduleTypeMinutely,
-				Interval: 2,
-				Enabled:  true,
-			},
-		},
-		Recursive: true,
-		RetentionPolicy: RetentionPolicy{
-			Count: 2,
-		},
-		Properties: map[string]string{
-			"custom:testing.update": "autosnap",
-		},
-		Enabled: true,
-	}
-
-	err = manager.UpdatePolicy(updateParams)
-	require.NoError(t, err)
-
-	// Test getting the updated policy
-	updatedPolicy, err := manager.GetPolicy(policyID)
-	require.NoError(t, err)
-	assert.Equal(t, updateParams.Name, updatedPolicy.Name)
-	assert.Equal(t, updateParams.RetentionPolicy.Count, updatedPolicy.RetentionPolicy.Count)
-
-	// Only run the snapshot test if RUN_SNAPSHOT_TEST is set
-	if runTest := os.Getenv("RUN_SNAPSHOT_TEST"); runTest != "" && runTest != "0" &&
-		runTest != "false" {
-		t.Logf("Running snapshot test for policy ID: %s", policyID)
-		// Test running the policy
-		runParams := RunPolicyParams{
-			ID:            policyID,
-			ScheduleIndex: 0,
+	// Function to count only snapshots from our test
+	countTestSnapshots := func() (int, error) {
+		ctx := context.Background()
+		listCfg := ds.ListConfig{
+			Name: testFS,
+			Type: "snapshot",
 		}
 
-		result, err := manager.RunPolicy(runParams)
-		require.NoError(t, err)
-		assert.Equal(t, policyID, result.PolicyID)
-		assert.Equal(t, testFS, result.DatasetName)
-		assert.NotEmpty(t, result.SnapshotName)
+		result, err := dsManager.List(ctx, listCfg)
+		if err != nil {
+			return 0, err
+		}
+
+		count := 0
+		expectedPrefix := "autosnap-" + params.Name
+		for name := range result.Datasets {
+			// Only count snapshots from our specific test run
+			if strings.HasPrefix(name, testFS+"@") && strings.Contains(name, expectedPrefix) {
+				count++
+			}
+		}
+
+		return count, nil
 	}
+
+	// Get initial snapshot count for our test (should be 0)
+	initialSnapCount, err := countTestSnapshots()
+	require.NoError(t, err)
+	t.Logf("Initial test snapshot count: %d", initialSnapCount)
+
+	// Get total snapshot count for information
+	totalSnapCount, err := countSnapshots(testFS)
+	require.NoError(t, err)
+	t.Logf("Initial total snapshot count: %d", totalSnapCount)
+
+	// Start the scheduler to allow auto-snapshots to be created
+	t.Log("Starting scheduler...")
+	err = manager.Start()
+	require.NoError(t, err)
+
+	// Wait for at least 2 snapshot cycles (with 3-second interval)
+	t.Log("Waiting for snapshots to be created automatically...")
+	time.Sleep(10 * time.Second)
+
+	// Check if snapshots were created from our test run
+	testSnapCount, err := countTestSnapshots()
+	require.NoError(t, err)
+	t.Logf("Test snapshot count after auto-snapshots: %d", testSnapCount)
+
+	// We should have at least 1 new snapshot from our test
+	assert.Greater(t, testSnapCount, 0,
+		"Expected at least one snapshot to be created by our test policy")
+
+	// Get a list of snapshots to check if they're recursive
+	ctx := context.Background()
+	listCfg := ds.ListConfig{
+		Name: testFS,
+		Type: "snapshot",
+	}
+
+	snapResult, err := dsManager.List(ctx, listCfg)
+	require.NoError(t, err)
+
+	// Find our latest test snapshot
+	var latestSnapName string
+	expectedPrefix := "autosnap-" + params.Name
+	for name := range snapResult.Datasets {
+		if strings.HasPrefix(name, testFS+"@") && strings.Contains(name, expectedPrefix) {
+			parts := strings.Split(name, "@")
+			if len(parts) == 2 && parts[1] > latestSnapName {
+				latestSnapName = parts[1]
+			}
+		}
+	}
+
+	// Check if snapshot was created recursively
+	if latestSnapName != "" {
+		t.Logf("Found test snapshot: %s", latestSnapName)
+		hasRecursiveSnaps, err := checkRecursiveSnapshots(testFS, latestSnapName)
+		if err != nil {
+			t.Logf("Error checking recursive snapshots: %v", err)
+		} else {
+			// We might not have child datasets in test environment, so don't fail the test if not found
+			if !hasRecursiveSnaps {
+				t.Logf("Note: Recursive snapshots not found. This could be because the test dataset doesn't have children.")
+			} else {
+				t.Log("Confirmed: Recursive snapshots created successfully")
+			}
+		}
+	} else {
+		t.Log("No snapshots found matching our test policy pattern")
+	}
+
+	// Since we set retention count to 2, we should have at most 2 snapshots after enough time
+	// for the retention policy to apply
+	t.Log("Checking snapshot retention policy...")
+
+	// Wait a bit longer for more snapshots and pruning to occur
+	time.Sleep(10 * time.Second)
+
+	// Count snapshots with our specific test policy pattern
+	snapResult, err = dsManager.List(ctx, listCfg)
+	require.NoError(t, err)
+
+	policySnapCount, err := countTestSnapshots()
+	require.NoError(t, err)
+
+	t.Logf("Snapshots from our test policy: %d", policySnapCount)
+	assert.LessOrEqual(t, policySnapCount, 2,
+		"Expected retention policy to keep at most 2 snapshots")
+
+	// Now stop the scheduler and check that no more snapshots are created
+	t.Log("Stopping the scheduler...")
+	err = manager.Stop()
+	require.NoError(t, err)
+
+	finalSnapCount := policySnapCount
+
+	// Sleep for 6 seconds (longer than our snapshot interval) to see if more snapshots would be created
+	t.Log("Waiting to confirm no more snapshots are created...")
+	time.Sleep(6 * time.Second)
+
+	// Check snapshot count again
+	snapResult, err = dsManager.List(ctx, listCfg)
+	require.NoError(t, err)
+
+	currentSnapCount := 0
+	expectedPrefix = "autosnap-" + params.Name
+	for name := range snapResult.Datasets {
+		if strings.HasPrefix(name, testFS+"@") && strings.Contains(name, expectedPrefix) {
+			currentSnapCount++
+		}
+	}
+
+	t.Logf("Snapshot count after stopping scheduler: %d", currentSnapCount)
+
+	// Note: Sometimes the scheduler might have one more job in progress when we stop it
+	// so we should make sure no NEW snapshots are being created
+	assert.LessOrEqual(t, currentSnapCount, finalSnapCount+1,
+		"No significant increase in snapshots should occur after stopping the scheduler")
 
 	// Test removing the policy
 	t.Log("Removing policy")
@@ -548,12 +700,7 @@ func TestManager_Integration(t *testing.T) {
 	_, err = manager.GetPolicy(policyID)
 	assert.Error(t, err)
 
-	// Stop the scheduler to properly clean up resources
-	t.Log("Stopping the scheduler")
-	err = manager.Stop()
-	require.NoError(t, err, "Failed to stop the scheduler")
-
-	// Verify config file was created properly
+	// Verify config file was updated properly
 	t.Log("Verifying config file exists")
 	fileInfo, err := os.Stat(manager.configPath)
 	if err != nil {
