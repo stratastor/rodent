@@ -692,7 +692,7 @@ func TestManager_Integration(t *testing.T) {
 
 	// Test removing the policy
 	t.Log("Removing policy")
-	err = manager.RemovePolicy(policyID)
+	err = manager.RemovePolicy(policyID, false)
 	require.NoError(t, err)
 
 	// Test that the policy was removed

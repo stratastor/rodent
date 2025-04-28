@@ -177,14 +177,30 @@ func (h *Handler) deletePolicy(c *gin.Context) {
 		)
 		return
 	}
+	
+	// Check if we should remove all snapshots associated with the policy
+	removeSnapshotsStr := c.DefaultQuery("remove_snapshots", "false")
+	removeSnapshots, err := strconv.ParseBool(removeSnapshotsStr)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			errors.New(errors.ZFSRequestValidationError, "invalid remove_snapshots value"),
+		)
+		return
+	}
 
-	err := h.manager.RemovePolicy(id)
+	err = h.manager.RemovePolicy(id, removeSnapshots)
 	if err != nil {
 		c.JSON(errors.GetHTTPStatus(err), errors.Wrap(err, errors.ZFSSnapshotPolicyError))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Policy deleted successfully"})
+	message := "Policy deleted successfully"
+	if removeSnapshots {
+		message = "Policy and its snapshots deleted successfully"
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }
 
 // runPolicy runs a snapshot policy immediately

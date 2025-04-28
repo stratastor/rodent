@@ -558,10 +558,11 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 	}, nil
 }
 
-// pruneSnapshots prunes old snapshots based on the retention policy
-func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
-	prunedSnapshots := []string{}
-
+// listPolicySnapshots lists all snapshots associated with a given policy
+func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
+	Name      string
+	CreatedAt time.Time
+}, error) {
 	// Get all snapshots for this dataset
 	ctx := context.Background()
 	listCfg := dataset.ListConfig{
@@ -571,7 +572,7 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 
 	result, err := m.dsManager.List(ctx, listCfg)
 	if err != nil {
-		return prunedSnapshots, errors.Wrap(err, errors.ZFSDatasetList)
+		return nil, errors.Wrap(err, errors.ZFSDatasetList)
 	}
 
 	snapshots := []struct {
@@ -621,7 +622,21 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 		return snapshots[i].CreatedAt.After(snapshots[j].CreatedAt)
 	})
 
+	return snapshots, nil
+}
+
+// pruneSnapshots prunes old snapshots based on the retention policy
+func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
+	prunedSnapshots := []string{}
+	
+	// Get all snapshots for this policy
+	snapshots, err := m.listPolicySnapshots(policy)
+	if err != nil {
+		return prunedSnapshots, err
+	}
+
 	// Apply retention policy
+	ctx := context.Background()
 	for i, snap := range snapshots {
 		shouldDelete := false
 
@@ -871,19 +886,19 @@ func (m *Manager) UpdatePolicy(params EditPolicyParams) error {
 }
 
 // RemovePolicy removes a policy
-func (m *Manager) RemovePolicy(policyID string) error {
-	m.logger.Debug("Removing policy", "policy_id", policyID)
+func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
+	m.logger.Debug("Removing policy", "policy_id", policyID, "remove_snapshots", removeSnapshots)
 
 	// Find the policy
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	policyIndex := -1
-	var policyName string
+	var policy SnapshotPolicy
 	for i, p := range m.config.Policies {
 		if p.ID == policyID {
 			policyIndex = i
-			policyName = p.Name
+			policy = p
 			break
 		}
 	}
@@ -895,8 +910,72 @@ func (m *Manager) RemovePolicy(policyID string) error {
 
 	m.logger.Debug("Found policy for removal",
 		"policy_id", policyID,
-		"policy_name", policyName,
+		"policy_name", policy.Name,
 		"policy_index", policyIndex)
+
+	// If requested, remove all snapshots associated with this policy
+	var deletedSnapshots []string
+	if removeSnapshots {
+		// Create a modified policy with unlimited retention for deletion
+		deletionPolicy := policy
+		
+		// Set retention to delete all snapshots
+		// By setting Count to 0 and OlderThan to 0, no snapshots will be kept
+		deletionPolicy.RetentionPolicy.Count = 0
+		deletionPolicy.RetentionPolicy.OlderThan = 0
+		deletionPolicy.RetentionPolicy.KeepNamedSnap = []string{}
+		deletionPolicy.RetentionPolicy.ForceDestroy = true
+		
+		// Need to temporarily release the lock while pruning snapshots
+		m.mu.Unlock()
+		m.logger.Info("Removing all snapshots associated with policy",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"dataset", policy.Dataset)
+		
+		// Since pruneSnapshots only deletes snapshots that match retention criteria,
+		// we need to force it to consider all snapshots as candidates for deletion
+		snapshots, err := m.listPolicySnapshots(deletionPolicy)
+		if err != nil {
+			m.mu.Lock() // Reacquire lock before error return
+			m.logger.Error("Failed to list snapshots for policy",
+				"policy_id", policyID,
+				"policy_name", policy.Name,
+				"error", err)
+			return errors.Wrap(err, errors.ZFSDatasetList)
+		}
+		
+		// Delete each snapshot individually
+		ctx := context.Background()
+		for _, snap := range snapshots {
+			destroyCfg := dataset.DestroyConfig{
+				NameConfig: dataset.NameConfig{
+					Name: snap.Name,
+				},
+				Force:                    true,
+				DeferDestroy:             true,
+				RecursiveDestroyChildren: policy.Recursive,
+			}
+			
+			result, err := m.dsManager.Destroy(ctx, destroyCfg)
+			if err != nil {
+				m.logger.Warn("Failed to delete snapshot",
+					"snapshot", snap.Name,
+					"error", err)
+				continue
+			}
+			
+			deletedSnapshots = append(deletedSnapshots, result.Destroyed...)
+		}
+		
+		m.logger.Info("Removed snapshots for policy",
+			"policy_id", policyID,
+			"policy_name", policy.Name,
+			"removed_count", len(deletedSnapshots))
+		
+		// Reacquire lock before continuing
+		m.mu.Lock()
+	}
 
 	// Remove jobs for this policy
 	if jobIDs, ok := m.jobMapping[policyID]; ok {
@@ -947,7 +1026,7 @@ func (m *Manager) RemovePolicy(policyID string) error {
 		if err != nil {
 			m.logger.Error("Failed to save config after removing policy",
 				"policy_id", policyID,
-				"policy_name", policyName,
+				"policy_name", policy.Name,
 				"error", err)
 			return errors.Wrap(err, errors.ConfigWriteError)
 		}
@@ -956,13 +1035,14 @@ func (m *Manager) RemovePolicy(policyID string) error {
 	case <-time.After(5 * time.Second):
 		m.logger.Error("Timeout while saving config after removing policy",
 			"policy_id", policyID,
-			"policy_name", policyName)
+			"policy_name", policy.Name)
 		return errors.New(errors.ConfigWriteError, "timeout while saving config")
 	}
 
 	m.logger.Info("Successfully removed policy",
 		"policy_id", policyID,
-		"policy_name", policyName)
+		"policy_name", policy.Name,
+		"removed_snapshots", len(deletedSnapshots))
 	return nil
 }
 

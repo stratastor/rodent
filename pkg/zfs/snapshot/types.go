@@ -126,7 +126,7 @@ type CreateSnapshotResult struct {
 type SchedulerInterface interface {
 	AddPolicy(params EditPolicyParams) (string, error)
 	UpdatePolicy(params EditPolicyParams) error
-	RemovePolicy(policyID string) error
+	RemovePolicy(policyID string, removeSnapshots bool) error
 	GetPolicy(policyID string) (SnapshotPolicy, error)
 	ListPolicies() ([]SnapshotPolicy, error)
 	RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error)
