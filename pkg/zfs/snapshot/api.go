@@ -55,7 +55,6 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 			policy.POST("/:id/run",
 				ValidateRunPolicyParams(),
 				h.runPolicy)
-			policy.GET("/:id/status", h.getPolicyStatus)
 		}
 	}
 }
@@ -177,7 +176,7 @@ func (h *Handler) deletePolicy(c *gin.Context) {
 		)
 		return
 	}
-	
+
 	// Check if we should remove all snapshots associated with the policy
 	removeSnapshotsStr := c.DefaultQuery("remove_snapshots", "false")
 	removeSnapshots, err := strconv.ParseBool(removeSnapshotsStr)
@@ -262,46 +261,5 @@ func (h *Handler) runPolicy(c *gin.Context) {
 		"created_at":       result.CreatedAt,
 		"pruned_snapshots": result.PrunedSnapshots,
 		"pruned_count":     len(result.PrunedSnapshots),
-	})
-}
-
-// getPolicyStatus gets the status of a snapshot policy
-func (h *Handler) getPolicyStatus(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.JSON(
-			http.StatusBadRequest,
-			errors.New(errors.ZFSRequestValidationError, "policy ID is required"),
-		)
-		return
-	}
-
-	policy, err := h.manager.GetPolicy(id)
-	if err != nil {
-		c.JSON(errors.GetHTTPStatus(err), errors.Wrap(err, errors.ZFSSnapshotPolicyError))
-		return
-	}
-
-	// Get the job monitors for this policy
-	h.manager.mu.RLock()
-	monitor, exists := h.manager.config.Monitors[id]
-	h.manager.mu.RUnlock()
-
-	if !exists {
-		monitor = JobMonitor{
-			PolicyID: id,
-			Status:   "pending",
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"policy_id":       policy.ID,
-		"name":            policy.Name,
-		"dataset":         policy.Dataset,
-		"enabled":         policy.Enabled,
-		"last_run_at":     policy.LastRunAt,
-		"last_run_status": policy.LastRunStatus,
-		"last_run_error":  policy.LastRunError,
-		"monitor":         monitor,
 	})
 }

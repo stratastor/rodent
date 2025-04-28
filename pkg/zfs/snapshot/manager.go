@@ -1046,27 +1046,59 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 	return nil
 }
 
-// GetPolicy gets a policy by ID
+// GetPolicy gets a policy by ID with status information
 func (m *Manager) GetPolicy(policyID string) (SnapshotPolicy, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for _, p := range m.config.Policies {
 		if p.ID == policyID {
-			return p, nil
+			// Create a copy of the policy to avoid modifying the original
+			policy := p
+			
+			// Add monitor status information if it exists
+			if monitor, exists := m.config.Monitors[policyID]; exists {
+				// Status information is already in the policy (LastRunAt, LastRunStatus, LastRunError)
+				// But we can enrich it with additional details from the monitor
+				policy.MonitorStatus = &monitor
+			} else {
+				// If no monitor exists yet, create a default one
+				policy.MonitorStatus = &JobMonitor{
+					PolicyID: policyID,
+					Status:   "pending",
+				}
+			}
+			
+			return policy, nil
 		}
 	}
 
 	return SnapshotPolicy{}, errors.New(errors.NotFoundError, "policy not found")
 }
 
-// ListPolicies lists all policies
+// ListPolicies lists all policies with their status information
 func (m *Manager) ListPolicies() ([]SnapshotPolicy, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Create a deep copy of the policies and add monitor information
 	policies := make([]SnapshotPolicy, len(m.config.Policies))
-	copy(policies, m.config.Policies)
+	for i, p := range m.config.Policies {
+		policies[i] = p
+		
+		// Add monitor status information if it exists
+		if monitor, exists := m.config.Monitors[p.ID]; exists {
+			// Status information is already in the policy (LastRunAt, LastRunStatus, LastRunError)
+			// But we can enrich it with additional details from the monitor
+			policies[i].MonitorStatus = &monitor
+		} else {
+			// If no monitor exists yet, create a default one
+			policies[i].MonitorStatus = &JobMonitor{
+				PolicyID: p.ID,
+				Status:   "pending",
+			}
+		}
+	}
 
 	return policies, nil
 }

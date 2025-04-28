@@ -70,6 +70,7 @@ type SnapshotPolicy struct {
 	LastRunAt       time.Time         `json:"last_run_at"       yaml:"last_run_at"`       // When this policy was last executed
 	LastRunStatus   string            `json:"last_run_status"   yaml:"last_run_status"`   // Status of the last run
 	LastRunError    string            `json:"last_run_error"    yaml:"last_run_error"`    // Error from the last run, if any
+	MonitorStatus   *JobMonitor       `json:"monitor_status"    yaml:"-"`                 // Detailed job monitor status (not stored in YAML)
 }
 
 // JobMonitor monitors job status and execution
