@@ -17,6 +17,7 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
+	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 )
 
 // RegisterAllHandlers registers all domain-specific command handlers
@@ -75,5 +76,20 @@ func RegisterAllHandlers() {
 		sharesHandler := sharesAPI.NewSharesHandler(sl, smbManager, smbService)
 		sharesAPI.RegisterSharesGRPCHandlers(sharesHandler)
 		l.Info("Registered SMB shares gRPC handlers")
+	}
+
+	// Create and register auto-snapshot handler for gRPC
+	snapHandler, err := snapshot.NewGRPCHandler(datasetManager)
+	if err != nil {
+		l.Error("Failed to create auto-snapshot handler", "error", err)
+	} else {
+		// Start the snapshot manager
+		if err := snapHandler.StartManager(); err != nil {
+			l.Error("Failed to start auto-snapshot manager", "error", err)
+		}
+
+		// Register the handlers
+		snapshot.RegisterAutosnapshotGRPCHandlers(snapHandler)
+		l.Info("Registered auto-snapshot gRPC handlers")
 	}
 }
