@@ -9,8 +9,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 )
+
+var APIError = common.APIError
+var ReadResetBody = common.ReadResetBody
+var ResetBody = common.ResetBody
 
 // ScheduleType represents the type of schedule
 type ScheduleType string
@@ -93,34 +98,34 @@ type SnapshotConfig struct {
 
 // EditPolicyParams are parameters for creating or updating a policy
 type EditPolicyParams struct {
-	ID              string // ID for updates, empty for new policies
-	Name            string // Required
-	Description     string
-	Dataset         string         // Required
-	Schedules       []ScheduleSpec // Required, max 5
-	Recursive       bool
-	SnapNamePattern string
-	RetentionPolicy RetentionPolicy
-	Properties      map[string]string
-	Enabled         bool
+	ID              string            `json:"id,omitempty"` // ID for updates, empty for new policies
+	Name            string            `json:"name"`         // Required
+	Description     string            `json:"description,omitempty"`
+	Dataset         string            `json:"dataset"`   // Required
+	Schedules       []ScheduleSpec    `json:"schedules"` // Required, max 5
+	Recursive       bool              `json:"recursive"`
+	SnapNamePattern string            `json:"snap_name_pattern,omitempty"`
+	RetentionPolicy RetentionPolicy   `json:"retention_policy,omitempty"`
+	Properties      map[string]string `json:"properties,omitempty"`
+	Enabled         bool              `json:"enabled"`
 }
 
 // RunPolicyParams are parameters for running a policy immediately
 type RunPolicyParams struct {
-	ID            string
-	ScheduleIndex int
-	DryRun        bool
+	ID            string `json:"id"`                // Policy ID
+	ScheduleIndex int    `json:"schedule_index"`    // Index of schedule to run
+	DryRun        bool   `json:"dry_run,omitempty"` // Just simulate, don't create
 }
 
 // CreateSnapshotResult is the result of creating a snapshot
 type CreateSnapshotResult struct {
-	PolicyID        string
-	ScheduleIndex   int
-	DatasetName     string
-	SnapshotName    string
-	CreatedAt       time.Time
-	Error           error
-	PrunedSnapshots []string
+	PolicyID        string    `json:"policy_id"`
+	ScheduleIndex   int       `json:"schedule_index"`
+	DatasetName     string    `json:"dataset_name"`
+	SnapshotName    string    `json:"snapshot_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	Error           error     `json:"error,omitempty"`
+	PrunedSnapshots []string  `json:"pruned_snapshots,omitempty"`
 }
 
 // SchedulerInterface defines the interface for the scheduler

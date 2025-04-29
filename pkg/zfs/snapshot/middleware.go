@@ -5,8 +5,6 @@
 package snapshot
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/rodent/pkg/errors"
 )
@@ -14,16 +12,20 @@ import (
 // ValidateScheduleConfig validates schedule configuration parameters
 func ValidateScheduleConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var schedule ScheduleSpec
-		if err := c.ShouldBindJSON(&schedule); err != nil {
-			c.JSON(http.StatusBadRequest, errors.New(errors.ZFSRequestValidationError, err.Error()))
-			c.Abort()
+		body, err := ReadResetBody(c)
+		if err != nil {
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+		var schedule ScheduleSpec
+		if err := c.ShouldBindJSON(&schedule); err != nil {
+			APIError(c, errors.New(errors.ZFSRequestValidationError, err.Error()))
+			return
+		}
+		ResetBody(c, body)
 
 		if err := ValidateScheduleSpec(schedule); err != nil {
-			c.JSON(http.StatusBadRequest, err)
-			c.Abort()
+			APIError(c, err)
 			return
 		}
 
@@ -34,21 +36,26 @@ func ValidateScheduleConfig() gin.HandlerFunc {
 // ValidateSnapshotPolicyConfig validates snapshot policy configuration parameters
 func ValidateSnapshotPolicyConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var params EditPolicyParams
-		if err := c.ShouldBindJSON(&params); err != nil {
-			c.JSON(http.StatusBadRequest, errors.New(errors.ZFSRequestValidationError, err.Error()))
-			c.Abort()
+		body, err := ReadResetBody(c)
+		if err != nil {
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+		var params EditPolicyParams
+		if err := c.ShouldBindJSON(&params); err != nil {
+			APIError(c, errors.New(errors.ZFSRequestValidationError, err.Error()))
+			return
+		}
+		ResetBody(c, body)
 
 		// Create a temporary policy to validate
 		policy := NewSnapshotPolicy(params)
 		if err := ValidatePolicy(policy); err != nil {
-			c.JSON(http.StatusBadRequest, err)
-			c.Abort()
+			APIError(c, err)
 			return
 		}
 
+		c.Set("snapshotPolicy", policy)
 		c.Next()
 	}
 }
@@ -56,17 +63,23 @@ func ValidateSnapshotPolicyConfig() gin.HandlerFunc {
 // ValidateRunPolicyParams validates run policy parameters
 func ValidateRunPolicyParams() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var params RunPolicyParams
-		if err := c.ShouldBindJSON(&params); err != nil {
-			c.JSON(http.StatusBadRequest, errors.New(errors.ZFSRequestValidationError, err.Error()))
-			c.Abort()
+		body, err := ReadResetBody(c)
+		if err != nil {
+			APIError(c, errors.New(errors.ServerRequestValidation, "Failed to read request body"))
 			return
 		}
+		var params RunPolicyParams
+		if err := c.ShouldBindJSON(&params); err != nil {
+			APIError(c, errors.New(errors.ZFSRequestValidationError, err.Error()))
+			return
+		}
+		ResetBody(c, body)
 
 		// Ensure ID is present
 		if params.ID == "" {
-			c.JSON(http.StatusBadRequest, errors.New(errors.ZFSRequestValidationError, "policy ID is required"))
-			c.Abort()
+			APIError(c,
+				errors.New(errors.ZFSRequestValidationError, "policy ID is required"),
+			)
 			return
 		}
 
