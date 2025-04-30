@@ -43,10 +43,39 @@ type Manager struct {
 	scheduler  gocron.Scheduler
 	jobMapping map[string][]string // Maps policyID to list of job IDs
 	mu         sync.RWMutex
+	started    bool // Track if the manager has been started
 }
 
-// NewManager creates a new snapshot manager
+// Global instance and mutex for singleton pattern
+var (
+	globalManager *Manager
+	initMutex     sync.Mutex
+)
+
+// GetManager returns the global manager instance, creating it if necessary
+func GetManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
+	initMutex.Lock()
+	defer initMutex.Unlock()
+	
+	if globalManager == nil {
+		var err error
+		globalManager, err = newManager(dsManager, cfgDir)
+		if err != nil {
+			return nil, err
+		}
+	}
+	
+	return globalManager, nil
+}
+
+// NewManager creates a new snapshot manager (deprecated, use GetManager instead)
+// This function now redirects to GetManager for backward compatibility
 func NewManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
+	return GetManager(dsManager, cfgDir)
+}
+
+// newManager creates a new snapshot manager (internal implementation)
+func newManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
 	// Initialize logger
 	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "snapshot")
 	if err != nil {
@@ -272,12 +301,13 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		return "", errors.New(errors.ZFSRequestValidationError, "unsupported schedule type")
 	}
 
-	// Add singleton mode option based on schedule type
-	// if schedule.Type == ScheduleTypeOneTime {
-	// 	jobOpts = append(jobOpts, gocron.WithSingletonMode(gocron.LimitModeWait))
-	// } else {
-	// 	jobOpts = append(jobOpts, gocron.WithSingletonMode(gocron.LimitModeReschedule))
-	// }
+	// Add singleton mode option to prevent concurrent job executions
+	// For any secondly schedules, use LimitModeReschedule to avoid immediate retries that might conflict
+	if schedule.Type == ScheduleTypeSecondly {
+		jobOpts = append(jobOpts, gocron.WithSingletonMode(gocron.LimitModeReschedule))
+	} else {
+		jobOpts = append(jobOpts, gocron.WithSingletonMode(gocron.LimitModeWait))
+	}
 
 	// Create the event listener for job events
 	beforeRunListener := gocron.BeforeJobRuns(func(jobID uuid.UUID, jobName string) {
@@ -582,8 +612,10 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 	// Get all snapshots for this dataset
 	ctx := context.Background()
 	listCfg := dataset.ListConfig{
-		Name: policy.Dataset,
-		Type: "snapshot",
+		Name:       policy.Dataset,
+		Type:       "snapshot",
+		Parsable:   true,
+		Properties: []string{"creation"},
 	}
 
 	suffix := policy.ID
@@ -644,9 +676,9 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 		})
 	}
 
-	// Sort snapshots by creation time (newest first)
+	// Sort snapshots by creation time (oldest first)
 	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].CreatedAt.After(snapshots[j].CreatedAt)
+		return snapshots[i].CreatedAt.Before(snapshots[j].CreatedAt)
 	})
 
 	return snapshots, nil
@@ -1167,22 +1199,37 @@ func (m *Manager) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error
 
 // Start starts the scheduler
 func (m *Manager) Start() error {
+	// First check if already started (with lock)
+	m.mu.Lock()
+	if m.started {
+		m.logger.Info("Snapshot scheduler is already started, skipping initialization")
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock() // Release lock for subsequent operations
+	
 	m.logger.Info("Starting snapshot scheduler")
-
-	// Load config first
+	
+	// Load config first without holding the lock
 	if err := m.LoadConfig(); err != nil {
 		m.logger.Error("Failed to load config", "error", err)
 		return err
 	}
-
+	
 	m.logger.Debug("Config loaded successfully")
 
-	// Create jobs for all enabled policies
-	m.mu.Lock()
+	// Clean up any existing jobs to avoid duplicates
+	m.cleanupExistingJobs()
+	
+	// Variables to track statistics
 	enabledPolicyCount := 0
 	enabledScheduleCount := 0
 	createdJobCount := 0
-
+	
+	// Reacquire lock for job creation
+	m.mu.Lock()
+	
+	// Create jobs for all enabled policies
 	for _, policy := range m.config.Policies {
 		if policy.Enabled {
 			enabledPolicyCount++
@@ -1221,23 +1268,65 @@ func (m *Manager) Start() error {
 			}
 		}
 	}
+	
+	// Start the scheduler and mark as started
+	m.scheduler.Start()
+	m.started = true
+	
+	// Release the lock before finishing
 	m.mu.Unlock()
-
-	m.logger.Info("Created snapshot jobs",
+	
+	m.logger.Info("Snapshot scheduler started",
 		"enabled_policies", enabledPolicyCount,
 		"enabled_schedules", enabledScheduleCount,
 		"created_jobs", createdJobCount)
 
-	// Start the scheduler
-	m.scheduler.Start()
-	m.logger.Info("Snapshot scheduler started")
-
 	return nil
+}
+
+// cleanupExistingJobs removes all existing jobs from the scheduler and clears the job mapping
+func (m *Manager) cleanupExistingJobs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Get all jobs from the scheduler
+	jobs := m.scheduler.Jobs()
+
+	// Log how many jobs we're cleaning up
+	if len(jobs) > 0 {
+		m.logger.Info("Cleaning up existing jobs before starting", "job_count", len(jobs))
+	}
+
+	// Remove each job from the scheduler
+	for _, job := range jobs {
+		jobID := job.ID()
+		err := m.scheduler.RemoveJob(jobID)
+		if err != nil {
+			m.logger.Warn("Failed to remove job during cleanup",
+				"job_id", jobID.String(),
+				"error", err)
+		} else {
+			m.logger.Debug("Removed job during cleanup", "job_id", jobID.String())
+		}
+	}
+
+	// Clear the job mapping
+	m.jobMapping = make(map[string][]string)
 }
 
 // Stop stops the scheduler
 func (m *Manager) Stop() error {
+	m.mu.Lock()
+	
+	// Check if already stopped
+	if !m.started {
+		m.logger.Info("Snapshot scheduler is not running")
+		m.mu.Unlock()
+		return nil
+	}
+	
 	m.logger.Info("Stopping snapshot scheduler")
+	m.mu.Unlock()
 
 	// Stop the scheduler
 	err := m.scheduler.Shutdown()
@@ -1252,6 +1341,11 @@ func (m *Manager) Stop() error {
 		m.logger.Error("Failed to save config during shutdown", "error", err)
 		return errors.Wrap(err, errors.ConfigWriteError)
 	}
+	
+	// Mark as stopped
+	m.mu.Lock()
+	m.started = false
+	m.mu.Unlock()
 
 	m.logger.Info("Snapshot scheduler stopped successfully")
 	return nil
