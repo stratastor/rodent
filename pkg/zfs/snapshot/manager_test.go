@@ -349,10 +349,10 @@ func TestExpandSnapNamePattern(t *testing.T) {
 	// Mock fixed time for testing
 	fixedTime := time.Date(2025, 5, 15, 14, 30, 45, 0, time.UTC)
 	id := common.UUID7()
-	lastPart := ""
+	lastPart := "1-"
 	// Append the last portion of the UUID to the result
 	if parts := strings.Split(id, "-"); len(parts) > 0 {
-		lastPart = parts[len(parts)-1]
+		lastPart += parts[len(parts)-1]
 	}
 
 	tests := []struct {
@@ -384,7 +384,7 @@ func TestExpandSnapNamePattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := expandSnapNamePattern(id, tt.pattern, fixedTime)
+			result := expandSnapNamePattern(id, 1, tt.pattern, fixedTime)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

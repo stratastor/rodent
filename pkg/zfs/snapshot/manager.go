@@ -292,6 +292,14 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 			"job_name", jobName)
 
 		// Update the monitor's status before the job runs
+		// Initialize Monitors map if it's nil
+		if m.config.Monitors == nil {
+			m.config.Monitors = make(map[string]JobMonitor)
+			m.logger.Warn("Monitors map was nil during job execution, reinitializing it",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name)
+		}
+
 		monitor, exists := m.config.Monitors[policy.ID]
 		if !exists {
 			monitor = JobMonitor{
@@ -316,6 +324,14 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 			"schedule_index", scheduleIndex,
 			"job_id", jobID.String(),
 			"job_name", jobName)
+
+		// Initialize Monitors map if it's nil
+		if m.config.Monitors == nil {
+			m.config.Monitors = make(map[string]JobMonitor)
+			m.logger.Warn("Monitors map was nil during job completion, reinitializing it",
+				"policy_id", policy.ID,
+				"policy_name", policy.Name)
+		}
 
 		// Update the monitor with run count
 		monitor, exists := m.config.Monitors[policy.ID]
@@ -443,7 +459,7 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 		"schedule_index", scheduleIndex)
 
 	// Generate snapshot name based on pattern
-	snapName := expandSnapNamePattern(policyID, policy.SnapNamePattern, time.Now())
+	snapName := expandSnapNamePattern(policyID, scheduleIndex, policy.SnapNamePattern, time.Now())
 
 	// Create snapshot config
 	snapshotCfg := dataset.SnapshotConfig{
@@ -690,7 +706,7 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 }
 
 // expandSnapNamePattern expands a snapshot name pattern with current time
-func expandSnapNamePattern(id string, pattern string, t time.Time) string {
+func expandSnapNamePattern(id string, idx int, pattern string, t time.Time) string {
 	// Simple implementation for common patterns
 	result := pattern
 	result = strings.ReplaceAll(result, "%Y", fmt.Sprintf("%04d", t.Year()))
@@ -703,7 +719,7 @@ func expandSnapNamePattern(id string, pattern string, t time.Time) string {
 	// Append the last portion of the UUID to the result
 	if parts := strings.Split(id, "-"); len(parts) > 0 {
 		lastPart := parts[len(parts)-1]
-		result = result + "-" + lastPart
+		result = result + "-" + fmt.Sprintf("%d", idx) + "-" + lastPart
 	}
 
 	return result
@@ -1359,6 +1375,12 @@ func (m *Manager) LoadConfig() error {
 	// Set the config
 	m.mu.Lock()
 	m.config = config
+
+	// Ensure Monitors map is initialized
+	if m.config.Monitors == nil {
+		m.logger.Warn("Monitors map was nil in loaded config, initializing it")
+		m.config.Monitors = make(map[string]JobMonitor)
+	}
 	m.mu.Unlock()
 
 	// If any policies were filtered out, save the valid config
