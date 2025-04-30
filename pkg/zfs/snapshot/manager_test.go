@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	ds "github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stretchr/testify/assert"
@@ -347,6 +348,12 @@ func TestNewSnapshotPolicy(t *testing.T) {
 func TestExpandSnapNamePattern(t *testing.T) {
 	// Mock fixed time for testing
 	fixedTime := time.Date(2025, 5, 15, 14, 30, 45, 0, time.UTC)
+	id := common.UUID7()
+	lastPart := ""
+	// Append the last portion of the UUID to the result
+	if parts := strings.Split(id, "-"); len(parts) > 0 {
+		lastPart = parts[len(parts)-1]
+	}
 
 	tests := []struct {
 		name     string
@@ -356,28 +363,28 @@ func TestExpandSnapNamePattern(t *testing.T) {
 		{
 			name:     "basic pattern",
 			pattern:  "auto-%Y-%m-%d",
-			expected: "auto-2025-05-15",
+			expected: "auto-2025-05-15-" + lastPart,
 		},
 		{
 			name:     "full pattern",
 			pattern:  "auto-%Y-%m-%d-%H%M%S",
-			expected: "auto-2025-05-15-143045",
+			expected: "auto-2025-05-15-143045-" + lastPart,
 		},
 		{
 			name:     "custom pattern",
 			pattern:  "backup_pool_data_%Y%m%d_%H%M",
-			expected: "backup_pool_data_20250515_1430",
+			expected: "backup_pool_data_20250515_1430-" + lastPart,
 		},
 		{
 			name:     "no pattern",
 			pattern:  "snapshot",
-			expected: "snapshot",
+			expected: "snapshot-" + lastPart,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := expandSnapNamePattern(tt.pattern, fixedTime)
+			result := expandSnapNamePattern(id, tt.pattern, fixedTime)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

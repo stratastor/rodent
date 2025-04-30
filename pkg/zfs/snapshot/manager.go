@@ -443,7 +443,7 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 		"schedule_index", scheduleIndex)
 
 	// Generate snapshot name based on pattern
-	snapName := expandSnapNamePattern(policy.SnapNamePattern, time.Now())
+	snapName := expandSnapNamePattern(policyID, policy.SnapNamePattern, time.Now())
 
 	// Create snapshot config
 	snapshotCfg := dataset.SnapshotConfig{
@@ -570,6 +570,12 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 		Type: "snapshot",
 	}
 
+	suffix := policy.ID
+	// Append the last portion of the UUID to the result
+	if parts := strings.Split(policy.ID, "-"); len(parts) > 0 {
+		suffix = parts[len(parts)-1]
+	}
+
 	result, err := m.dsManager.List(ctx, listCfg)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.ZFSDatasetList)
@@ -587,8 +593,13 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 			continue
 		}
 
-		// Skip snapshots in the keep list
+		// Skip snapshots that don't belong to this policy ID
 		snapName := strings.Split(name, "@")[1]
+		if !strings.HasSuffix(snapName, suffix) {
+			continue
+		}
+
+		// Skip snapshots in the keep list
 		skipSnapshot := false
 		for _, keepName := range policy.RetentionPolicy.KeepNamedSnap {
 			if snapName == keepName {
@@ -628,7 +639,7 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 // pruneSnapshots prunes old snapshots based on the retention policy
 func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 	prunedSnapshots := []string{}
-	
+
 	// Get all snapshots for this policy
 	snapshots, err := m.listPolicySnapshots(policy)
 	if err != nil {
@@ -679,7 +690,7 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 }
 
 // expandSnapNamePattern expands a snapshot name pattern with current time
-func expandSnapNamePattern(pattern string, t time.Time) string {
+func expandSnapNamePattern(id string, pattern string, t time.Time) string {
 	// Simple implementation for common patterns
 	result := pattern
 	result = strings.ReplaceAll(result, "%Y", fmt.Sprintf("%04d", t.Year()))
@@ -688,6 +699,12 @@ func expandSnapNamePattern(pattern string, t time.Time) string {
 	result = strings.ReplaceAll(result, "%H", fmt.Sprintf("%02d", t.Hour()))
 	result = strings.ReplaceAll(result, "%M", fmt.Sprintf("%02d", t.Minute()))
 	result = strings.ReplaceAll(result, "%S", fmt.Sprintf("%02d", t.Second()))
+
+	// Append the last portion of the UUID to the result
+	if parts := strings.Split(id, "-"); len(parts) > 0 {
+		lastPart := parts[len(parts)-1]
+		result = result + "-" + lastPart
+	}
 
 	return result
 }
@@ -918,21 +935,20 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 	if removeSnapshots {
 		// Create a modified policy with unlimited retention for deletion
 		deletionPolicy := policy
-		
+
 		// Set retention to delete all snapshots
 		// By setting Count to 0 and OlderThan to 0, no snapshots will be kept
 		deletionPolicy.RetentionPolicy.Count = 0
 		deletionPolicy.RetentionPolicy.OlderThan = 0
 		deletionPolicy.RetentionPolicy.KeepNamedSnap = []string{}
-		deletionPolicy.RetentionPolicy.ForceDestroy = true
-		
+
 		// Need to temporarily release the lock while pruning snapshots
 		m.mu.Unlock()
 		m.logger.Info("Removing all snapshots associated with policy",
 			"policy_id", policyID,
 			"policy_name", policy.Name,
 			"dataset", policy.Dataset)
-		
+
 		// Since pruneSnapshots only deletes snapshots that match retention criteria,
 		// we need to force it to consider all snapshots as candidates for deletion
 		snapshots, err := m.listPolicySnapshots(deletionPolicy)
@@ -944,7 +960,7 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 				"error", err)
 			return errors.Wrap(err, errors.ZFSDatasetList)
 		}
-		
+
 		// Delete each snapshot individually
 		ctx := context.Background()
 		for _, snap := range snapshots {
@@ -952,11 +968,11 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 				NameConfig: dataset.NameConfig{
 					Name: snap.Name,
 				},
-				Force:                    true,
+				Force:                    policy.RetentionPolicy.ForceDestroy,
 				DeferDestroy:             true,
 				RecursiveDestroyChildren: policy.Recursive,
 			}
-			
+
 			result, err := m.dsManager.Destroy(ctx, destroyCfg)
 			if err != nil {
 				m.logger.Warn("Failed to delete snapshot",
@@ -964,15 +980,15 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 					"error", err)
 				continue
 			}
-			
+
 			deletedSnapshots = append(deletedSnapshots, result.Destroyed...)
 		}
-		
+
 		m.logger.Info("Removed snapshots for policy",
 			"policy_id", policyID,
 			"policy_name", policy.Name,
 			"removed_count", len(deletedSnapshots))
-		
+
 		// Reacquire lock before continuing
 		m.mu.Lock()
 	}
@@ -1055,7 +1071,7 @@ func (m *Manager) GetPolicy(policyID string) (SnapshotPolicy, error) {
 		if p.ID == policyID {
 			// Create a copy of the policy to avoid modifying the original
 			policy := p
-			
+
 			// Add monitor status information if it exists
 			if monitor, exists := m.config.Monitors[policyID]; exists {
 				// Status information is already in the policy (LastRunAt, LastRunStatus, LastRunError)
@@ -1068,7 +1084,7 @@ func (m *Manager) GetPolicy(policyID string) (SnapshotPolicy, error) {
 					Status:   "pending",
 				}
 			}
-			
+
 			return policy, nil
 		}
 	}
@@ -1085,7 +1101,7 @@ func (m *Manager) ListPolicies() ([]SnapshotPolicy, error) {
 	policies := make([]SnapshotPolicy, len(m.config.Policies))
 	for i, p := range m.config.Policies {
 		policies[i] = p
-		
+
 		// Add monitor status information if it exists
 		if monitor, exists := m.config.Monitors[p.ID]; exists {
 			// Status information is already in the policy (LastRunAt, LastRunStatus, LastRunError)

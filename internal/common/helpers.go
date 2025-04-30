@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/pkg/errors"
@@ -21,6 +22,18 @@ func init() {
 	if err != nil {
 		panic("Failed to initialize logger: " + err.Error())
 	}
+}
+
+// GenUUID generates a new UUID using V7, but falls back to V4 if V7 errors
+func UUID7() string {
+	id := ""
+	uv7, err := uuid.NewV7()
+	if err != nil {
+		id = uuid.New().String()
+	} else {
+		id = uv7.String()
+	}
+	return id
 }
 
 // Helper to add errors to context

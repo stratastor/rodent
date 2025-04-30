@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 )
@@ -148,7 +147,7 @@ func NewSnapshotPolicy(params EditPolicyParams) SnapshotPolicy {
 
 	id := params.ID
 	if id == "" {
-		id = uuid.New().String()
+		id = common.UUID7()
 	}
 
 	policy := SnapshotPolicy{
