@@ -6,6 +6,9 @@ package snapshot
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stratastor/rodent/internal/common"
@@ -186,6 +189,10 @@ func ValidateScheduleSpec(spec ScheduleSpec) error {
 				"at_time must be specified for daily schedules",
 			)
 		}
+		if err := validateAtTimeFormat(spec.AtTime); err != nil {
+			return errors.Wrap(err, errors.ZFSRequestValidationError).
+				WithMetadata("schedule_type", "daily")
+		}
 	case ScheduleTypeWeekly:
 		if spec.AtTime == "" {
 			return errors.New(
@@ -193,12 +200,20 @@ func ValidateScheduleSpec(spec ScheduleSpec) error {
 				"at_time must be specified for weekly schedules",
 			)
 		}
+		if err := validateAtTimeFormat(spec.AtTime); err != nil {
+			return errors.Wrap(err, errors.ZFSRequestValidationError).
+				WithMetadata("schedule_type", "weekly")
+		}
 	case ScheduleTypeMonthly:
 		if spec.AtTime == "" {
 			return errors.New(
 				errors.ZFSRequestValidationError,
 				"at_time must be specified for monthly schedules",
 			)
+		}
+		if err := validateAtTimeFormat(spec.AtTime); err != nil {
+			return errors.Wrap(err, errors.ZFSRequestValidationError).
+				WithMetadata("schedule_type", "monthly")
 		}
 		if spec.DayOfMonth <= 0 || spec.DayOfMonth > 31 {
 			return errors.New(
@@ -212,6 +227,10 @@ func ValidateScheduleSpec(spec ScheduleSpec) error {
 				errors.ZFSRequestValidationError,
 				"at_time must be specified for yearly schedules",
 			)
+		}
+		if err := validateAtTimeFormat(spec.AtTime); err != nil {
+			return errors.Wrap(err, errors.ZFSRequestValidationError).
+				WithMetadata("schedule_type", "yearly")
 		}
 		if spec.DayOfMonth <= 0 || spec.DayOfMonth > 31 {
 			return errors.New(
@@ -251,6 +270,50 @@ func ValidateScheduleSpec(spec ScheduleSpec) error {
 		}
 	default:
 		return errors.New(errors.ZFSRequestValidationError, "invalid schedule type")
+	}
+
+	return nil
+}
+
+// validateAtTimeFormat validates that a time string is in the correct format
+// and contains valid values for hours, minutes, and seconds
+func validateAtTimeFormat(atTime string) error {
+	// Regular expression to match correct time format HH:MM or HH:MM:SS
+	// Hours: 0-23, Minutes/Seconds: 0-59
+	re := regexp.MustCompile(`^([01]?[0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$`)
+	if !re.MatchString(atTime) {
+		return errors.New(
+			errors.ZFSRequestValidationError,
+			"at_time must be in format HH:MM or HH:MM:SS with valid time values",
+		)
+	}
+
+	// Additional validation to make sure all parts are numeric and within range
+	parts := strings.Split(atTime, ":")
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil || hour < 0 || hour > 23 {
+		return errors.New(
+			errors.ZFSRequestValidationError,
+			"at_time hour must be between 0 and 23",
+		)
+	}
+
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil || minute < 0 || minute > 59 {
+		return errors.New(
+			errors.ZFSRequestValidationError,
+			"at_time minute must be between 0 and 59",
+		)
+	}
+
+	if len(parts) > 2 {
+		second, err := strconv.Atoi(parts[2])
+		if err != nil || second < 0 || second > 59 {
+			return errors.New(
+				errors.ZFSRequestValidationError,
+				"at_time second must be between 0 and 59",
+			)
+		}
 	}
 
 	return nil
