@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ var (
 func GetManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
 	initMutex.Lock()
 	defer initMutex.Unlock()
-	
+
 	if globalManager == nil {
 		var err error
 		globalManager, err = newManager(dsManager, cfgDir)
@@ -64,7 +65,7 @@ func GetManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
 			return nil, err
 		}
 	}
-	
+
 	return globalManager, nil
 }
 
@@ -662,8 +663,13 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 		// Get creation time from dataset properties
 		creationTime := time.Time{}
 		if createProp, ok := ds.Properties["creation"]; ok {
-			if createVal, ok := createProp.Value.(float64); ok {
-				creationTime = time.Unix(int64(createVal), 0)
+			switch v := createProp.Value.(type) {
+			case float64:
+				creationTime = time.Unix(int64(v), 0)
+			case string:
+				if epoch, err := strconv.ParseInt(v, 10, 64); err == nil {
+					creationTime = time.Unix(epoch, 0)
+				}
 			}
 		}
 
@@ -676,9 +682,9 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 		})
 	}
 
-	// Sort snapshots by creation time (oldest first)
+	// Sort snapshots by creation time (newest first)
 	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].CreatedAt.Before(snapshots[j].CreatedAt)
+		return snapshots[i].CreatedAt.After(snapshots[j].CreatedAt)
 	})
 
 	return snapshots, nil
@@ -1207,28 +1213,28 @@ func (m *Manager) Start() error {
 		return nil
 	}
 	m.mu.Unlock() // Release lock for subsequent operations
-	
+
 	m.logger.Info("Starting snapshot scheduler")
-	
+
 	// Load config first without holding the lock
 	if err := m.LoadConfig(); err != nil {
 		m.logger.Error("Failed to load config", "error", err)
 		return err
 	}
-	
+
 	m.logger.Debug("Config loaded successfully")
 
 	// Clean up any existing jobs to avoid duplicates
 	m.cleanupExistingJobs()
-	
+
 	// Variables to track statistics
 	enabledPolicyCount := 0
 	enabledScheduleCount := 0
 	createdJobCount := 0
-	
+
 	// Reacquire lock for job creation
 	m.mu.Lock()
-	
+
 	// Create jobs for all enabled policies
 	for _, policy := range m.config.Policies {
 		if policy.Enabled {
@@ -1268,14 +1274,14 @@ func (m *Manager) Start() error {
 			}
 		}
 	}
-	
+
 	// Start the scheduler and mark as started
 	m.scheduler.Start()
 	m.started = true
-	
+
 	// Release the lock before finishing
 	m.mu.Unlock()
-	
+
 	m.logger.Info("Snapshot scheduler started",
 		"enabled_policies", enabledPolicyCount,
 		"enabled_schedules", enabledScheduleCount,
@@ -1317,14 +1323,14 @@ func (m *Manager) cleanupExistingJobs() {
 // Stop stops the scheduler
 func (m *Manager) Stop() error {
 	m.mu.Lock()
-	
+
 	// Check if already stopped
 	if !m.started {
 		m.logger.Info("Snapshot scheduler is not running")
 		m.mu.Unlock()
 		return nil
 	}
-	
+
 	m.logger.Info("Stopping snapshot scheduler")
 	m.mu.Unlock()
 
@@ -1341,7 +1347,7 @@ func (m *Manager) Stop() error {
 		m.logger.Error("Failed to save config during shutdown", "error", err)
 		return errors.Wrap(err, errors.ConfigWriteError)
 	}
-	
+
 	// Mark as stopped
 	m.mu.Lock()
 	m.started = false
