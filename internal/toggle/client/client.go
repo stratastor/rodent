@@ -19,7 +19,7 @@ import (
 
 const (
 	// DefaultToggleBaseURL is the default URL for the Toggle API
-	DefaultToggleBaseURL = "https://strata.foo"
+	DefaultToggleBaseURL = "https://toggle.strata.foo"
 )
 
 // Client provides methods to interact with the Toggle API

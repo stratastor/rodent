@@ -195,6 +195,7 @@ func (c *StreamConnection) handleAcknowledgment(
 
 // Register built-in system handlers
 func init() {
+	// TODO: Move this to RegisterAllHandlers() in internal/toggle/handlers.go
 	// Register the system.status handler
 	RegisterCommandHandler("system.status", handleSystemStatus)
 
@@ -204,7 +205,7 @@ func init() {
 		func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 			// Check if this is a system target
 			if cmd.Target != "system" {
-				err := errors.New(errors.ServerRequestValidation, 
+				err := errors.New(errors.ServerRequestValidation,
 					fmt.Sprintf("Unsupported target for status command: %s", cmd.Target))
 				return errors.ErrorResponse(req.RequestId, err), nil
 			}
@@ -237,7 +238,7 @@ func handleSystemStatus(
 
 	// Return response with the same request ID for correlation
 	return errors.SuccessResponse(
-		req.RequestId, 
+		req.RequestId,
 		"System status response",
 		payload,
 	), nil
