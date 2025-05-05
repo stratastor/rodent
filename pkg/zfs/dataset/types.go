@@ -205,12 +205,11 @@ type DatasetStatus struct {
 // MountConfig defines mount options
 type MountConfig struct {
 	NameConfig
-	TempMountPoint string   `json:"temp_mountpoint,omitempty"`
-	Recursive      bool     `json:"recursive"` // -R Mount the specified filesystems  along  with  all  of its children
-	Options        []string `json:"options,omitempty"`
-	Overlay        bool     `json:"overlay"` // -O  Overlay mount
-	Force          bool     `json:"force"`   // -f Force mount
-	Verbose        bool     `json:"verbose"` // -v Report mount progress
+	Recursive bool     `json:"recursive"` // -R Mount the specified filesystems  along  with  all  of its children
+	Options   []string `json:"options,omitempty"`
+	Overlay   bool     `json:"overlay"` // -O  Overlay mount
+	Force     bool     `json:"force"`   // -f Force mount
+	Verbose   bool     `json:"verbose"` // -v Report mount progress
 }
 
 type UnmountConfig struct {

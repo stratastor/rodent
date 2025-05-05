@@ -609,14 +609,11 @@ func (m *Manager) Mount(ctx context.Context, cfg MountConfig) error {
 	if cfg.Recursive {
 		args = append(args, "-R")
 	}
+	if cfg.Overlay {
+		args = append(args, "-O")
+	}
 	if cfg.Force {
 		args = append(args, "-f")
-	}
-	if cfg.Verbose {
-		args = append(args, "-v")
-	}
-	if cfg.TempMountPoint != "" {
-		args = append(args, "-o", fmt.Sprintf("mountpoint='%s'", cfg.TempMountPoint))
 	}
 
 	for _, opt := range cfg.Options {
