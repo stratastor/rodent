@@ -28,6 +28,7 @@ const (
 	DomainLifecycle Domain = "LIFECYCLE"
 	DomainAD        Domain = "AD"
 	DomainShares    Domain = "SHARES"
+	DomainSSH       Domain = "SSH"
 	DomainMisc      Domain = "MISC"
 )
 
@@ -295,11 +296,106 @@ const (
 	SharesProtocolError   // Protocol-specific share error
 )
 
+const (
+	// SSH Key Errors (1800-1849)
+	SSHKeyPairGenerationFailed = 1800 + iota // Failed to generate SSH key pair
+	SSHKeyPairWriteFailed                     // Failed to write SSH key pair
+	SSHKeyPairReadFailed                      // Failed to read SSH key pair
+	SSHKeyPairDeleteFailed                    // Failed to delete SSH key pair
+	SSHKeyPairNotFound                        // SSH key pair not found
+	SSHKeyPairAlreadyExists                   // SSH key pair already exists
+	SSHKeyPairInvalidType                     // Invalid SSH key type
+	SSHKeyPairInvalidPeeringID                // Invalid peering ID
+	SSHKeyPairInvalidPublicKey                // Invalid public key format
+	SSHKeyPairInvalidHostname                 // Invalid hostname/IP
+	SSHKeyPairPermissionDenied                // Permission denied for SSH key operation
+	SSHKnownHostAddFailed                     // Failed to add to known hosts
+	SSHKnownHostRemoveFailed                  // Failed to remove from known hosts
+	SSHKnownHostEntryNotFound                 // Known host entry not found
+	SSHKnownHostEntryAlreadyExists            // Known host entry already exists
+)
+
 var errorDefinitions = map[ErrorCode]struct {
 	message    string
 	domain     Domain
 	httpStatus int
 }{
+	// SSH Key error definitions
+	SSHKeyPairGenerationFailed: {
+		"Failed to generate SSH key pair",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKeyPairWriteFailed: {
+		"Failed to write SSH key pair",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKeyPairReadFailed: {
+		"Failed to read SSH key pair",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKeyPairDeleteFailed: {
+		"Failed to delete SSH key pair",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKeyPairNotFound: {
+		"SSH key pair not found",
+		DomainSSH,
+		http.StatusNotFound,
+	},
+	SSHKeyPairAlreadyExists: {
+		"SSH key pair already exists",
+		DomainSSH,
+		http.StatusConflict,
+	},
+	SSHKeyPairInvalidType: {
+		"Invalid SSH key type",
+		DomainSSH,
+		http.StatusBadRequest,
+	},
+	SSHKeyPairInvalidPeeringID: {
+		"Invalid peering ID",
+		DomainSSH,
+		http.StatusBadRequest,
+	},
+	SSHKeyPairInvalidPublicKey: {
+		"Invalid public key format",
+		DomainSSH,
+		http.StatusBadRequest,
+	},
+	SSHKeyPairInvalidHostname: {
+		"Invalid hostname or IP address",
+		DomainSSH,
+		http.StatusBadRequest,
+	},
+	SSHKeyPairPermissionDenied: {
+		"Permission denied for SSH key operation",
+		DomainSSH,
+		http.StatusForbidden,
+	},
+	SSHKnownHostAddFailed: {
+		"Failed to add to known hosts",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKnownHostRemoveFailed: {
+		"Failed to remove from known hosts",
+		DomainSSH,
+		http.StatusInternalServerError,
+	},
+	SSHKnownHostEntryNotFound: {
+		"Known host entry not found",
+		DomainSSH,
+		http.StatusNotFound,
+	},
+	SSHKnownHostEntryAlreadyExists: {
+		"Known host entry already exists",
+		DomainSSH,
+		http.StatusConflict,
+	},
 	// Configuration errors
 	ConfigNotFound: {"Configuration file not found", DomainConfig, http.StatusNotFound},
 	ConfigInvalid:  {"Invalid configuration format", DomainConfig, http.StatusBadRequest},

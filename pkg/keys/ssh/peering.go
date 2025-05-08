@@ -1,0 +1,110 @@
+// Copyright 2025 Raamsri Kumar <raam@tinkershack.in>
+// Copyright 2025 The StrataSTOR Authors and Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+package ssh
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/stratastor/rodent/pkg/errors"
+)
+
+// PeerInfo contains the information required for peering
+type PeerInfo struct {
+	// PeeringID is a unique identifier for the peer
+	PeeringID string `json:"peering_id"`
+	// Hostname is the hostname or IP address of the peer
+	Hostname string `json:"hostname,omitempty"`
+	// PublicKey is the peer's public key
+	PublicKey string `json:"public_key"`
+	// SSHOptions are any additional SSH options to apply (for authorized_keys)
+	SSHOptions []string `json:"ssh_options,omitempty"`
+}
+
+// AuthorizePeer adds a peer's public key to the authorized_keys file
+// and also adds it to the known_hosts file if hostname is provided
+// This enables the peer to SSH into this node and also establishes trust
+func (m *SSHKeyManager) AuthorizePeer(ctx context.Context, peer PeerInfo) error {
+	// Validate inputs
+	if err := validatePeeringID(peer.PeeringID); err != nil {
+		return err
+	}
+
+	if !isValidSSHPublicKey(peer.PublicKey) {
+		return errors.New(errors.SSHKeyPairInvalidPublicKey, "Invalid public key format")
+	}
+
+	// Add to authorized_keys (primary operation)
+	if err := m.AddAuthorizedKey(peer.PublicKey, peer.PeeringID, peer.SSHOptions); err != nil {
+		return err
+	}
+
+	// If hostname is provided, also add to known_hosts
+	if peer.Hostname != "" {
+		if err := validateHostname(peer.Hostname); err != nil {
+			m.logger.Warn("Invalid hostname provided for peer, skipping known_hosts entry",
+				"peering_id", peer.PeeringID,
+				"hostname", peer.Hostname,
+				"error", err)
+		} else {
+			// Add to known_hosts, but don't fail the entire operation if this fails
+			if err := m.AddKnownHost(ctx, peer.Hostname, peer.PublicKey, peer.PeeringID); err != nil {
+				m.logger.Warn("Failed to add peer to known_hosts after adding to authorized_keys",
+					"peering_id", peer.PeeringID,
+					"hostname", peer.Hostname,
+					"error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// DeauthorizePeer removes a peer's public key from the authorized_keys file
+// and also attempts to remove it from the known_hosts file
+// This prevents the peer from SSHing into this node and removes trust
+func (m *SSHKeyManager) DeauthorizePeer(ctx context.Context, peeringID string) error {
+	// Validate peering ID
+	if err := validatePeeringID(peeringID); err != nil {
+		return err
+	}
+
+	// Remove from authorized_keys (primary operation)
+	if err := m.RemoveAuthorizedKey(peeringID); err != nil {
+		return err
+	}
+
+	// Also try to remove from known_hosts, but don't fail if this doesn't work
+	if err := m.RemoveKnownHost(ctx, peeringID, ""); err != nil {
+		m.logger.Warn("Failed to remove peer from known_hosts after removing from authorized_keys",
+			"peering_id", peeringID,
+			"error", err)
+	}
+
+	return nil
+}
+
+// GetAuthorizedPeers returns a list of all peers authorized to connect to this node
+func (m *SSHKeyManager) GetAuthorizedPeers(ctx context.Context) ([]PeerInfo, error) {
+	// Get all authorized keys
+	authKeys, err := m.ListAuthorizedKeys()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list authorized keys: %w", err)
+	}
+
+	// Convert to peer info
+	var peers []PeerInfo
+	for _, auth := range authKeys {
+		if auth.Comment != "" {
+			peers = append(peers, PeerInfo{
+				PeeringID:  auth.Comment,
+				PublicKey:  auth.PublicKey,
+				SSHOptions: auth.Options,
+			})
+		}
+	}
+
+	return peers, nil
+}

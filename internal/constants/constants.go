@@ -31,6 +31,9 @@ const (
 
 	APIShares = APIBase + "/shares"
 
+	APIKeys    = APIBase + "/keys"
+	APISSHKeys = APIKeys + "/ssh"
+
 	// Updated path constants
 
 	// Template paths - relative paths

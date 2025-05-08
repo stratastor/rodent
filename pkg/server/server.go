@@ -96,6 +96,13 @@ func Start(ctx context.Context, port int) error {
 	if err != nil {
 		return fmt.Errorf("failed to register shares routes: %w", err)
 	}
+	
+	// Register SSH key routes
+	sshKeyHandler, err := registerSSHKeyRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register SSH key routes: %w", err)
+	}
+	defer sshKeyHandler.Close()
 
 	toggle.StartRegistrationProcess(ctx, l)
 

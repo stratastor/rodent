@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/common"
 	rterrors "github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -33,6 +34,10 @@ func ExecCommand(
 	// Validate command and arguments
 	if err := validateCommand(name, args); err != nil {
 		return nil, err
+	}
+
+	if logger == nil {
+		logger = common.Log
 	}
 
 	// Apply timeout if not already set

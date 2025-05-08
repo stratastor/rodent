@@ -19,6 +19,7 @@ import (
 	"github.com/stratastor/rodent/pkg/ad/handlers"
 	"github.com/stratastor/rodent/pkg/facl"
 	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
+	sshAPI "github.com/stratastor/rodent/pkg/keys/ssh/api"
 	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	"github.com/stratastor/rodent/pkg/zfs/api"
@@ -182,4 +183,34 @@ func registerSharesRoutes(engine *gin.Engine) error {
 	}
 
 	return nil
+}
+
+// registerSSHKeyRoutes registers SSH key management API routes
+func registerSSHKeyRoutes(engine *gin.Engine) (*sshAPI.SSHKeyHandler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "ssh")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create SSH key handler
+	sshKeyHandler, err := sshAPI.NewSSHKeyHandler(l)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH key handler: %w", err)
+	}
+
+	// API group with version
+	v1 := engine.Group(constants.APISSHKeys)
+	{
+		// Register SSH key routes
+		sshKeyHandler.RegisterRoutes(v1)
+	}
+
+	// Register gRPC handlers
+	sshAPI.RegisterSSHKeyGRPCHandlers(sshKeyHandler)
+
+	return sshKeyHandler, nil
 }

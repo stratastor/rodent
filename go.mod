@@ -17,8 +17,9 @@ require (
 	github.com/stratastor/logger v0.0.0-20241216073552-0e618b524da8
 	github.com/stratastor/toggle-rodent-proto v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.10.0
+	golang.org/x/crypto v0.38.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
-	golang.org/x/text v0.21.0
+	golang.org/x/text v0.25.0
 	google.golang.org/grpc v1.71.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -69,9 +70,8 @@ require (
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect

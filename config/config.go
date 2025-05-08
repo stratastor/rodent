@@ -69,6 +69,16 @@ type Config struct {
 		} `mapstructure:"smb"`
 	} `mapstructure:"shares"`
 
+	Keys struct {
+		SSH struct {
+			Username           string `mapstructure:"username"`
+			DirPath            string `mapstructure:"dirPath"`
+			Algorithm          string `mapstructure:"algorithm"`
+			KnownHostsFile     string `mapstructure:"knownHostsFile"`
+			AuthorizedKeysFile string `mapstructure:"authorizedKeysFile"`
+		} `mapstructure:"ssh"`
+	} `mapstructure:"keys"`
+
 	Development struct {
 		Enabled bool `mapstructure:"enabled"`
 	} `mapstructure:"development"`
@@ -147,6 +157,13 @@ func LoadConfig(configFilePath string) *Config {
 		// Set defaults for Shares configuration
 		viper.SetDefault("shares.smb.realm", "AD.STRATA.INTERNAL")
 		viper.SetDefault("shares.smb.workgroup", "AD")
+
+		// Set defaults for SSH keys
+		viper.SetDefault("keys.ssh.username", "ubuntu")
+		viper.SetDefault("keys.ssh.dirPath", "/etc/rodent/ssh")
+		viper.SetDefault("keys.ssh.algorithm", "ed25519")
+		viper.SetDefault("keys.ssh.knownHostsFile", "/etc/rodent/ssh/known_hosts")
+		viper.SetDefault("keys.ssh.authorizedKeysFile", "~/.ssh/authorized_keys")
 
 		// Set defaults for StrataSecure
 		viper.SetDefault("strataSecure", true)
