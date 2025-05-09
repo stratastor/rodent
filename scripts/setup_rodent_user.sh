@@ -30,6 +30,10 @@ mkdir -p /var/log/rodent
 mkdir -p /home/rodent/.rodent/ssh
 mkdir -p /home/rodent/.rodent/templates/traefik
 mkdir -p /home/rodent/.rodent/state
+mkdir -p /home/rodent/.rodent/shares/smb
+
+# Create log directory in user's home as well for easier permissions
+mkdir -p /home/rodent/.rodent/logs
 
 # Set proper ownership
 echo "Setting proper ownership..."
@@ -37,6 +41,15 @@ chown -R rodent:rodent /home/rodent/.rodent
 chown -R rodent:rodent /home/rodent/.ssh
 chown -R rodent:rodent /var/lib/rodent
 chown -R rodent:rodent /var/log/rodent
+# Don't fail if these directories don't exist
+setfacl -R -m d:u:rodent:rwx /var/lib/rodent || true
+setfacl -R -m d:u:rodent:rwx /var/log/rodent || true
+setfacl -m d:u:rodent:rw /etc/samba/smb.conf || true
+setfacl -m d:u:rodent:rw /etc/krb5.conf || true
+setfacl -m d:u:rodent:rw /etc/hosts || true
+setfacl -m d:u:rodent:rw /etc/hosts.allow || true
+setfacl -m d:u:rodent:rw /etc/hosts.deny || true
+setfacl -m d:u:rodent:rw /etc/resolv.conf || true
 
 # Set proper permissions
 echo "Setting proper permissions..."
@@ -44,6 +57,14 @@ chmod 700 /home/rodent/.ssh
 chmod 700 /home/rodent/.rodent/ssh
 chmod 755 /var/lib/rodent
 chmod 755 /var/log/rodent
+
+# Add rodent user to docker group if it exists
+if getent group docker > /dev/null; then
+  echo "Adding rodent user to docker group..."
+  usermod -aG docker rodent
+else
+  echo "Docker group does not exist. Skipping adding rodent to docker group."
+fi
 
 # Copy default configuration
 if [ -d "/etc/rodent" ]; then
@@ -59,14 +80,33 @@ if [ ! -f "/home/rodent/.rodent/rodent.yml" ]; then
 # Rodent configuration file
 server:
   port: 8042
-  logLevel: info
+  loglevel: debug
+  daemonize: false
+health:
+  interval: 30s
+  endpoint: /health
+ad:
+  adminpassword: Passw0rd
+  ldapurl: ldaps://DC1.ad.strata.internal:636
+  basedn: CN=Users,DC=ad,DC=strata,DC=internal
+  admindn: CN=Administrator,CN=Users,DC=ad,DC=strata,DC=internal
 logs:
-  path: /var/log/rodent/rodent.log
+  path: /home/rodent/.rodent/logs/rodent.log
   retention: 7d
   output: file
 logger:
-  logLevel: info
-  enableSentry: false
+  loglevel: debug
+  enablesentry: false
+  sentrydsn: ""
+toggle:
+  jwt: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIyMTg3NzQxODgsImlhdCI6MTc0NTM4ODU4OCwicHJ2Ijp0cnVlLCJyaWQiOiIydzdOS2FLaTVjNHdHOHphRW5URW04QWdkMzUiLCJzdWIiOiJjNzUwMGNjOC02M2UxLTRjMmItYWU4NS02MmFkOTA0YTdmNmIiLCJ0aWQiOiIydzdOS1o4QTloSEduTTJ1UjRRWGd0aEVBREkifQ.gwLIbSB7GlGEcBQeDSjIdlnZ4vhUCIQWj9WvOthxG6o
+  baseurl: http://localhost:8142
+  rpcaddr: localhost:8242
+stratasecure: true
+shares:
+  smb:
+    realm: AD.STRATA.INTERNAL
+    workgroup: AD
 keys:
   ssh:
     username: rodent
@@ -74,10 +114,10 @@ keys:
     algorithm: ed25519
     knownHostsFile: /home/rodent/.rodent/ssh/known_hosts
     authorizedKeysFile: /home/rodent/.ssh/authorized_keys
-shares:
-  smb:
-    realm: AD.STRATA.INTERNAL
-    workgroup: AD
+development:
+  enabled: false
+environment: dev
+
 EOL
   chown rodent:rodent /home/rodent/.rodent/rodent.yml
   chmod 600 /home/rodent/.rodent/rodent.yml

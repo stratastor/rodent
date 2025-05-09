@@ -22,20 +22,35 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares"
 )
 
-const (
-	DefaultSMBConfigPath = "/etc/samba/smb.conf"
-	SharesConfigDir      = "/etc/samba/shares.d"
-	TemplateDir          = "/etc/rodent/templates/smb"
-	DefaultTemplate      = "share.tmpl"
-	GlobalTemplate       = "global.tmpl"
-	ConfigFileExt        = ".json"
-	SmbConfigFileExt     = ".smb.conf"
+var (
+	defaultSMBConfigPath = "/etc/samba/smb.conf"
+	sharesConfigDir      = "~/.rodent/shares/smb"
+	templateDir          = "~/.rodent/templates/smb"
+	defaultTemplate      = "share.tmpl"
+	globalTemplate       = "global.tmpl"
+	configFileExt        = ".json"
+	smbConfigFileExt     = ".smb.conf"
 )
+
+func init() {
+	sharesConfigDir = config.GetConfigDir() + "/shares/smb"
+	templateDir = config.GetConfigDir() + "/templates/smb"
+
+	// Ensure the template directory exists
+	if err := common.EnsureDir(templateDir, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create template directory: %v", err))
+	}
+	// Ensure the shares config directory exists
+	if err := common.EnsureDir(sharesConfigDir, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create shares config directory: %v", err))
+	}
+}
 
 var (
 	// Ensure safe share names
@@ -60,12 +75,6 @@ func NewManager(
 	executor *command.CommandExecutor,
 	aclManager *facl.ACLManager,
 ) (*Manager, error) {
-	// Create shares config directory if it doesn't exist
-	if err := os.MkdirAll(SharesConfigDir, 0755); err != nil {
-		return nil, errors.Wrap(err, errors.RodentMisc).
-			WithMetadata("path", SharesConfigDir)
-	}
-
 	// Define template function map
 	funcMap := template.FuncMap{
 		"join": strings.Join,
@@ -75,29 +84,29 @@ func NewManager(
 	templates := make(map[string]*template.Template)
 
 	// Load default template from embedded files or fallback to default content
-	defaultTemplate, err := template.New(DefaultTemplate).
+	defTemp, err := template.New(defaultTemplate).
 		Funcs(funcMap).
 		Parse(DefaultTemplateContent())
 	if err != nil {
 		return nil, errors.Wrap(err, errors.RodentMisc).
-			WithMetadata("template", DefaultTemplate)
+			WithMetadata("template", defaultTemplate)
 	}
-	templates[DefaultTemplate] = defaultTemplate
+	templates[defaultTemplate] = defTemp
 
 	// Load global template from embedded files or fallback to default content
-	globalTemplate, err := template.New(GlobalTemplate).
+	globalTemp, err := template.New(globalTemplate).
 		Funcs(funcMap).
 		Parse(GlobalTemplateContent())
 	if err != nil {
 		return nil, errors.Wrap(err, errors.RodentMisc).
-			WithMetadata("template", GlobalTemplate)
+			WithMetadata("template", globalTemplate)
 	}
-	templates[GlobalTemplate] = globalTemplate
+	templates[globalTemplate] = globalTemp
 
 	manager := &Manager{
 		logger:     logger,
 		executor:   executor,
-		configDir:  SharesConfigDir,
+		configDir:  sharesConfigDir,
 		templates:  templates,
 		aclManager: aclManager,
 	}
@@ -150,7 +159,7 @@ func (m *Manager) ListShares(ctx context.Context) ([]shares.ShareConfig, error) 
 	defer m.mutex.RUnlock()
 
 	// Get all share config files
-	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+configFileExt))
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "list")
@@ -232,7 +241,7 @@ func (m *Manager) GetShare(ctx context.Context, name string) (*shares.ShareConfi
 	}
 
 	// Read share config file
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -289,7 +298,7 @@ func (m *Manager) GetSMBShare(ctx context.Context, name string) (*SMBShareConfig
 	}
 
 	// Read share config file
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -328,7 +337,7 @@ func (m *Manager) CreateShare(ctx context.Context, config interface{}) error {
 	}
 
 	// Check if share already exists
-	filePath := filepath.Join(m.configDir, smbConfig.Name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, smbConfig.Name+configFileExt)
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.New(errors.SharesAlreadyExists, "Share already exists").
 			WithMetadata("name", smbConfig.Name)
@@ -387,7 +396,7 @@ func (m *Manager) UpdateShare(ctx context.Context, name string, config interface
 	}
 
 	// Check if share exists
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.New(errors.SharesNotFound, "Share not found").
 			WithMetadata("name", name)
@@ -434,7 +443,7 @@ func (m *Manager) DeleteShare(ctx context.Context, name string) error {
 	}
 
 	// Check if share exists
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.New(errors.SharesNotFound, "Share not found").
 			WithMetadata("name", name)
@@ -448,7 +457,7 @@ func (m *Manager) DeleteShare(ctx context.Context, name string) error {
 	}
 
 	// Remove generated SMB configuration
-	smbConfPath := filepath.Join(SharesConfigDir, name+SmbConfigFileExt)
+	smbConfPath := filepath.Join(sharesConfigDir, name+smbConfigFileExt)
 	if err := os.Remove(smbConfPath); err != nil && !os.IsNotExist(err) {
 		m.logger.Warn("Failed to remove SMB configuration file",
 			"file", smbConfPath,
@@ -513,7 +522,7 @@ func (m *Manager) GetSMBShareStats(ctx context.Context, name string) (*SMBShareS
 			WithMetadata("name", name)
 	}
 
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 
 	// Run smbstatus to get detailed information
 	out, err := exec.CommandContext(ctx, "sudo", "smbstatus", "-j").Output()
@@ -700,7 +709,7 @@ func (m *Manager) Exists(ctx context.Context, name string) (bool, error) {
 	}
 
 	// Check if share configuration file exists
-	filePath := filepath.Join(m.configDir, name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, name+configFileExt)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
@@ -737,7 +746,7 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	defer m.mutex.Unlock()
 
 	// Check if we already have share configs in SharesConfigDir
-	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+configFileExt))
 	if err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "check_existing_configs")
@@ -756,7 +765,7 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	if !hasExistingShareConfigs {
 		m.logger.Info("Existing Rodent-managed SMB shares found, not backing up original config")
 		// Backup existing SMB config file
-		backupPath, err := BackupConfigFile(DefaultSMBConfigPath)
+		backupPath, err := BackupConfigFile(defaultSMBConfigPath)
 		if err != nil {
 			return errors.Wrap(err, errors.SharesOperationFailed).
 				WithMetadata("operation", "backup_smb_config")
@@ -767,13 +776,13 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	}
 
 	// Parse existing SMB config file if it exists
-	if _, err := os.Stat(DefaultSMBConfigPath); os.IsNotExist(err) {
+	if _, err := os.Stat(defaultSMBConfigPath); os.IsNotExist(err) {
 		m.logger.Info("No existing SMB configuration found, generating defaults")
 		return nil
 	}
 
 	// Parse existing config
-	parser, err := NewSMBConfigParser(DefaultSMBConfigPath)
+	parser, err := NewSMBConfigParser(defaultSMBConfigPath)
 	if err != nil {
 		return err
 	}
@@ -819,7 +828,7 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	importCount := 0
 	for name, share := range shares {
 		// Check if we already have this share
-		configFile := filepath.Join(m.configDir, name+ConfigFileExt)
+		configFile := filepath.Join(m.configDir, name+configFileExt)
 		if _, err := os.Stat(configFile); !os.IsNotExist(err) {
 			m.logger.Info(
 				"Share already exists in Rodent configuration, skipping import",
@@ -962,7 +971,7 @@ func (m *Manager) GetSMBServiceStatus(ctx context.Context) (*SMBServiceStatus, e
 		}
 
 		// Get config file
-		status.ConfigFile = DefaultSMBConfigPath
+		status.ConfigFile = defaultSMBConfigPath
 
 		// Get start time
 		if status.PID > 0 {
@@ -1019,7 +1028,7 @@ func (m *Manager) updateMainConfig() error {
 	var content strings.Builder
 
 	// Read global configuration
-	globalPath := filepath.Join(SharesConfigDir, "global.smb.conf")
+	globalPath := filepath.Join(sharesConfigDir, "global.smb.conf")
 	globalData, err := os.ReadFile(globalPath)
 	if err == nil {
 		content.WriteString(string(globalData))
@@ -1030,7 +1039,7 @@ func (m *Manager) updateMainConfig() error {
 	}
 
 	// Check if we have existing files in SharesConfigDir
-	shareConfigs, err := filepath.Glob(filepath.Join(SharesConfigDir, "*"+SmbConfigFileExt))
+	shareConfigs, err := filepath.Glob(filepath.Join(sharesConfigDir, "*"+smbConfigFileExt))
 	if err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "find_share_configs")
@@ -1040,7 +1049,7 @@ func (m *Manager) updateMainConfig() error {
 	// The only change would be to update the global section if we have one
 	if len(shareConfigs) <= 1 && len(globalData) > 0 {
 		// Read existing smb.conf to preserve non-share sections
-		existingConfig, readErr := os.ReadFile(DefaultSMBConfigPath)
+		existingConfig, readErr := os.ReadFile(defaultSMBConfigPath)
 
 		// If we have an existing config and can read it
 		if readErr == nil && len(existingConfig) > 0 {
@@ -1060,7 +1069,7 @@ func (m *Manager) updateMainConfig() error {
 			}
 
 			// Write updated config
-			if err := os.WriteFile(DefaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
+			if err := os.WriteFile(defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
 				return errors.Wrap(err, errors.SharesOperationFailed).
 					WithMetadata("operation", "write_config")
 			}
@@ -1092,7 +1101,7 @@ func (m *Manager) updateMainConfig() error {
 	}
 
 	// Write updated config
-	if err := os.WriteFile(DefaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
+	if err := os.WriteFile(defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_config")
 	}
@@ -1188,7 +1197,7 @@ func preserveSpecialSections(content string) (string, string) {
 // generateShareConfig generates SMB configuration for a share
 func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 	// Get the template
-	tmplName := DefaultTemplate
+	tmplName := defaultTemplate
 	tmpl, ok := m.templates[tmplName]
 	if !ok {
 		return errors.New(errors.SharesInternalError, "Share template not found")
@@ -1218,7 +1227,7 @@ func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 	}
 
 	// Write the configuration file
-	filePath := filepath.Join(SharesConfigDir, config.Name+SmbConfigFileExt)
+	filePath := filepath.Join(sharesConfigDir, config.Name+smbConfigFileExt)
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_config").
@@ -1231,7 +1240,7 @@ func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 // generateGlobalConfig generates the global SMB configuration
 func (m *Manager) generateGlobalConfig(config *SMBGlobalConfig) error {
 	// Get the template
-	tmpl, ok := m.templates[GlobalTemplate]
+	tmpl, ok := m.templates[globalTemplate]
 	if !ok {
 		return errors.New(errors.SharesInternalError, "Global template not found")
 	}
@@ -1244,7 +1253,7 @@ func (m *Manager) generateGlobalConfig(config *SMBGlobalConfig) error {
 	}
 
 	// Write the configuration file
-	filePath := filepath.Join(SharesConfigDir, "global.smb.conf")
+	filePath := filepath.Join(sharesConfigDir, "global.smb.conf")
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_global_config")
@@ -1399,7 +1408,7 @@ func (m *Manager) BulkUpdateShares(
 // getAllShareConfigs returns all SMB share configurations
 func (m *Manager) getAllShareConfigs() ([]*SMBShareConfig, error) {
 	// Get all share config files
-	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+ConfigFileExt))
+	files, err := filepath.Glob(filepath.Join(m.configDir, "*"+configFileExt))
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "list_share_configs")
@@ -1444,7 +1453,7 @@ func (m *Manager) saveShareConfig(config *SMBShareConfig) error {
 	}
 
 	// Write to file
-	filePath := filepath.Join(m.configDir, config.Name+ConfigFileExt)
+	filePath := filepath.Join(m.configDir, config.Name+configFileExt)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "save_config").

@@ -21,7 +21,36 @@ var (
 	instance   *Config
 	once       sync.Once
 	configPath string // Tracks where the config was loaded from
+
+	configDir   string // Directory for configuration files
+	servicesDir string // Directory for service configurations
 )
+
+func init() {
+	if os.Geteuid() == 0 {
+		configDir = "/etc/rodent"
+	}
+
+	// Otherwise, use user config directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get home directory: %v", err))
+	}
+
+	configDir = filepath.Join(homeDir, ".rodent")
+	servicesDir = filepath.Join(configDir, "services")
+}
+
+// GetConfigDir returns the appropriate configuration directory
+// If running as root, it returns the system config directory
+// Otherwise, it returns the user config directory
+func GetConfigDir() string {
+	return configDir
+}
+
+func GetServicesDir() string {
+	return servicesDir
+}
 
 type Config struct {
 	Server struct {
@@ -106,7 +135,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetConfigType("yaml")
 
 		// Determine which config file to use with clear priorities
-		systemConfigPath := filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
+		systemConfigPath := filepath.Join(GetConfigDir(), constants.ConfigFileName)
 
 		if configFilePath != "" {
 			// 1. Priority: Explicit path from command line
@@ -160,9 +189,9 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Set defaults for SSH keys
 		viper.SetDefault("keys.ssh.username", "ubuntu")
-		viper.SetDefault("keys.ssh.dirPath", "/etc/rodent/ssh")
+		viper.SetDefault("keys.ssh.dirPath", "~/.rodent/ssh")
 		viper.SetDefault("keys.ssh.algorithm", "ed25519")
-		viper.SetDefault("keys.ssh.knownHostsFile", "/etc/rodent/ssh/known_hosts")
+		viper.SetDefault("keys.ssh.knownHostsFile", "~/.rodent/ssh/known_hosts")
 		viper.SetDefault("keys.ssh.authorizedKeysFile", "~/.ssh/authorized_keys")
 
 		// Set defaults for StrataSecure
@@ -188,7 +217,7 @@ func LoadConfig(configFilePath string) *Config {
 				)
 
 				// Ensure parent directory exists
-				if err := os.MkdirAll(constants.SystemConfigDir, 0755); err != nil {
+				if err := os.MkdirAll(GetConfigDir(), 0755); err != nil {
 					l.Error("Failed to create config directory", "err", err)
 				}
 
@@ -249,10 +278,10 @@ func SaveConfig(path string) error {
 	if path == "" {
 		// Determine default save location based on user privileges
 		if os.Geteuid() == 0 {
-			if err := os.MkdirAll(constants.SystemConfigDir, 0755); err != nil {
+			if err := os.MkdirAll(GetConfigDir(), 0755); err != nil {
 				return fmt.Errorf("failed to create system config directory: %w", err)
 			}
-			path = filepath.Join(constants.SystemConfigDir, constants.ConfigFileName)
+			path = filepath.Join(GetConfigDir(), constants.ConfigFileName)
 		} else {
 			home, err := os.UserHomeDir()
 			if err != nil {

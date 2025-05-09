@@ -21,7 +21,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
-	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"gopkg.in/yaml.v3"
@@ -86,7 +85,7 @@ func newManager(dsManager *dataset.Manager, cfgDir string) (*Manager, error) {
 	l.Info("Initializing snapshot manager")
 
 	// Ensure the config directory exists
-	configDir := constants.SystemConfigDir
+	configDir := config.GetConfigDir()
 	if cfgDir != "" {
 		configDir = cfgDir
 	}

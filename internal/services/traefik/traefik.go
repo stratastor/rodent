@@ -12,14 +12,31 @@ import (
 
 	"github.com/stratastor/logger"
 	rodentCfg "github.com/stratastor/rodent/config"
-	"github.com/stratastor/rodent/internal/common"
-	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/internal/services"
 	"github.com/stratastor/rodent/internal/services/config"
 	"github.com/stratastor/rodent/internal/services/docker"
 	"github.com/stratastor/rodent/internal/templates"
 	tglClient "github.com/stratastor/rodent/internal/toggle/client"
 )
+
+var (
+	servicesDir string
+
+	// Template file names (no paths needed as they are embedded)
+	traefikComposeTemplate = "dc-traefik.yml.tmpl"
+	traefikConfigTemplate  = "config.yml.tmpl"
+	traefikTLSTemplate     = "tls.yml.tmpl"
+
+	// Runtime paths for files
+	defaultTraefikCertDir     = servicesDir + "/traefik/certs"
+	defaultTraefikTLSPath     = servicesDir + "/traefik/tls.yml"
+	defaultTraefikComposePath = servicesDir + "/traefik/dc-traefik.yml"
+	defaultTraefikConfigPath  = servicesDir + "/traefik/config.yml"
+)
+
+func init() {
+	servicesDir = rodentCfg.GetServicesDir()
+}
 
 // CertificateData contains information about a TLS certificate
 type CertificateData struct {
@@ -67,25 +84,25 @@ func NewClient(logger logger.Logger) (*Client, error) {
 	configManager := config.NewServiceConfigManager(logger)
 
 	// Get embedded templates
-	composeTemplate, err := templates.GetTraefikTemplate(constants.TraefikComposeTemplate)
+	composeTemplate, err := templates.GetTraefikTemplate(traefikComposeTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load compose template: %w", err)
 	}
 
-	configTemplate, err := templates.GetTraefikTemplate(constants.TraefikConfigTemplate)
+	configTemplate, err := templates.GetTraefikTemplate(traefikConfigTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config template: %w", err)
 	}
 
-	tlsTemplate, err := templates.GetTraefikTemplate(constants.TraefikTLSTemplate)
+	tlsTemplate, err := templates.GetTraefikTemplate(traefikTLSTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load TLS template: %w", err)
 	}
 
 	// Output paths should still be resolved since they're written to disk
-	composePath := common.ResolvePath(constants.DefaultTraefikComposePath)
-	configPath := common.ResolvePath(constants.DefaultTraefikConfigPath)
-	tlsPath := common.ResolvePath(constants.DefaultTraefikTLSPath)
+	composePath := defaultTraefikComposePath
+	configPath := defaultTraefikConfigPath
+	tlsPath := defaultTraefikTLSPath
 
 	// Register templates with embedded content
 	configManager.RegisterTemplate("traefik-compose", &config.ConfigTemplate{
@@ -116,7 +133,7 @@ func NewClient(logger logger.Logger) (*Client, error) {
 	client := &Client{
 		logger:        logger,
 		dockerSvc:     dockerSvc,
-		composeFile:   constants.DefaultTraefikComposePath,
+		composeFile:   defaultTraefikComposePath,
 		configManager: configManager,
 	}
 
@@ -170,14 +187,14 @@ func (c *Client) Restart(ctx context.Context) error {
 // InstallCertificate installs a TLS certificate for Traefik
 func (c *Client) InstallCertificate(ctx context.Context, certData CertificateData) error {
 	// Write certificate to file
-	certFile := filepath.Join(constants.DefaultTraefikCertDir, certData.Domain+".pem")
+	certFile := filepath.Join(defaultTraefikCertDir, certData.Domain+".pem")
 	if err := services.WriteFileWithPerms(certFile, []byte(certData.Certificate), 0644); err != nil {
 		return fmt.Errorf("failed to write certificate file: %w", err)
 	}
 	c.logger.Debug("Wrote certificate to file", "file", certFile)
 
 	// Write private key to file
-	keyFile := filepath.Join(constants.DefaultTraefikCertDir, certData.Domain+".key")
+	keyFile := filepath.Join(defaultTraefikCertDir, certData.Domain+".key")
 	if err := services.WriteFileWithPerms(keyFile, []byte(certData.PrivateKey), 0600); err != nil {
 		return fmt.Errorf("failed to write private key file: %w", err)
 	}

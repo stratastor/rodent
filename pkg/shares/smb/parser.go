@@ -59,10 +59,10 @@ func (p *SMBConfigParser) ParseShares() (map[string]*SMBShareConfig, error) {
 			currentSection = sectionName
 
 			// Skip global and special sections
-			if currentSection == "global" || 
-			   currentSection == "homes" || 
-			   currentSection == "printers" || 
-			   currentSection == "print$" {
+			if currentSection == "global" ||
+				currentSection == "homes" ||
+				currentSection == "printers" ||
+				currentSection == "print$" {
 				currentConfig = nil
 				continue
 			}
@@ -208,7 +208,8 @@ func (p *SMBConfigParser) ParseGlobalSection() (*SMBGlobalConfig, error) {
 				globalConfig.LogLevel = value
 			case "max log size":
 				// Try to parse as int but don't fail if it's not
-				if size, err := fmt.Sscanf(value, "%d", &globalConfig.MaxLogSize); err != nil || size == 0 {
+				if size, err := fmt.Sscanf(value, "%d", &globalConfig.MaxLogSize); err != nil ||
+					size == 0 {
 					globalConfig.MaxLogSize = 1000
 				}
 			case "winbind use default domain":
@@ -241,7 +242,7 @@ func (p *SMBConfigParser) ParseGlobalSection() (*SMBGlobalConfig, error) {
 func parseList(value string) []string {
 	// Split by commas first, then by spaces
 	var result []string
-	
+
 	// Try comma-separated
 	if strings.Contains(value, ",") {
 		parts := strings.Split(value, ",")
@@ -260,7 +261,7 @@ func parseList(value string) []string {
 			}
 		}
 	}
-	
+
 	return result
 }
 
@@ -296,8 +297,8 @@ func BackupConfigFile(filePath string) (string, error) {
 // CreateShareConfigFromSection creates a share config file from parsed SMB section
 func CreateShareConfigFromSection(configDir string, share *SMBShareConfig) error {
 	// Marshal to JSON with nice formatting
-	filePath := filepath.Join(configDir, share.Name+ConfigFileExt)
-	
+	filePath := filepath.Join(configDir, share.Name+configFileExt)
+
 	// Marshal the share config to JSON with indentation
 	data, err := json.MarshalIndent(share, "", "  ")
 	if err != nil {

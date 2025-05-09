@@ -45,7 +45,13 @@ func NewServeCmd() *cobra.Command {
 
 func runServe(cmd *cobra.Command, args []string) {
 	rc := config.GetConfig()
+	
+	// Use environment variable for PID file path if set
 	pidFile := constants.RodentPIDFilePath
+	if envPidPath := os.Getenv("RODENT_PID_PATH"); envPidPath != "" {
+		pidFile = envPidPath
+	}
+	
 	// Check for existing instance before proceeding
 	if err := lifecycle.EnsureSingleInstance(pidFile); err != nil {
 		fmt.Printf("Failed to start: %v\n", err)

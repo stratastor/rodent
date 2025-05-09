@@ -11,19 +11,21 @@ Group=rodent
 ExecStart=/usr/local/bin/rodent serve
 WorkingDirectory=/var/lib/rodent
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 Environment=RODENT_CONFIG=/home/rodent/.rodent/rodent.yml
+Environment=RODENT_PID_PATH=/var/lib/rodent/rodent.pid
 
 # Allow a reasonable amount of time for the service to start
 TimeoutStartSec=60
 
 # Security hardening
-ProtectSystem=partial  # Allow writing to /etc
-ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/samba
+# ProtectSystem=true
+# ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/samba /etc/samba/sbm.conf /etc/hosts /etc/resolv.conf /etc/krb5.conf 
+ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/hosts /etc/resolv.conf /etc/krb5.conf
 PrivateTmp=true
-NoNewPrivileges=false  # We need sudo for some operations
+NoNewPrivileges=false
 
 [Install]
 WantedBy=multi-user.target
