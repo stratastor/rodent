@@ -1,0 +1,64 @@
+# Allow rodent to run specific ZFS commands with sudo without password
+# This file should be installed at /etc/sudoers.d/rodent
+
+# Command aliases for ZFS operations
+Cmnd_Alias ZFS_COMMANDS = \
+    /usr/local/sbin/zfs create *, \
+    /usr/local/sbin/zfs destroy *, \
+    /usr/local/sbin/zfs rename *, \
+    /usr/local/sbin/zfs snapshot *, \
+    /usr/local/sbin/zfs rollback *, \
+    /usr/local/sbin/zfs clone *, \
+    /usr/local/sbin/zfs promote *, \
+    /usr/local/sbin/zfs mount *, \
+    /usr/local/sbin/zfs unmount *, \
+    /usr/local/sbin/zfs set *, \
+    /usr/local/sbin/zfs get *, \
+    /usr/local/sbin/zfs allow *, \
+    /usr/local/sbin/zfs unallow *, \
+    /usr/local/sbin/zfs share *, \
+    /usr/local/sbin/zfs unshare *, \
+    /usr/local/sbin/zfs send *, \
+    /usr/local/sbin/zfs receive *, \
+    /usr/local/sbin/zfs list *, \
+    /usr/local/sbin/zpool status *, \
+    /usr/local/sbin/zpool list *, \
+    /usr/local/sbin/zpool create *, \
+    /usr/local/sbin/zpool destroy *, \
+    /usr/local/sbin/zpool import *, \
+    /usr/local/sbin/zpool export *, \
+    /usr/local/sbin/zpool scrub *, \
+    /usr/local/sbin/zpool initialize *, \
+    /usr/local/sbin/zpool attach *, \
+    /usr/local/sbin/zpool detach *, \
+    /usr/local/sbin/zpool set *
+
+# Command aliases for SMB operations
+Cmnd_Alias SMB_COMMANDS = \
+    /usr/bin/smbstatus *, \
+    /usr/bin/smbcontrol *, \
+    /bin/systemctl start smbd, \
+    /bin/systemctl stop smbd, \
+    /bin/systemctl restart smbd, \
+    /bin/systemctl status smbd, \
+    /bin/systemctl start winbind, \
+    /bin/systemctl stop winbind, \
+    /bin/systemctl restart winbind, \
+    /bin/systemctl status winbind
+
+# Command aliases for file access control operations
+Cmnd_Alias FACL_COMMANDS = \
+    /usr/bin/getfacl *, \
+    /usr/bin/setfacl *
+
+# Command aliases for other needed system commands
+Cmnd_Alias SYSTEM_COMMANDS = \
+    /bin/mount *, \
+    /bin/mount -l
+
+# Grant permissions to the rodent user
+rodent ALL=(ALL) NOPASSWD: ZFS_COMMANDS, SMB_COMMANDS, FACL_COMMANDS, SYSTEM_COMMANDS
+
+# Defaults specification for security
+Defaults:rodent !requiretty
+Defaults:rodent secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

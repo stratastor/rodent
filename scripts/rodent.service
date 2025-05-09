@@ -1,0 +1,29 @@
+[Unit]
+Description=StrataSTOR Rodent Service
+After=network.target
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=rodent
+Group=rodent
+ExecStart=/usr/local/bin/rodent serve
+WorkingDirectory=/var/lib/rodent
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=RODENT_CONFIG=/home/rodent/.rodent/rodent.yml
+
+# Allow a reasonable amount of time for the service to start
+TimeoutStartSec=60
+
+# Security hardening
+ProtectSystem=partial  # Allow writing to /etc
+ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/samba
+PrivateTmp=true
+NoNewPrivileges=false  # We need sudo for some operations
+
+[Install]
+WantedBy=multi-user.target
