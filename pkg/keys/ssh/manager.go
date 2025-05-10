@@ -41,7 +41,7 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 	// Set key directory from config
 	dirPath := cfg.Keys.SSH.DirPath
 	if dirPath == "" {
-		dirPath = "/etc/rodent/ssh"
+		dirPath = config.GetSSHDir()
 	}
 
 	// Set known hosts file from config
@@ -53,7 +53,7 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 	// Set username from config
 	username := cfg.Keys.SSH.Username
 	if username == "" {
-		username = "ubuntu" // Default username
+		username = "rodent"
 	}
 
 	// Set authorized_keys file from config with home directory expansion
@@ -572,47 +572,47 @@ func (m *SSHKeyManager) ListKnownHosts(ctx context.Context) ([]KnownHostEntry, e
 func parseKnownHosts(content string) []KnownHostEntry {
 	var entries []KnownHostEntry
 	lines := strings.Split(content, "\n")
-	
+
 	for _, line := range lines {
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		
+
 		// Trim any trailing whitespace (including \r for Windows CRLF)
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		// First split by space to get the hostname
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) < 2 {
 			continue
 		}
-		
+
 		hostname := parts[0]
 		rest := parts[1]
-		
+
 		// Now split the rest by space, counting from the end to get the peering ID (last field)
 		restParts := strings.Fields(rest)
 		if len(restParts) < 2 {
 			continue // Need at least a public key and peering ID
 		}
-		
+
 		// Last field is the peering ID
 		peeringID := restParts[len(restParts)-1]
-		
+
 		// Everything else is the public key (minus the last field)
 		publicKey := strings.Join(restParts[:len(restParts)-1], " ")
-		
+
 		entries = append(entries, KnownHostEntry{
 			Hostname:  hostname,
 			PublicKey: publicKey,
 			PeeringID: peeringID,
 		})
 	}
-	
+
 	return entries
 }
 

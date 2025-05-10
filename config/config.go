@@ -21,36 +21,7 @@ var (
 	instance   *Config
 	once       sync.Once
 	configPath string // Tracks where the config was loaded from
-
-	configDir   string // Directory for configuration files
-	servicesDir string // Directory for service configurations
 )
-
-func init() {
-	if os.Geteuid() == 0 {
-		configDir = "/etc/rodent"
-	}
-
-	// Otherwise, use user config directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Sprintf("failed to get home directory: %v", err))
-	}
-
-	configDir = filepath.Join(homeDir, ".rodent")
-	servicesDir = filepath.Join(configDir, "services")
-}
-
-// GetConfigDir returns the appropriate configuration directory
-// If running as root, it returns the system config directory
-// Otherwise, it returns the user config directory
-func GetConfigDir() string {
-	return configDir
-}
-
-func GetServicesDir() string {
-	return servicesDir
-}
 
 type Config struct {
 	Server struct {
