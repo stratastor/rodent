@@ -5,6 +5,7 @@
 package smb
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stratastor/rodent/internal/system/privilege"
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -23,9 +25,19 @@ type SMBConfigParser struct {
 }
 
 // NewSMBConfigParser creates a new SMB config parser
-func NewSMBConfigParser(filePath string) (*SMBConfigParser, error) {
+func NewSMBConfigParser(filePath string, fileOps privilege.FileOperations) (*SMBConfigParser, error) {
+	var data []byte
+	var err error
+
 	// Read the file
-	data, err := os.ReadFile(filePath)
+	if fileOps != nil {
+		// Use privileged operations
+		data, err = fileOps.ReadFile(context.Background(), filePath)
+	} else {
+		// Fallback to direct file operations
+		data, err = os.ReadFile(filePath)
+	}
+
 	if err != nil {
 		return nil, errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "read_config").
@@ -266,29 +278,59 @@ func parseList(value string) []string {
 }
 
 // BackupConfigFile creates a backup of an existing config file
-func BackupConfigFile(filePath string) (string, error) {
+// If fileOps is nil, it uses direct file operations
+func BackupConfigFile(filePath string, fileOps privilege.FileOperations) (string, error) {
+	var exists bool
+	var err error
+
 	// Check if file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return "", nil
+	if fileOps != nil {
+		exists, err = fileOps.Exists(context.Background(), filePath)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", nil
+		}
+	} else {
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			return "", nil
+		}
 	}
 
 	// Create backup name with timestamp
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := fmt.Sprintf("%s.%s.bak", filePath, timestamp)
 
-	// Read original file
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "read_for_backup").
-			WithMetadata("file", filePath)
-	}
+	// Read original file and write to backup
+	if fileOps != nil {
+		// Use privileged operations
+		data, err := fileOps.ReadFile(context.Background(), filePath)
+		if err != nil {
+			return "", errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "read_for_backup").
+				WithMetadata("file", filePath)
+		}
 
-	// Write to backup file
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
-		return "", errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "write_backup").
-			WithMetadata("file", backupPath)
+		if err := fileOps.WriteFile(context.Background(), backupPath, data, 0644); err != nil {
+			return "", errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "write_backup").
+				WithMetadata("file", backupPath)
+		}
+	} else {
+		// Use direct file operations as fallback
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "read_for_backup").
+				WithMetadata("file", filePath)
+		}
+
+		if err := os.WriteFile(backupPath, data, 0644); err != nil {
+			return "", errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "write_backup").
+				WithMetadata("file", backupPath)
+		}
 	}
 
 	return backupPath, nil

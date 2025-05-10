@@ -23,6 +23,7 @@ import (
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/common"
+	"github.com/stratastor/rodent/internal/system/privilege"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares"
@@ -36,6 +37,15 @@ var (
 	globalTemplate       = "global.tmpl"
 	configFileExt        = ".json"
 	smbConfigFileExt     = ".smb.conf"
+
+	// Default allowed paths for privileged file operations
+	DefaultAllowedPaths = []string{
+		"/etc/samba/smb.conf",
+		"/etc/samba/conf.d",
+		"/etc/hosts",
+		"/etc/resolv.conf",
+		"/etc/krb5.conf",
+	}
 )
 
 func init() {
@@ -67,6 +77,7 @@ type Manager struct {
 	templates  map[string]*template.Template
 	mutex      sync.RWMutex
 	aclManager *facl.ACLManager
+	fileOps    privilege.FileOperations
 }
 
 // NewManager creates a new SMB shares manager
@@ -74,6 +85,7 @@ func NewManager(
 	logger logger.Logger,
 	executor *command.CommandExecutor,
 	aclManager *facl.ACLManager,
+	fileOps privilege.FileOperations,
 ) (*Manager, error) {
 	// Define template function map
 	funcMap := template.FuncMap{
@@ -103,12 +115,18 @@ func NewManager(
 	}
 	templates[globalTemplate] = globalTemp
 
+	// If no file operations are provided, create default one (for backward compatibility)
+	if fileOps == nil {
+		fileOps = privilege.NewSudoFileOperations(logger, executor, DefaultAllowedPaths)
+	}
+
 	manager := &Manager{
 		logger:     logger,
 		executor:   executor,
 		configDir:  sharesConfigDir,
 		templates:  templates,
 		aclManager: aclManager,
+		fileOps:    fileOps,
 	}
 
 	return manager, nil
@@ -765,7 +783,7 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	if !hasExistingShareConfigs {
 		m.logger.Info("Existing Rodent-managed SMB shares found, not backing up original config")
 		// Backup existing SMB config file
-		backupPath, err := BackupConfigFile(defaultSMBConfigPath)
+		backupPath, err := BackupConfigFile(defaultSMBConfigPath, m.fileOps)
 		if err != nil {
 			return errors.Wrap(err, errors.SharesOperationFailed).
 				WithMetadata("operation", "backup_smb_config")
@@ -776,13 +794,17 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	}
 
 	// Parse existing SMB config file if it exists
-	if _, err := os.Stat(defaultSMBConfigPath); os.IsNotExist(err) {
+	exists, err := m.fileOps.Exists(ctx, defaultSMBConfigPath)
+	if err != nil {
+		m.logger.Warn("Error checking if SMB config exists", "error", err)
+	}
+	if !exists {
 		m.logger.Info("No existing SMB configuration found, generating defaults")
 		return nil
 	}
 
 	// Parse existing config
-	parser, err := NewSMBConfigParser(defaultSMBConfigPath)
+	parser, err := NewSMBConfigParser(defaultSMBConfigPath, m.fileOps)
 	if err != nil {
 		return err
 	}
@@ -1049,7 +1071,7 @@ func (m *Manager) updateMainConfig() error {
 	// The only change would be to update the global section if we have one
 	if len(shareConfigs) <= 1 && len(globalData) > 0 {
 		// Read existing smb.conf to preserve non-share sections
-		existingConfig, readErr := os.ReadFile(defaultSMBConfigPath)
+		existingConfig, readErr := m.fileOps.ReadFile(context.Background(), defaultSMBConfigPath)
 
 		// If we have an existing config and can read it
 		if readErr == nil && len(existingConfig) > 0 {
@@ -1068,8 +1090,8 @@ func (m *Manager) updateMainConfig() error {
 				content.WriteString(preservedShares)
 			}
 
-			// Write updated config
-			if err := os.WriteFile(defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
+			// Write updated config using privileged operations
+			if err := m.fileOps.WriteFile(context.Background(), defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
 				return errors.Wrap(err, errors.SharesOperationFailed).
 					WithMetadata("operation", "write_config")
 			}
@@ -1100,8 +1122,8 @@ func (m *Manager) updateMainConfig() error {
 		content.WriteString("\n\n")
 	}
 
-	// Write updated config
-	if err := os.WriteFile(defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
+	// Write updated config using privileged operations
+	if err := m.fileOps.WriteFile(context.Background(), defaultSMBConfigPath, []byte(content.String()), 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_config")
 	}

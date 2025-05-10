@@ -69,7 +69,7 @@ func setupAPITest(t *testing.T) (*gin.Engine, *smb.Manager, *smb.ServiceManager,
 	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager)
+	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to create SMB manager: %v", err)

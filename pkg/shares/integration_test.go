@@ -123,7 +123,7 @@ func TestSMBShareLifecycle(t *testing.T) {
 	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager)
+	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestSMBBulkOperations(t *testing.T) {
 	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager)
+	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}
@@ -771,7 +771,7 @@ func TestSMBGlobalConfig(t *testing.T) {
 	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager)
+	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}

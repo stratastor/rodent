@@ -423,7 +423,7 @@ func SetupTestWithMockToggle(t *testing.T) (*MockToggleServer, func()) {
 	// Create necessary managers
 	executor := command.NewCommandExecutor(true)
 	aclManager := facl.NewACLManager(l, nil)
-	smbManager, err := smb.NewManager(l, executor, aclManager)
+	smbManager, err := smb.NewManager(l, executor, aclManager, nil)
 	if err != nil {
 		t.Skipf("Skipping test - SMB manager initialization failed: %v", err)
 	}

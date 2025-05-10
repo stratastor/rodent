@@ -30,6 +30,7 @@ const (
 	DomainShares    Domain = "SHARES"
 	DomainSSH       Domain = "SSH"
 	DomainMisc      Domain = "MISC"
+	DomainSystem    Domain = "SYSTEM"
 )
 
 // ErrorCode represents unique error identifiers
@@ -297,6 +298,10 @@ const (
 )
 
 const (
+	// System Errors (1750-1799)
+	OperationFailed  = 1750 + iota // Generic operation failed
+	PermissionDenied               // Permission denied
+
 	// SSH Key Errors (1800-1849)
 	SSHKeyPairGenerationFailed = 1800 + iota // Failed to generate SSH key pair
 	SSHKeyPairWriteFailed                     // Failed to write SSH key pair
@@ -320,6 +325,17 @@ var errorDefinitions = map[ErrorCode]struct {
 	domain     Domain
 	httpStatus int
 }{
+	// System error definitions
+	OperationFailed: {
+		"Operation failed",
+		DomainSystem,
+		http.StatusInternalServerError,
+	},
+	PermissionDenied: {
+		"Permission denied",
+		DomainSystem,
+		http.StatusForbidden,
+	},
 	// SSH Key error definitions
 	SSHKeyPairGenerationFailed: {
 		"Failed to generate SSH key pair",
