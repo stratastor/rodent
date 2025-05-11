@@ -1,0 +1,17 @@
+services:
+  addc:
+    image: diegogslomp/samba-ad-dc
+    container_name: {{.ContainerName}}
+    hostname: {{.Hostname}}
+    privileged: true
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - REALM={{.Realm}}
+      - DOMAIN={{.Domain}}
+      - ADMIN_PASS={{.AdminPassword}}
+      - DNS_FORWARDER={{.DnsForwarder}}
+    volumes:
+      - {{.EtcVolume}}:/usr/local/samba/etc
+      - {{.PrivateVolume}}:/usr/local/samba/private
+      - {{.VarVolume}}:/usr/local/samba/var

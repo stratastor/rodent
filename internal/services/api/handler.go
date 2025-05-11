@@ -117,3 +117,11 @@ func (h *ServiceHandler) restartService(c *gin.Context) {
 func (h *ServiceHandler) Close() error {
 	return h.manager.Close()
 }
+
+// GetServiceManager returns the underlying service manager
+func (h *ServiceHandler) GetServiceManager() (*manager.ServiceManager, bool) {
+	if h.manager == nil {
+		return nil, false
+	}
+	return h.manager, true
+}

@@ -6,6 +6,7 @@ package clients
 
 import (
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/services/addc"
 	"github.com/stratastor/rodent/internal/services/docker"
 	"github.com/stratastor/rodent/internal/services/traefik"
 )
@@ -18,6 +19,11 @@ func NewDockerClient(logger logger.Logger) (*docker.Client, error) {
 // NewTraefikClient creates a new Traefik service client
 func NewTraefikClient(logger logger.Logger) (*traefik.Client, error) {
 	return traefik.NewClient(logger)
+}
+
+// NewADDCClient creates a new AD DC service client
+func NewADDCClient(logger logger.Logger) (*addc.Client, error) {
+	return addc.NewClient(logger)
 }
 
 // CertificateData contains information about a TLS certificate

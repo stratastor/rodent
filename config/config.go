@@ -40,6 +40,20 @@ type Config struct {
 		LDAPURL       string `mapstructure:"ldapURL"`
 		BaseDN        string `mapstructure:"baseDN"`
 		AdminDN       string `mapstructure:"adminDN"`
+		UserOU        string `mapstructure:"userOU"`  // OU for users, relative to BaseDN
+		GroupOU       string `mapstructure:"groupOU"` // OU for groups, relative to BaseDN
+		ComputerOU    string `mapstructure:"computerOU"` // OU for computers, relative to BaseDN
+		DC struct {
+			Enabled       bool   `mapstructure:"enabled"`
+			ContainerName string `mapstructure:"containerName"`
+			Hostname      string `mapstructure:"hostname"`
+			Realm         string `mapstructure:"realm"`
+			Domain        string `mapstructure:"domain"`
+			DnsForwarder  string `mapstructure:"dnsForwarder"`
+			EtcVolume     string `mapstructure:"etcVolume"`
+			PrivateVolume string `mapstructure:"privateVolume"`
+			VarVolume     string `mapstructure:"varVolume"`
+		} `mapstructure:"dc"`
 	} `mapstructure:"ad"`
 
 	Logs struct {
@@ -147,8 +161,22 @@ func LoadConfig(configFilePath string) *Config {
 		// Set defaults for AD configuration - use lowercase consistently
 		viper.SetDefault("ad.adminPassword", "")
 		viper.SetDefault("ad.ldapURL", "ldaps://localhost:636")
-		viper.SetDefault("ad.baseDN", "CN=Users,DC=ad,DC=strata,DC=internal")
+		viper.SetDefault("ad.baseDN", "DC=ad,DC=strata,DC=internal")
 		viper.SetDefault("ad.adminDN", "CN=Administrator,CN=Users,DC=ad,DC=strata,DC=internal")
+		viper.SetDefault("ad.userOU", "OU=StrataUsers") // Will be appended to BaseDN
+		viper.SetDefault("ad.groupOU", "OU=StrataGroups") // Will be appended to BaseDN
+		viper.SetDefault("ad.computerOU", "OU=StrataComputers") // Will be appended to BaseDN
+
+		// Set defaults for AD DC configuration
+		viper.SetDefault("ad.dc.enabled", false)
+		viper.SetDefault("ad.dc.containerName", "dc1")
+		viper.SetDefault("ad.dc.hostname", "DC1")
+		viper.SetDefault("ad.dc.realm", "AD.STRATA.INTERNAL")
+		viper.SetDefault("ad.dc.domain", "AD")
+		viper.SetDefault("ad.dc.dnsForwarder", "8.8.8.8")
+		viper.SetDefault("ad.dc.etcVolume", "dc1_etc")
+		viper.SetDefault("ad.dc.privateVolume", "dc1_private")
+		viper.SetDefault("ad.dc.varVolume", "dc1_var")
 
 		// Set defaults for Toggle configuration
 		viper.SetDefault("toggle.jwt", "")

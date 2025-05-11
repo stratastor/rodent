@@ -21,7 +21,7 @@ import (
 // Default configuration constants.
 // These may be overridden by values loaded from config.
 const (
-	defaultLDAPURL      = "ldaps://DC1.ad.strata.internal:636"
+	defaultLDAPPort     = "636"
 	defaultBaseDNString = "ad.strata.internal"
 	defaultBaseDN       = "DC=ad,DC=strata,DC=internal"
 	defaultUserOU       = "OU=StrataUsers," + defaultBaseDN
@@ -142,35 +142,103 @@ type Computer struct {
 // configuration and establishes a secure (LDAPS) connection.
 func New() (*ADClient, error) {
 	cfg := config.GetConfig() // Expected to have cfg.AD.AdminPassword
+
+	// Determine LDAP connection parameters
+	var ldapURL string
+
+	// If LDAPURL is explicitly set in config, use that
+	if cfg.AD.LDAPURL != "" {
+		ldapURL = cfg.AD.LDAPURL
+		// Ensure we have a protocol prefix
+		if !strings.HasPrefix(ldapURL, "ldaps://") && !strings.HasPrefix(ldapURL, "ldap://") {
+			ldapURL = fmt.Sprintf("ldaps://%s:%s", ldapURL, defaultLDAPPort)
+		}
+	} else if cfg.AD.DC.Enabled {
+		// When DC service is enabled, use the configured hostname and realm
+		ldapURL = fmt.Sprintf("ldaps://%s.%s:%s",
+			strings.ToUpper(cfg.AD.DC.Hostname),
+			strings.ToLower(cfg.AD.DC.Realm),
+			defaultLDAPPort)
+	} else {
+		// Fallback to a default connection to localhost
+		ldapURL = fmt.Sprintf("ldaps://localhost:%s", defaultLDAPPort)
+	}
+
 	tlsConfig := &tls.Config{
 		// TODO: For testing only. In production, properly verify the server certificate.
 		InsecureSkipVerify: true,
 	}
-	conn, err := ldap.DialURL(defaultLDAPURL, ldap.DialWithTLSConfig(tlsConfig))
+
+	conn, err := ldap.DialURL(ldapURL, ldap.DialWithTLSConfig(tlsConfig))
 	if err != nil {
 		return nil, errors.Wrap(err, errors.ADConnectFailed)
 	}
-	// Bind as administrator.
-	if err := conn.Bind(defaultAdminDN, cfg.AD.AdminPassword); err != nil {
+
+	// Use the configured Realm to build the baseDN if not explicitly set
+	// TODO: validate baseDN format
+	baseDN := cfg.AD.BaseDN
+	if cfg.AD.DC.Enabled && cfg.AD.DC.Realm != "" {
+		// Build baseDN from realm (e.g., "AD.STRATA.INTERNAL" -> "DC=ad,DC=strata,DC=internal")
+		parts := strings.Split(strings.ToLower(cfg.AD.DC.Realm), ".")
+		if len(parts) > 0 {
+			baseDNParts := make([]string, 0, len(parts))
+			for _, part := range parts {
+				baseDNParts = append(baseDNParts, fmt.Sprintf("DC=%s", part))
+			}
+			baseDN = strings.Join(baseDNParts, ",")
+		}
+	}
+
+	// Use configured values or retrieve from server
+	if baseDN == "" {
+		var err error
+		baseDN, err = GetDefaultNamingContext(conn)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Determine admin DN
+	adminDN := cfg.AD.AdminDN
+	if adminDN == "" {
+		adminDN = fmt.Sprintf("CN=Administrator,CN=Users,%s", baseDN)
+	}
+
+	// Bind as administrator
+	if err := conn.Bind(adminDN, cfg.AD.AdminPassword); err != nil {
 		conn.Close()
 		return nil, errors.Wrap(err, errors.ADInvalidCredentials)
 	}
 
-	baseDN, err := GetDefaultNamingContext(conn)
-	if err != nil {
-		return nil, err
+	// Set up organizational units using config or defaults
+	userOU := baseDN
+	if cfg.AD.UserOU != "" {
+		userOU = fmt.Sprintf("%s,%s", cfg.AD.UserOU, baseDN)
+	} else {
+		userOU = fmt.Sprintf("OU=StrataUsers,%s", baseDN)
 	}
-	userOU := "OU=StrataUsers," + baseDN
-	groupOU := "OU=StrataGroups," + baseDN
-	computerOU := defaultComputerOU
+
+	groupOU := baseDN
+	if cfg.AD.GroupOU != "" {
+		groupOU = fmt.Sprintf("%s,%s", cfg.AD.GroupOU, baseDN)
+	} else {
+		groupOU = fmt.Sprintf("OU=StrataGroups,%s", baseDN)
+	}
+
+	computerOU := baseDN
+	if cfg.AD.ComputerOU != "" {
+		computerOU = fmt.Sprintf("%s,%s", cfg.AD.ComputerOU, baseDN)
+	} else {
+		computerOU = fmt.Sprintf("OU=StrataComputers,%s", baseDN)
+	}
 
 	client := &ADClient{
-		ldapURL:    defaultLDAPURL,
+		ldapURL:    ldapURL,
 		baseDN:     baseDN,
 		userOU:     userOU,
 		groupOU:    groupOU,
 		computerOU: computerOU,
-		adminDN:    defaultAdminDN,
+		adminDN:    adminDN,
 		adminPwd:   cfg.AD.AdminPassword,
 		conn:       conn,
 		tlsConfig:  tlsConfig,

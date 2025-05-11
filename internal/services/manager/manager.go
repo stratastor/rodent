@@ -60,6 +60,15 @@ func (m *ServiceManager) initializeServices() error {
 		m.registerService(traefikClient)
 	}
 
+	// Create AD DC client
+	addcClient, err := clients.NewADDCClient(m.logger)
+	if err != nil {
+		m.logger.Warn("Failed to initialize AD DC client", "err", err)
+		// Continue without AD DC client
+	} else {
+		m.registerService(addcClient)
+	}
+
 	// TODO: Add other services (NFS, Samba, etc.)
 
 	return nil

@@ -11,9 +11,21 @@ import (
 //go:embed traefik/*.tmpl
 var TraefikFS embed.FS
 
+//go:embed addc/*.tmpl
+var AddcFS embed.FS
+
 // GetTraefikTemplate returns the content of a Traefik template by name
 func GetTraefikTemplate(name string) (string, error) {
 	content, err := TraefikFS.ReadFile("traefik/" + name)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// GetAddcTemplate returns the content of an AD DC template by name
+func GetAddcTemplate(name string) (string, error) {
+	content, err := AddcFS.ReadFile("addc/" + name)
 	if err != nil {
 		return "", err
 	}
