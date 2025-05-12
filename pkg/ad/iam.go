@@ -77,6 +77,7 @@ var (
 // ADClient is a client for performing LDAP operations against Samba AD DC.
 type ADClient struct {
 	ldapURL    string
+	realm      string
 	baseDN     string
 	userOU     string
 	groupOU    string

@@ -25,6 +25,7 @@ Cmnd_Alias SMB_COMMANDS = \
 
 Cmnd_Alias DOCKER_COMMANDS = \
     /usr/bin/docker *, \
+    /snap/bin/docker *, \
     /usr/bin/systemctl start docker*, \
     /usr/bin/systemctl stop docker*, \
     /usr/bin/systemctl restart docker*, \

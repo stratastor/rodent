@@ -20,17 +20,17 @@ import (
 )
 
 var (
-	servicesDir string
+	// Runtime paths for files
+	servicesDir            string
+	defaultAdDcComposePath string
 
 	// Template file names (no paths needed as they are embedded)
 	adDcComposeTemplate = "dc-addc.yml.tmpl"
-
-	// Runtime paths for files
-	defaultAdDcComposePath = servicesDir + "/addc/dc-addc.yml"
 )
 
 func init() {
 	servicesDir = rodentCfg.GetServicesDir()
+	defaultAdDcComposePath = servicesDir + "/addc/dc-addc.yml"
 }
 
 // AdDcConfig contains configuration data for AD DC
@@ -134,7 +134,7 @@ func (c *Client) Start(ctx context.Context) error {
 	if err := c.UpdateConfig(ctx, nil); err != nil {
 		return fmt.Errorf("failed to update configuration before starting: %w", err)
 	}
-	
+
 	return c.dockerSvc.ComposeUp(ctx, c.composeFile, true)
 }
 
@@ -152,7 +152,7 @@ func (c *Client) Restart(ctx context.Context) error {
 // If config is nil, it will use the values from the global config
 func (c *Client) UpdateConfig(ctx context.Context, config *AdDcConfig) error {
 	var adDcConfig AdDcConfig
-	
+
 	if config == nil {
 		// Use config from the global config if none provided
 		cfg := rodentCfg.GetConfig()

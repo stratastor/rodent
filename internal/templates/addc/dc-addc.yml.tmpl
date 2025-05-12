@@ -15,3 +15,8 @@ services:
       - {{.EtcVolume}}:/usr/local/samba/etc
       - {{.PrivateVolume}}:/usr/local/samba/private
       - {{.VarVolume}}:/usr/local/samba/var
+
+volumes:
+  {{.EtcVolume}}:
+  {{.PrivateVolume}}:
+  {{.VarVolume}}:

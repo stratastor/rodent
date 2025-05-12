@@ -40,10 +40,10 @@ type Config struct {
 		LDAPURL       string `mapstructure:"ldapURL"`
 		BaseDN        string `mapstructure:"baseDN"`
 		AdminDN       string `mapstructure:"adminDN"`
-		UserOU        string `mapstructure:"userOU"`  // OU for users, relative to BaseDN
-		GroupOU       string `mapstructure:"groupOU"` // OU for groups, relative to BaseDN
+		UserOU        string `mapstructure:"userOU"`     // OU for users, relative to BaseDN
+		GroupOU       string `mapstructure:"groupOU"`    // OU for groups, relative to BaseDN
 		ComputerOU    string `mapstructure:"computerOU"` // OU for computers, relative to BaseDN
-		DC struct {
+		DC            struct {
 			Enabled       bool   `mapstructure:"enabled"`
 			ContainerName string `mapstructure:"containerName"`
 			Hostname      string `mapstructure:"hostname"`
@@ -160,11 +160,11 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Set defaults for AD configuration - use lowercase consistently
 		viper.SetDefault("ad.adminPassword", "")
-		viper.SetDefault("ad.ldapURL", "ldaps://localhost:636")
-		viper.SetDefault("ad.baseDN", "DC=ad,DC=strata,DC=internal")
-		viper.SetDefault("ad.adminDN", "CN=Administrator,CN=Users,DC=ad,DC=strata,DC=internal")
-		viper.SetDefault("ad.userOU", "OU=StrataUsers") // Will be appended to BaseDN
-		viper.SetDefault("ad.groupOU", "OU=StrataGroups") // Will be appended to BaseDN
+		viper.SetDefault("ad.ldapURL", "")
+		viper.SetDefault("ad.baseDN", "")
+		viper.SetDefault("ad.adminDN", "")
+		viper.SetDefault("ad.userOU", "OU=StrataUsers")         // Will be appended to BaseDN
+		viper.SetDefault("ad.groupOU", "OU=StrataGroups")       // Will be appended to BaseDN
 		viper.SetDefault("ad.computerOU", "OU=StrataComputers") // Will be appended to BaseDN
 
 		// Set defaults for AD DC configuration
