@@ -38,6 +38,7 @@ type Config struct {
 	AD struct {
 		AdminPassword string `mapstructure:"adminPassword"`
 		LDAPURL       string `mapstructure:"ldapURL"`
+		Realm         string `mapstructure:"realm"`
 		BaseDN        string `mapstructure:"baseDN"`
 		AdminDN       string `mapstructure:"adminDN"`
 		UserOU        string `mapstructure:"userOU"`     // OU for users, relative to BaseDN
@@ -161,6 +162,7 @@ func LoadConfig(configFilePath string) *Config {
 		// Set defaults for AD configuration - use lowercase consistently
 		viper.SetDefault("ad.adminPassword", "")
 		viper.SetDefault("ad.ldapURL", "")
+		viper.SetDefault("ad.realm", "")
 		viper.SetDefault("ad.baseDN", "")
 		viper.SetDefault("ad.adminDN", "")
 		viper.SetDefault("ad.userOU", "OU=StrataUsers")         // Will be appended to BaseDN

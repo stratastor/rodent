@@ -178,9 +178,13 @@ func New() (*ADClient, error) {
 	// Use the configured Realm to build the baseDN if not explicitly set
 	// TODO: validate baseDN format
 	baseDN := cfg.AD.BaseDN
-	if cfg.AD.DC.Enabled && cfg.AD.DC.Realm != "" {
-		// Build baseDN from realm (e.g., "AD.STRATA.INTERNAL" -> "DC=ad,DC=strata,DC=internal")
-		parts := strings.Split(strings.ToLower(cfg.AD.DC.Realm), ".")
+	realm := cfg.AD.Realm
+	if cfg.AD.DC.Realm != "" {
+		realm = cfg.AD.DC.Realm
+	}
+	if baseDN == "" && realm != "" {
+		// Build baseDN from realm (e.g., "ad.strata.internal" -> "DC=ad,DC=strata,DC=internal")
+		parts := strings.Split(strings.ToLower(realm), ".")
 		if len(parts) > 0 {
 			baseDNParts := make([]string, 0, len(parts))
 			for _, part := range parts {
@@ -235,6 +239,7 @@ func New() (*ADClient, error) {
 
 	client := &ADClient{
 		ldapURL:    ldapURL,
+		realm:      realm,
 		baseDN:     baseDN,
 		userOU:     userOU,
 		groupOU:    groupOU,
@@ -456,7 +461,7 @@ func (c *ADClient) CreateUser(user *User) error {
 	if user.UserPrincipalName != "" {
 		addReq.Attribute("userPrincipalName", []string{user.UserPrincipalName})
 	} else {
-		addReq.Attribute("userPrincipalName", []string{fmt.Sprintf("%s@ad.strata.internal", user.SAMAccountName)})
+		addReq.Attribute("userPrincipalName", []string{fmt.Sprintf("%s@%s", user.SAMAccountName, c.realm)})
 	}
 	if user.GivenName != "" {
 		addReq.Attribute("givenName", []string{user.GivenName})
