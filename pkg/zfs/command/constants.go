@@ -19,19 +19,34 @@
 
 package command
 
-import "time"
+import (
+	"os/exec"
+	"time"
+)
 
 const (
-	// Base commands
-	// TODO: Make these configurable?
-	BinZFS   = "/usr/local/sbin/zfs"
-	BinZpool = "/usr/local/sbin/zpool"
-
 	maxCommandArgs = 64
 
 	// Default timeout for command execution
 	DefaultTimeout = 30 * time.Second
 )
+
+var (
+	// Base commands
+	BinZFS   = "/usr/local/sbin/zfs"
+	BinZpool = "/usr/local/sbin/zpool"
+)
+
+func init() {
+	// Find the actual paths of zfs and zpool binaries
+	if path, err := exec.LookPath("zfs"); err == nil {
+		BinZFS = path
+	}
+
+	if path, err := exec.LookPath("zpool"); err == nil {
+		BinZpool = path
+	}
+}
 
 // Dangerous characters that could enable command injection
 var dangerousChars = "&|><$`\\[];{}"
