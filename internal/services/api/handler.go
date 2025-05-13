@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/rodent/internal/services"
 	"github.com/stratastor/rodent/internal/services/manager"
 )
 
@@ -124,4 +125,105 @@ func (h *ServiceHandler) GetServiceManager() (*manager.ServiceManager, bool) {
 		return nil, false
 	}
 	return h.manager, true
+}
+
+// enableService enables a specific service to start at system boot
+func (h *ServiceHandler) enableService(c *gin.Context) {
+	name := c.Param("name")
+
+	svc, ok := h.manager.GetService(name)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "service not found",
+		})
+		return
+	}
+
+	// Check if service supports startup management
+	startupSvc, ok := svc.(services.StartupService)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "service does not support startup management",
+		})
+		return
+	}
+
+	if err := startupSvc.EnableAtStartup(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "service enabled to start at system boot",
+	})
+}
+
+// disableService disables a specific service from starting at system boot
+func (h *ServiceHandler) disableService(c *gin.Context) {
+	name := c.Param("name")
+
+	svc, ok := h.manager.GetService(name)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "service not found",
+		})
+		return
+	}
+
+	// Check if service supports startup management
+	startupSvc, ok := svc.(services.StartupService)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "service does not support startup management",
+		})
+		return
+	}
+
+	if err := startupSvc.DisableAtStartup(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "service disabled from starting at system boot",
+	})
+}
+
+// getStartupStatus gets the startup status (enabled/disabled) of a specific service
+func (h *ServiceHandler) getStartupStatus(c *gin.Context) {
+	name := c.Param("name")
+
+	svc, ok := h.manager.GetService(name)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "service not found",
+		})
+		return
+	}
+
+	// Check if service supports startup management
+	startupSvc, ok := svc.(services.StartupService)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "service does not support startup management",
+		})
+		return
+	}
+
+	enabled, err := startupSvc.IsEnabledAtStartup(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"name":    name,
+		"enabled": enabled,
+	})
 }

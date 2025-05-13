@@ -29,6 +29,12 @@ type Client struct {
 	systemdClient  *systemd.Client
 }
 
+// Verify that Client implements both Service and StartupService interfaces
+var (
+	_ services.Service        = (*Client)(nil)
+	_ services.StartupService = (*Client)(nil)
+)
+
 // NewClient creates a new Samba service client
 func NewClient(logger logger.Logger) (*Client, error) {
 	if logger == nil {
@@ -197,4 +203,65 @@ func (c *Client) GetServiceManager() *smb.ServiceManager {
 // GetSystemdClient returns the underlying systemd client
 func (c *Client) GetSystemdClient() *systemd.Client {
 	return c.systemdClient
+}
+
+// EnableAtStartup enables the service to start automatically at system boot
+func (c *Client) EnableAtStartup(ctx context.Context) error {
+	// Enable primary SMB service
+	if err := c.systemdClient.EnableService(ctx, SMBServiceName); err != nil {
+		return fmt.Errorf("failed to enable SMB service: %w", err)
+	}
+
+	// Try to enable NMB service (but don't fail if it can't be enabled)
+	if err := c.systemdClient.EnableService(ctx, NMBServiceName); err != nil {
+		c.logger.Warn("Failed to enable NMB service", "err", err)
+	}
+
+	// Try to enable Winbind service (but don't fail if it can't be enabled)
+	if err := c.systemdClient.EnableService(ctx, WinbindServiceName); err != nil {
+		c.logger.Warn("Failed to enable Winbind service", "err", err)
+	}
+
+	return nil
+}
+
+// DisableAtStartup disables the service from starting automatically at system boot
+func (c *Client) DisableAtStartup(ctx context.Context) error {
+	var errors []error
+
+	// Try to disable Winbind service first
+	if err := c.systemdClient.DisableService(ctx, WinbindServiceName); err != nil {
+		c.logger.Warn("Failed to disable Winbind service", "err", err)
+		// Don't fail the operation, just log and continue
+	}
+
+	// Try to disable NMB service
+	if err := c.systemdClient.DisableService(ctx, NMBServiceName); err != nil {
+		c.logger.Warn("Failed to disable NMB service", "err", err)
+		// Don't fail the operation, just log and continue
+	}
+
+	// Disable SMB service
+	if err := c.systemdClient.DisableService(ctx, SMBServiceName); err != nil {
+		errors = append(errors, fmt.Errorf("failed to disable SMB service: %w", err))
+	}
+
+	// If we had any errors, return the first one
+	if len(errors) > 0 {
+		return errors[0]
+	}
+
+	return nil
+}
+
+// IsEnabledAtStartup checks if the service is enabled to start at system boot
+func (c *Client) IsEnabledAtStartup(ctx context.Context) (bool, error) {
+	// Check if the primary SMB service is enabled
+	enabled, err := c.systemdClient.IsServiceEnabled(ctx, SMBServiceName)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if SMB service is enabled: %w", err)
+	}
+
+	// Return the status of the primary service
+	return enabled, nil
 }

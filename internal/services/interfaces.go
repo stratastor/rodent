@@ -40,6 +40,20 @@ type Service interface {
 	Restart(ctx context.Context) error
 }
 
+// StartupService represents a service that can be enabled/disabled at system startup
+type StartupService interface {
+	Service
+
+	// EnableAtStartup enables the service to start automatically at system boot
+	EnableAtStartup(ctx context.Context) error
+
+	// DisableAtStartup disables the service from starting automatically at system boot
+	DisableAtStartup(ctx context.Context) error
+
+	// IsEnabledAtStartup checks if the service is enabled to start at system boot
+	IsEnabledAtStartup(ctx context.Context) (bool, error)
+}
+
 type ServiceStatus interface {
 	InstanceGist() string
 	InstanceName() string

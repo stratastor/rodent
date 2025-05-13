@@ -342,3 +342,45 @@ func (c *Client) IsSystemdService(ctx context.Context, serviceName string) (bool
 	// Check if service is in the output
 	return strings.Contains(string(output), serviceUnit), nil
 }
+
+// IsServiceEnabled checks if a service is enabled to start on boot
+func (c *Client) IsServiceEnabled(ctx context.Context, serviceName string) (bool, error) {
+	// Ensure service name has .service suffix
+	serviceUnit := serviceName
+	if !strings.HasSuffix(serviceUnit, ".service") {
+		serviceUnit = serviceName + ".service"
+	}
+
+	// Execute systemctl to check if service is enabled
+	output, err := command.ExecCommand(
+		ctx,
+		c.logger,
+		c.systemctlBin,
+		"is-enabled",
+		serviceUnit,
+	)
+
+	// Parse the output
+	if err != nil {
+		// If command returns non-zero exit code, it might mean disabled or masked
+		outputStr := strings.TrimSpace(string(output))
+		if outputStr == "disabled" || outputStr == "masked" || outputStr == "static" {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check if service %s is enabled: %w", serviceName, err)
+	}
+
+	// Service is enabled if we get "enabled" in the output
+	outputStr := strings.TrimSpace(string(output))
+	switch outputStr {
+	case "enabled", "enabled-runtime":
+		return true, nil
+	case "disabled", "masked", "static":
+		return false, nil
+	default:
+		c.logger.Warn("Unexpected output from systemctl is-enabled", 
+			"service", serviceName, 
+			"output", outputStr)
+		return false, nil
+	}
+}
