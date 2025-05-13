@@ -16,7 +16,6 @@ import (
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/command"
-	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 )
 
@@ -120,10 +119,9 @@ func TestSMBShareLifecycle(t *testing.T) {
 
 	// Initialize managers
 	executor := command.NewCommandExecutor(true)
-	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(log, executor, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}
@@ -563,10 +561,9 @@ func TestSMBBulkOperations(t *testing.T) {
 
 	// Initialize managers
 	executor := command.NewCommandExecutor(true)
-	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(log, executor, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}
@@ -768,10 +765,9 @@ func TestSMBGlobalConfig(t *testing.T) {
 
 	// Initialize managers
 	executor := command.NewCommandExecutor(true)
-	aclManager := facl.NewACLManager(log, nil)
 
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(log, executor, nil)
 	if err != nil {
 		t.Fatalf("Failed to create SMB manager: %v", err)
 	}

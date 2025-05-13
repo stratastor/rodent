@@ -151,13 +151,8 @@ func registerSharesRoutes(engine *gin.Engine) error {
 	// Create the SMB manager
 	executor := generalCmd.NewCommandExecutor(true)
 
-	// Get ACL manager if available
-	aclManager := facl.NewACLManager(l, nil)
-
-	// We'll pass nil for fileOps, and the manager will create it with default paths
-
 	// Create SMB manager (passing nil for fileOps to use default paths)
-	smbManager, err := smb.NewManager(l, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(l, executor, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create SMB manager: %w", err)
 	}

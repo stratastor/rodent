@@ -67,7 +67,7 @@ func RegisterAllHandlers() {
 	l.Info("Registered FACL gRPC handlers")
 
 	// Create SMB managers and register SMB shares handler for gRPC
-	smbManager, err := smb.NewManager(sl, genexec, aclManager, nil)
+	smbManager, err := smb.NewManager(sl, genexec, nil)
 	if err != nil {
 		l.Error("Failed to create SMB manager", "error", err)
 	} else {

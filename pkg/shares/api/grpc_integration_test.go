@@ -18,7 +18,6 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/toggle/client"
-	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	"github.com/stratastor/toggle-rodent-proto/proto"
 	"github.com/stretchr/testify/assert"
@@ -422,8 +421,7 @@ func SetupTestWithMockToggle(t *testing.T) (*MockToggleServer, func()) {
 
 	// Create necessary managers
 	executor := command.NewCommandExecutor(true)
-	aclManager := facl.NewACLManager(l, nil)
-	smbManager, err := smb.NewManager(l, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(l, executor, nil)
 	if err != nil {
 		t.Skipf("Skipping test - SMB manager initialization failed: %v", err)
 	}

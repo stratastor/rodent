@@ -69,7 +69,16 @@ func (m *ServiceManager) initializeServices() error {
 		m.registerService(addcClient)
 	}
 
-	// TODO: Add other services (NFS, Samba, etc.)
+	// Create Samba client
+	sambaClient, err := clients.NewSambaClient(m.logger)
+	if err != nil {
+		m.logger.Warn("Failed to initialize Samba client", "err", err)
+		// Continue without Samba client
+	} else {
+		m.registerService(sambaClient)
+	}
+
+	// TODO: Add other services (NFS, etc.)
 
 	return nil
 }

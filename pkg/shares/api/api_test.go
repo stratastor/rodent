@@ -18,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/command"
-	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 )
@@ -65,11 +64,8 @@ func setupAPITest(t *testing.T) (*gin.Engine, *smb.Manager, *smb.ServiceManager,
 	// Create executor that doesn't actually execute commands
 	executor := command.NewCommandExecutor(true)
 
-	// Create ACL manager
-	aclManager := facl.NewACLManager(log, nil)
-
 	// Create SMB manager
-	smbManager, err := smb.NewManager(log, executor, aclManager, nil)
+	smbManager, err := smb.NewManager(log, executor, nil)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to create SMB manager: %v", err)

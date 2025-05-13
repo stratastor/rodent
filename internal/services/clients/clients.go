@@ -8,6 +8,8 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/services/addc"
 	"github.com/stratastor/rodent/internal/services/docker"
+	"github.com/stratastor/rodent/internal/services/samba"
+	"github.com/stratastor/rodent/internal/services/systemd"
 	"github.com/stratastor/rodent/internal/services/traefik"
 )
 
@@ -24,6 +26,16 @@ func NewTraefikClient(logger logger.Logger) (*traefik.Client, error) {
 // NewADDCClient creates a new AD DC service client
 func NewADDCClient(logger logger.Logger) (*addc.Client, error) {
 	return addc.NewClient(logger)
+}
+
+// NewSambaClient creates a new Samba service client
+func NewSambaClient(logger logger.Logger) (*samba.Client, error) {
+	return samba.NewClient(logger)
+}
+
+// NewSystemdClient creates a new systemd service client
+func NewSystemdClient(logger logger.Logger) (*systemd.Client, error) {
+	return systemd.NewClient(logger)
 }
 
 // CertificateData contains information about a TLS certificate

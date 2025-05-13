@@ -25,7 +25,6 @@ import (
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/internal/system/privilege"
 	"github.com/stratastor/rodent/pkg/errors"
-	"github.com/stratastor/rodent/pkg/facl"
 	"github.com/stratastor/rodent/pkg/shares"
 )
 
@@ -71,20 +70,18 @@ var (
 // TODO: Add main smb conf path variable to facilitate testing
 // Manager implements SMB share management
 type Manager struct {
-	logger     logger.Logger
-	executor   *command.CommandExecutor
-	configDir  string
-	templates  map[string]*template.Template
-	mutex      sync.RWMutex
-	aclManager *facl.ACLManager
-	fileOps    privilege.FileOperations
+	logger    logger.Logger
+	executor  *command.CommandExecutor
+	configDir string
+	templates map[string]*template.Template
+	mutex     sync.RWMutex
+	fileOps   privilege.FileOperations
 }
 
 // NewManager creates a new SMB shares manager
 func NewManager(
 	logger logger.Logger,
 	executor *command.CommandExecutor,
-	aclManager *facl.ACLManager,
 	fileOps privilege.FileOperations,
 ) (*Manager, error) {
 	// Define template function map
@@ -121,12 +118,11 @@ func NewManager(
 	}
 
 	manager := &Manager{
-		logger:     logger,
-		executor:   executor,
-		configDir:  sharesConfigDir,
-		templates:  templates,
-		aclManager: aclManager,
-		fileOps:    fileOps,
+		logger:    logger,
+		executor:  executor,
+		configDir: sharesConfigDir,
+		templates: templates,
+		fileOps:   fileOps,
 	}
 
 	return manager, nil
