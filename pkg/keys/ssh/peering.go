@@ -11,18 +11,6 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
-// PeerInfo contains the information required for peering
-type PeerInfo struct {
-	// PeeringID is a unique identifier for the peer
-	PeeringID string `json:"peering_id"`
-	// Hostname is the hostname or IP address of the peer
-	Hostname string `json:"hostname,omitempty"`
-	// PublicKey is the peer's public key
-	PublicKey string `json:"public_key"`
-	// SSHOptions are any additional SSH options to apply (for authorized_keys)
-	SSHOptions []string `json:"ssh_options,omitempty"`
-}
-
 // AuthorizePeer adds a peer's public key to the authorized_keys file
 // and also adds it to the known_hosts file if hostname is provided
 // This enables the peer to SSH into this node and also establishes trust

@@ -12,16 +12,6 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
-// AuthorizedKeysEntry represents an entry in the authorized_keys file
-type AuthorizedKeysEntry struct {
-	// PublicKey is the SSH public key in authorized_keys format
-	PublicKey string `json:"public_key"`
-	// Comment is an optional comment (often used to identify the key)
-	Comment string `json:"comment,omitempty"`
-	// Options are any SSH options associated with this key
-	Options []string `json:"options,omitempty"`
-}
-
 // String returns the string representation of the entry for the authorized_keys file
 func (e *AuthorizedKeysEntry) String() string {
 	var result strings.Builder

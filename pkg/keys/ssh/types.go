@@ -71,3 +71,25 @@ type KnownHostListResponse struct {
 	// KnownHosts is the list of known hosts entries
 	KnownHosts []KnownHostEntry `json:"known_hosts"`
 }
+
+// AuthorizedKeysEntry represents an entry in the authorized_keys file
+type AuthorizedKeysEntry struct {
+	// PublicKey is the SSH public key in authorized_keys format
+	PublicKey string `json:"public_key"`
+	// Comment is an optional comment (often used to identify the key)
+	Comment string `json:"comment,omitempty"`
+	// Options are any SSH options associated with this key
+	Options []string `json:"options,omitempty"`
+}
+
+// PeerInfo contains the information required for peering
+type PeerInfo struct {
+	// PeeringID is a unique identifier for the peer
+	PeeringID string `json:"peering_id"`
+	// Hostname is the hostname or IP address of the peer
+	Hostname string `json:"hostname,omitempty"`
+	// PublicKey is the peer's public key
+	PublicKey string `json:"public_key"`
+	// SSHOptions are any additional SSH options to apply (for authorized_keys)
+	SSHOptions []string `json:"ssh_options,omitempty"`
+}
