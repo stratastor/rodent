@@ -32,11 +32,6 @@ var (
 	defaultSMBConfigPath = "/etc/samba/smb.conf"
 	sharesConfigDir      = "~/.rodent/shares/smb"
 	templateDir          = "~/.rodent/templates/smb"
-	defaultTemplate      = "share.tmpl"
-	globalTemplate       = "global.tmpl"
-	configFileExt        = ".json"
-	smbConfigFileExt     = ".smb.conf"
-
 	// Default allowed paths for privileged file operations
 	DefaultAllowedPaths = []string{
 		"/etc/samba/smb.conf",
@@ -45,6 +40,15 @@ var (
 		"/etc/resolv.conf",
 		"/etc/krb5.conf",
 	}
+)
+
+const (
+	defaultTemplate  = "share.tmpl"
+	globalTemplate   = "global.tmpl"
+	configFileExt    = ".json"
+	smbConfigFileExt = ".smb.conf"
+	globalJSONConf   = "global.conf"
+	globalSMBConf    = "global.smb.conf"
 )
 
 func init() {
@@ -742,13 +746,30 @@ func (m *Manager) ReloadConfig(ctx context.Context) error {
 		return err
 	}
 
+	// Create a new context with a timeout to prevent hanging indefinitely
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Reload SMB service configuration
-	cmd := exec.CommandContext(ctx, "sudo", "smbcontrol", "smbd", "reload-config")
-	if err := cmd.Run(); err != nil {
+	m.logger.Debug("Reloading SMB configuration with smbcontrol")
+
+	cmd := exec.CommandContext(timeoutCtx, "sudo", "smbcontrol", "smbd", "reload-config")
+
+	// Capture output in case of errors
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			m.logger.Error("Timeout while reloading SMB configuration")
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "reload_config").
+				WithMetadata("error", "command timed out after 10s")
+		}
 		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "reload_config")
+			WithMetadata("operation", "reload_config").
+			WithMetadata("output", string(output))
 	}
 
+	m.logger.Debug("SMB configuration reloaded successfully")
 	return nil
 }
 
@@ -766,18 +787,18 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 			WithMetadata("operation", "check_existing_configs")
 	}
 
-	// Only consider backing up conf if SharesConfigDir is empty (except for global.conf)
+	// Only consider backing up conf if SharesConfigDir is empty (except for global.json)
 	hasExistingShareConfigs := false
 	for _, file := range files {
-		if filepath.Base(file) != "global.conf" {
+		if filepath.Base(file) != globalJSONConf {
 			hasExistingShareConfigs = true
 			break
 		}
 	}
 
-	// If we already have share configs managed by Rodent, skip import
+	// If we already have share configs managed by Rodent, don't backup
 	if !hasExistingShareConfigs {
-		m.logger.Info("Existing Rodent-managed SMB shares found, not backing up original config")
+		m.logger.Info("Existing Rodent-managed SMB shares not found, backing up original config")
 		// Backup existing SMB config file
 		backupPath, err := BackupConfigFile(defaultSMBConfigPath, m.fileOps)
 		if err != nil {
@@ -796,6 +817,35 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	}
 	if !exists {
 		m.logger.Info("No existing SMB configuration found, generating defaults")
+
+		// Create default global config
+		cfg := config.GetConfig()
+		globalConfig := NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup)
+
+		// Save the global config
+		data, err := json.MarshalIndent(globalConfig, "", "  ")
+		if err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "marshal_default_global_config")
+		}
+
+		globalConfigPath := filepath.Join(m.configDir, globalJSONConf)
+		if err := os.WriteFile(globalConfigPath, data, 0644); err != nil {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "save_default_global_config")
+		}
+
+		// Generate SMB global config section
+		if err := m.generateGlobalConfig(globalConfig); err != nil {
+			return err
+		}
+
+		// Update main SMB configuration
+		if err := m.updateMainConfig(); err != nil {
+			return err
+		}
+
+		m.logger.Info("Generated default global SMB configuration")
 		return nil
 	}
 
@@ -812,7 +862,7 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	}
 
 	// Check if we already have a global config
-	globalConfigPath := filepath.Join(m.configDir, "global.conf")
+	globalConfigPath := filepath.Join(m.configDir, globalJSONConf)
 	if _, err := os.Stat(globalConfigPath); os.IsNotExist(err) {
 		// Save the parsed global config
 		data, err := json.MarshalIndent(globalConfig, "", "  ")
@@ -905,7 +955,7 @@ func (m *Manager) UpdateGlobalConfig(ctx context.Context, config *SMBGlobalConfi
 			WithMetadata("operation", "marshal_global")
 	}
 
-	filePath := filepath.Join(m.configDir, "global.conf")
+	filePath := filepath.Join(m.configDir, globalJSONConf)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "save_global")
@@ -925,17 +975,31 @@ func (m *Manager) UpdateGlobalConfig(ctx context.Context, config *SMBGlobalConfi
 	return m.ReloadConfig(ctx)
 }
 
-// Modify the GetGlobalConfig method in manager.go
-func (m *Manager) GetGlobalConfig(ctx context.Context) (*SMBGlobalConfig, error) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+// GetGlobalConfig returns the global SMB configuration
+// skipLock parameter allows callers that already hold the lock to avoid deadlocks
+func (m *Manager) GetGlobalConfig(ctx context.Context, skipLock ...bool) (*SMBGlobalConfig, error) {
+	acquireLock := true
+	if len(skipLock) > 0 && skipLock[0] {
+		acquireLock = false
+	}
+
+	if acquireLock {
+		m.logger.Debug("Getting global SMB configuration. Acquiring lock")
+		m.mutex.RLock()
+		m.logger.Debug("Acquired lock for global SMB configuration")
+		defer m.mutex.RUnlock()
+	} else {
+		m.logger.Debug("Getting global SMB configuration with lock skipped")
+	}
 
 	// Read global config file
-	filePath := filepath.Join(m.configDir, "global.conf")
+	filePath := filepath.Join(m.configDir, globalJSONConf)
+	m.logger.Debug("Reading global SMB configuration", "file_path", filePath)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			cfg := config.GetConfig()
+			m.logger.Debug("Global SMB configuration file not found, getting defaults")
 			// Return default configuration if file doesn't exist
 			return NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup), nil
 		}
@@ -1045,15 +1109,58 @@ func (m *Manager) updateMainConfig() error {
 	// Start with global configuration
 	var content strings.Builder
 
+	// Add debugging logs
+	m.logger.Debug("Updating main SMB config",
+		"sharesConfigDir", sharesConfigDir,
+		"globalSMBConf", globalSMBConf)
+
 	// Read global configuration
-	globalPath := filepath.Join(sharesConfigDir, "global.smb.conf")
+	globalPath := filepath.Join(sharesConfigDir, globalSMBConf)
+	m.logger.Debug("Reading global config", "globalPath", globalPath)
+
 	globalData, err := os.ReadFile(globalPath)
 	if err == nil {
+		m.logger.Debug("Successfully read global config", "size", len(globalData))
 		content.WriteString(string(globalData))
 		content.WriteString("\n\n")
-	} else if !os.IsNotExist(err) {
-		return errors.Wrap(err, errors.SharesOperationFailed).
-			WithMetadata("operation", "read_global_config")
+	} else {
+		m.logger.Debug("Failed to read global config", "error", err.Error())
+		if !os.IsNotExist(err) {
+			return errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "read_global_config")
+		}
+	}
+
+	// If global section couldn't be read, generate a default one
+	if len(globalData) == 0 {
+		m.logger.Debug("Global data is empty, generating default")
+		// skip lock since we already have it
+		ctx := context.Background()
+		globalConfig, err := m.GetGlobalConfig(ctx, true)
+		if err != nil {
+			m.logger.Debug("Failed to get global config", "error", err.Error())
+		} else if globalConfig != nil {
+			m.logger.Debug("Got global config",
+				"workgroup", globalConfig.WorkGroup,
+				"security", globalConfig.SecurityMode)
+
+			// Generate the global config
+			if err := m.generateGlobalConfig(globalConfig); err != nil {
+				m.logger.Debug("Failed to generate global config", "error", err.Error())
+			} else {
+				m.logger.Debug("Successfully generated global config, trying to read again")
+				// Try reading again
+				globalData, err = os.ReadFile(globalPath)
+				if err != nil {
+					m.logger.Debug("Failed to read generated global config", "error", err.Error())
+				} else if len(globalData) > 0 {
+					m.logger.Debug("Successfully read generated global config", "size", len(globalData))
+					content.WriteString(string(globalData))
+					content.WriteString("\n\n")
+					m.logger.Debug("Added missing global configuration section")
+				}
+			}
+		}
 	}
 
 	// Check if we have existing files in SharesConfigDir
@@ -1104,7 +1211,7 @@ func (m *Manager) updateMainConfig() error {
 	)
 	for _, shareConfig := range shareConfigs {
 		// Skip global config that was already included
-		if filepath.Base(shareConfig) == "global.smb.conf" {
+		if filepath.Base(shareConfig) == globalSMBConf {
 			continue
 		}
 
@@ -1257,26 +1364,42 @@ func (m *Manager) generateShareConfig(config *SMBShareConfig) error {
 
 // generateGlobalConfig generates the global SMB configuration
 func (m *Manager) generateGlobalConfig(config *SMBGlobalConfig) error {
+	m.logger.Debug("Generating global SMB config",
+		"workgroup", config.WorkGroup,
+		"security", config.SecurityMode,
+		"sharesConfigDir", sharesConfigDir,
+		"globalTemplate", globalTemplate)
+
 	// Get the template
 	tmpl, ok := m.templates[globalTemplate]
 	if !ok {
+		m.logger.Error("Global template not found")
 		return errors.New(errors.SharesInternalError, "Global template not found")
 	}
+
+	m.logger.Debug("Found global template")
 
 	// Render the template
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, config); err != nil {
+		m.logger.Error("Failed to render global template", "error", err.Error())
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "render_global_template")
 	}
 
+	m.logger.Debug("Successfully rendered global template", "size", buf.Len())
+
 	// Write the configuration file
-	filePath := filepath.Join(sharesConfigDir, "global.smb.conf")
+	filePath := filepath.Join(sharesConfigDir, globalSMBConf)
+	m.logger.Debug("Writing global config file", "path", filePath)
+
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		m.logger.Error("Failed to write global config file", "error", err.Error())
 		return errors.Wrap(err, errors.SharesOperationFailed).
 			WithMetadata("operation", "write_global_config")
 	}
 
+	m.logger.Debug("Successfully wrote global config file")
 	return nil
 }
 
@@ -1437,7 +1560,7 @@ func (m *Manager) getAllShareConfigs() ([]*SMBShareConfig, error) {
 	// Read each share config file
 	for _, file := range files {
 		// Skip global config
-		if filepath.Base(file) == "global.conf" {
+		if filepath.Base(file) == globalJSONConf {
 			continue
 		}
 

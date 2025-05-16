@@ -25,7 +25,10 @@ type SMBConfigParser struct {
 }
 
 // NewSMBConfigParser creates a new SMB config parser
-func NewSMBConfigParser(filePath string, fileOps privilege.FileOperations) (*SMBConfigParser, error) {
+func NewSMBConfigParser(
+	filePath string,
+	fileOps privilege.FileOperations,
+) (*SMBConfigParser, error) {
 	var data []byte
 	var err error
 
@@ -295,6 +298,10 @@ func BackupConfigFile(filePath string, fileOps privilege.FileOperations) (string
 	} else {
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			return "", nil
+		} else if err != nil {
+			return "", errors.Wrap(err, errors.SharesOperationFailed).
+				WithMetadata("operation", "check_file_exists").
+				WithMetadata("file", filePath)
 		}
 	}
 

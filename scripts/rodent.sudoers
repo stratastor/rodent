@@ -62,23 +62,25 @@ Cmnd_Alias SYSTEM_COMMANDS = \
     /usr/bin/systemctl stop rodent*, \
     /usr/bin/systemctl restart rodent*, \
     /usr/bin/systemctl status rodent*, \
-    /usr/bin/systemctl enable *, \
+    /usr/bin/systemctl enable rodent*, \
+    /usr/bin/systemctl is-enabled *, \
+    /usr/bin/systemctl is-active *, \
     /usr/bin/journalctl *
 
 # Command aliases for privileged file operations
 Cmnd_Alias FILE_OPERATIONS = \
-    /bin/cat /etc/samba/smb.conf, \
+    /bin/cat /etc/samba/smb.conf*, \
     /bin/cat /etc/samba/conf.d/*, \
-    /bin/cp * /etc/samba/smb.conf, \
+    /bin/cp * /etc/samba/smb.conf*, \
     /bin/cp * /etc/samba/conf.d/*, \
-    /bin/tee /etc/samba/smb.conf, \
-    /bin/tee -a /etc/samba/smb.conf, \
+    /bin/tee /etc/samba/smb.conf*, \
+    /bin/tee -a /etc/samba/smb.conf*, \
     /bin/tee /etc/samba/conf.d/*, \
     /bin/tee -a /etc/samba/conf.d/*, \
     /bin/rm -f /etc/samba/conf.d/*, \
-    /bin/chmod * /etc/samba/smb.conf, \
+    /bin/chmod * /etc/samba/smb.conf*, \
     /bin/chmod * /etc/samba/conf.d/*, \
-    /bin/test -e /etc/samba/smb.conf, \
+    /bin/test -e /etc/samba/smb.conf*, \
     /bin/test -e /etc/samba/conf.d/*, \
     /bin/cat /etc/hosts, \
     /bin/cp * /etc/hosts, \
