@@ -221,6 +221,12 @@ func TestRealServices(t *testing.T) {
 
 	// Test Traefik service if available
 	testSpecificService("traefik")
+	
+	// Test ADDC service if available
+	testSpecificService("addc")
+	
+	// Test Samba service if available
+	testSpecificService("samba")
 
 	// Test non-existent service (should return 404)
 	t.Run("NonExistentService", func(t *testing.T) {
@@ -393,6 +399,50 @@ func verifyStateTransitions(t *testing.T, serviceName string,
 				for _, state := range startStates {
 					if state != "running" {
 						t.Errorf("Expected Traefik to be running after start, but found %s", state)
+					}
+				}
+			}
+		}
+	
+	case "addc":
+		// ADDC is Docker-based, should follow similar patterns to traefik
+		if len(initialStates) > 0 && len(stopStates) > 0 {
+			// After stopping, containers should not be in running state
+			for _, state := range stopStates {
+				if state == "running" {
+					t.Errorf("Expected ADDC to be stopped, but found running instance")
+				}
+			}
+
+			// After starting, we expect containers to be running
+			if len(startStates) == 0 {
+				t.Errorf("Expected ADDC instances after start, but found none")
+			} else {
+				for _, state := range startStates {
+					if state != "running" {
+						t.Logf("Note: Expected ADDC to be running after start, found %s", state)
+					}
+				}
+			}
+		}
+	
+	case "samba":
+		// Samba is systemd-based, verify service state transitions
+		if len(initialStates) > 0 && len(stopStates) > 0 {
+			// After stopping, services should not be in active state
+			for _, state := range stopStates {
+				if state == "active" || state == "running" {
+					t.Errorf("Expected Samba to be stopped, but found active instance")
+				}
+			}
+
+			// After starting, services should be active
+			if len(startStates) == 0 {
+				t.Errorf("Expected Samba services after start, but found none")
+			} else {
+				for _, state := range startStates {
+					if state != "active" && state != "running" {
+						t.Logf("Note: Expected Samba to be active after start, found %s", state)
 					}
 				}
 			}

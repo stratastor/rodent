@@ -18,10 +18,23 @@ Cmnd_Alias SMB_COMMANDS = \
     /usr/bin/systemctl stop smbd*, \
     /usr/bin/systemctl restart smbd*, \
     /usr/bin/systemctl status smbd*, \
+    /usr/bin/systemctl enable smbd*, \
+    /usr/bin/systemctl disable smbd*, \
+    /usr/bin/systemctl is-enabled smbd*, \
     /usr/bin/systemctl start winbind*, \
     /usr/bin/systemctl stop winbind*, \
     /usr/bin/systemctl restart winbind*, \
-    /usr/bin/systemctl status winbind*
+    /usr/bin/systemctl status winbind*, \
+    /usr/bin/systemctl enable winbind*, \
+    /usr/bin/systemctl disable winbind*, \
+    /usr/bin/systemctl is-enabled winbind*, \
+    /usr/bin/systemctl start nmbd*, \
+    /usr/bin/systemctl stop nmbd*, \
+    /usr/bin/systemctl restart nmbd*, \
+    /usr/bin/systemctl status nmbd*, \
+    /usr/bin/systemctl enable nmbd*, \
+    /usr/bin/systemctl disable nmbd*, \
+    /usr/bin/systemctl is-enabled nmbd*
 
 Cmnd_Alias DOCKER_COMMANDS = \
     /usr/bin/docker *, \
@@ -29,11 +42,15 @@ Cmnd_Alias DOCKER_COMMANDS = \
     /usr/bin/systemctl start docker*, \
     /usr/bin/systemctl stop docker*, \
     /usr/bin/systemctl restart docker*, \
+    /usr/bin/systemctl is-enabled docker*, \
+    /usr/bin/systemctl enable docker*, \
+    /usr/bin/systemctl disable docker*, \
     /usr/bin/systemctl status docker*
 
 # Command aliases for file access control operations
 Cmnd_Alias FACL_COMMANDS = \
     /usr/bin/getfacl *, \
+    /usr/bin/setfacl *
     /usr/bin/setfacl *
 
 # Command aliases for other needed system commands
@@ -45,6 +62,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \
     /usr/bin/systemctl stop rodent*, \
     /usr/bin/systemctl restart rodent*, \
     /usr/bin/systemctl status rodent*, \
+    /usr/bin/systemctl enable *, \
     /usr/bin/journalctl *
 
 # Command aliases for privileged file operations
