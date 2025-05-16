@@ -31,6 +31,7 @@ const (
 	DomainSSH       Domain = "SSH"
 	DomainMisc      Domain = "MISC"
 	DomainSystem    Domain = "SYSTEM"
+	DomainService   Domain = "SERVICE"
 )
 
 // ErrorCode represents unique error identifiers
@@ -99,6 +100,7 @@ const (
 	ServerContextCancelled                // Context cancelled
 	ServerTLSError                        // TLS configuration error
 	ServerInternalError
+	ServerBadRequest // Bad request error
 )
 
 const (
@@ -303,21 +305,31 @@ const (
 	PermissionDenied               // Permission denied
 
 	// SSH Key Errors (1800-1849)
-	SSHKeyPairGenerationFailed = 1800 + iota // Failed to generate SSH key pair
-	SSHKeyPairWriteFailed                     // Failed to write SSH key pair
-	SSHKeyPairReadFailed                      // Failed to read SSH key pair
-	SSHKeyPairDeleteFailed                    // Failed to delete SSH key pair
-	SSHKeyPairNotFound                        // SSH key pair not found
-	SSHKeyPairAlreadyExists                   // SSH key pair already exists
-	SSHKeyPairInvalidType                     // Invalid SSH key type
-	SSHKeyPairInvalidPeeringID                // Invalid peering ID
-	SSHKeyPairInvalidPublicKey                // Invalid public key format
-	SSHKeyPairInvalidHostname                 // Invalid hostname/IP
-	SSHKeyPairPermissionDenied                // Permission denied for SSH key operation
-	SSHKnownHostAddFailed                     // Failed to add to known hosts
-	SSHKnownHostRemoveFailed                  // Failed to remove from known hosts
-	SSHKnownHostEntryNotFound                 // Known host entry not found
-	SSHKnownHostEntryAlreadyExists            // Known host entry already exists
+	SSHKeyPairGenerationFailed     = 1800 + iota // Failed to generate SSH key pair
+	SSHKeyPairWriteFailed                        // Failed to write SSH key pair
+	SSHKeyPairReadFailed                         // Failed to read SSH key pair
+	SSHKeyPairDeleteFailed                       // Failed to delete SSH key pair
+	SSHKeyPairNotFound                           // SSH key pair not found
+	SSHKeyPairAlreadyExists                      // SSH key pair already exists
+	SSHKeyPairInvalidType                        // Invalid SSH key type
+	SSHKeyPairInvalidPeeringID                   // Invalid peering ID
+	SSHKeyPairInvalidPublicKey                   // Invalid public key format
+	SSHKeyPairInvalidHostname                    // Invalid hostname/IP
+	SSHKeyPairPermissionDenied                   // Permission denied for SSH key operation
+	SSHKnownHostAddFailed                        // Failed to add to known hosts
+	SSHKnownHostRemoveFailed                     // Failed to remove from known hosts
+	SSHKnownHostEntryNotFound                    // Known host entry not found
+	SSHKnownHostEntryAlreadyExists               // Known host entry already exists
+)
+
+const (
+	// Service Errors (1850-1899)
+	ServiceNotFound      = 1850 + iota // Service not found
+	ServiceUpdateFailed                // Service update failed
+	ServiceStartFailed                 // Service start failed
+	ServiceStopFailed                  // Service stop failed
+	ServiceRestartFailed               // Service restart failed
+	ServiceStatusFailed                // Service status check failed
 )
 
 var errorDefinitions = map[ErrorCode]struct {
@@ -513,6 +525,11 @@ var errorDefinitions = map[ErrorCode]struct {
 		"TLS configuration error",
 		DomainServer,
 		http.StatusInternalServerError,
+	},
+	ServerBadRequest: {
+		"Bad request error",
+		DomainServer,
+		http.StatusBadRequest,
 	},
 
 	// Active Directory errors
@@ -1008,6 +1025,37 @@ var errorDefinitions = map[ErrorCode]struct {
 	ServerInternalError: {
 		"Internal server error",
 		DomainServer,
+		http.StatusInternalServerError,
+	},
+
+	ServiceNotFound: {
+		"Service not found",
+		DomainService,
+		http.StatusNotFound,
+	},
+	ServiceUpdateFailed: {
+		"Service update failed",
+		DomainService,
+		http.StatusInternalServerError,
+	},
+	ServiceStartFailed: {
+		"Service start failed",
+		DomainService,
+		http.StatusInternalServerError,
+	},
+	ServiceStopFailed: {
+		"Service stop failed",
+		DomainService,
+		http.StatusInternalServerError,
+	},
+	ServiceRestartFailed: {
+		"Service restart failed",
+		DomainService,
+		http.StatusInternalServerError,
+	},
+	ServiceStatusFailed: {
+		"Service status check failed",
+		DomainService,
 		http.StatusInternalServerError,
 	},
 }
