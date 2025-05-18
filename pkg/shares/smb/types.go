@@ -138,6 +138,7 @@ func NewSMBGlobalConfigWithAD(realm, workgroup string) *SMBGlobalConfig {
 	config.CustomParameters["winbind enum groups"] = "yes"
 	config.CustomParameters["winbind nested groups"] = "yes"
 	config.CustomParameters["winbind refresh tickets"] = "yes"
+	config.CustomParameters["winbind nss info"] = "rfc2307"
 	config.CustomParameters["dedicated keytab file"] = "/etc/krb5.keytab"
 
 	return config

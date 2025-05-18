@@ -8,6 +8,8 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	generalCmd "github.com/stratastor/rodent/internal/command"
+	servicesAPI "github.com/stratastor/rodent/internal/services/api"
+	servicesMgr "github.com/stratastor/rodent/internal/services/manager"
 	adHandlers "github.com/stratastor/rodent/pkg/ad/handlers"
 	"github.com/stratastor/rodent/pkg/facl"
 	faclAPI "github.com/stratastor/rodent/pkg/facl/api"
@@ -91,5 +93,25 @@ func RegisterAllHandlers() {
 		// Register the handlers
 		snapshot.RegisterAutosnapshotGRPCHandlers(snapHandler)
 		l.Info("Registered auto-snapshot gRPC handlers")
+	}
+
+	// Create and register services handler for gRPC
+	servicesLogger, err := logger.NewTag(
+		logger.Config{LogLevel: cfg.Server.LogLevel},
+		"toggle.services",
+	)
+	if err != nil {
+		l.Error("Failed to create services logger", "error", err)
+		panic(err)
+	} else {
+		serviceManager, err := servicesMgr.NewServiceManager(servicesLogger)
+		if err != nil {
+			l.Error("Failed to create service manager", "error", err)
+			panic(err)
+		} else {
+			serviceHandler := servicesAPI.NewServiceHandler(serviceManager)
+			servicesAPI.RegisterServiceGRPCHandlers(serviceHandler)
+			l.Info("Registered services gRPC handlers")
+		}
 	}
 }
