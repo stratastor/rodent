@@ -142,3 +142,6 @@ cp $(dirname "$0")/rodent.sudoers /etc/sudoers.d/rodent
 chmod 440 /etc/sudoers.d/rodent
 
 echo "Setup complete. To start the service, run: systemctl enable --now rodent.service"
+
+# Use sudo -u rodent -i instead of sudo su rodent to switch to the rodent user directly without a password(empty) prompt
+echo "To switch to the rodent user, use: sudo -u rodent -i"

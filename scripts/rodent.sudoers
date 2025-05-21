@@ -51,7 +51,6 @@ Cmnd_Alias DOCKER_COMMANDS = \
 Cmnd_Alias FACL_COMMANDS = \
     /usr/bin/getfacl *, \
     /usr/bin/setfacl *
-    /usr/bin/setfacl *
 
 # Command aliases for other needed system commands
 Cmnd_Alias SYSTEM_COMMANDS = \
