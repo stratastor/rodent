@@ -41,9 +41,12 @@ func (m *SSHKeyManager) AddAuthorizedKey(
 	peeringID string,
 	options []string,
 ) error {
+	// Clean the public key to ensure it's a single line
+	cleanPublicKey := strings.TrimSpace(strings.ReplaceAll(publicKey, "\n", " "))
+	
 	// Format entry
 	entry := &AuthorizedKeysEntry{
-		PublicKey: publicKey,
+		PublicKey: cleanPublicKey,
 		Comment:   peeringID,
 		Options:   options,
 	}
@@ -72,6 +75,7 @@ func (m *SSHKeyManager) AddAuthorizedKey(
 	}
 	defer f.Close()
 
+	// Ensure the entry is written as a single line with a newline at the end
 	if _, err := f.WriteString(entry.String() + "\n"); err != nil {
 		return errors.Wrap(err, errors.SSHKeyPairWriteFailed).
 			WithMetadata("path", m.authorizedKeys)
@@ -166,14 +170,45 @@ func (m *SSHKeyManager) GetAuthorizedKeysPath() string {
 func parseAuthorizedKeysContent(content string) []AuthorizedKeysEntry {
 	var entries []AuthorizedKeysEntry
 	lines := strings.Split(content, "\n")
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	
+	// This will help us handle multi-line entries
+	var currentEntry string
+	
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		
+		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-
-		entry := parseAuthorizedKeyLine(line)
+		
+		// Trim any trailing whitespace (including \r for Windows CRLF)
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check if this is a continuation line (starts with whitespace)
+		if i > 0 && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+			// This is a continuation of the previous line
+			currentEntry += " " + strings.TrimSpace(line)
+			continue
+		}
+		
+		// If we have a current entry, process it before starting a new one
+		if currentEntry != "" {
+			entry := parseAuthorizedKeyLine(currentEntry)
+			entries = append(entries, entry)
+			currentEntry = ""
+		}
+		
+		// Start a new entry
+		currentEntry = line
+	}
+	
+	// Process the last entry if there is one
+	if currentEntry != "" {
+		entry := parseAuthorizedKeyLine(currentEntry)
 		entries = append(entries, entry)
 	}
 

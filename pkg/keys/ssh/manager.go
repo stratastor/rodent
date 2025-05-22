@@ -19,6 +19,7 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
@@ -38,16 +39,29 @@ type SSHKeyManager struct {
 func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 	cfg := config.GetConfig()
 
-	// Set key directory from config
+	// Set key directory from config with path expansion
 	dirPath := cfg.Keys.SSH.DirPath
 	if dirPath == "" {
 		dirPath = config.GetSSHDir()
 	}
+	expandedDirPath, err := common.ExpandPath(dirPath)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
+			WithMetadata("error", "Failed to expand SSH directory path")
+	}
+	dirPath = expandedDirPath
 
-	// Set known hosts file from config
+	// Set known hosts file from config with path expansion
 	knownHostsFile := cfg.Keys.SSH.KnownHostsFile
 	if knownHostsFile == "" {
 		knownHostsFile = filepath.Join(dirPath, "known_hosts")
+	} else {
+		expandedKnownHostsFile, err := common.ExpandPath(knownHostsFile)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
+				WithMetadata("error", "Failed to expand known hosts file path")
+		}
+		knownHostsFile = expandedKnownHostsFile
 	}
 
 	// Set username from config
@@ -56,7 +70,7 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 		username = "rodent"
 	}
 
-	// Set authorized_keys file from config with home directory expansion
+	// Set authorized_keys file from config with path expansion
 	authorizedKeysFile := cfg.Keys.SSH.AuthorizedKeysFile
 	if authorizedKeysFile == "" {
 		// Default to ~/.ssh/authorized_keys
@@ -66,14 +80,13 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 				WithMetadata("error", "Failed to determine user's home directory")
 		}
 		authorizedKeysFile = filepath.Join(homeDir, ".ssh", "authorized_keys")
-	} else if strings.HasPrefix(authorizedKeysFile, "~") {
-		// Expand tilde to home directory
-		homeDir, err := os.UserHomeDir()
+	} else {
+		expandedAuthKeysFile, err := common.ExpandPath(authorizedKeysFile)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
-				WithMetadata("error", "Failed to determine user's home directory")
+				WithMetadata("error", "Failed to expand authorized keys file path")
 		}
-		authorizedKeysFile = filepath.Join(homeDir, authorizedKeysFile[1:])
+		authorizedKeysFile = expandedAuthKeysFile
 	}
 
 	// Set algorithm from config
@@ -83,13 +96,22 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 	}
 
 	// Ensure SSH key directory exists with proper permissions
-	if err := os.MkdirAll(dirPath, 0700); err != nil {
+	if err := common.EnsureDir(dirPath, 0700); err != nil {
 		return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
-			WithMetadata("path", dirPath)
+			WithMetadata("path", dirPath).
+			WithMetadata("error", err.Error())
 	}
 
 	// Ensure known_hosts file exists
 	if _, err := os.Stat(knownHostsFile); os.IsNotExist(err) {
+		// Ensure the directory exists
+		knownHostsDir := filepath.Dir(knownHostsFile)
+		if err := common.EnsureDir(knownHostsDir, 0700); err != nil {
+			return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
+				WithMetadata("path", knownHostsDir).
+				WithMetadata("error", err.Error())
+		}
+
 		if err := os.WriteFile(knownHostsFile, []byte{}, 0600); err != nil {
 			return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
 				WithMetadata("path", knownHostsFile)
@@ -98,9 +120,10 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 
 	// Ensure authorized_keys directory exists
 	authorizedKeysDir := filepath.Dir(authorizedKeysFile)
-	if err := os.MkdirAll(authorizedKeysDir, 0700); err != nil {
+	if err := common.EnsureDir(authorizedKeysDir, 0700); err != nil {
 		return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
-			WithMetadata("path", authorizedKeysDir)
+			WithMetadata("path", authorizedKeysDir).
+			WithMetadata("error", err.Error())
 	}
 
 	// Ensure authorized_keys file exists
@@ -214,7 +237,9 @@ func (m *SSHKeyManager) AddKnownHost(
 	}
 
 	// Format entry for known_hosts file with peering ID as comment
-	entry := fmt.Sprintf("%s %s %s\n", hostname, publicKey, peeringID)
+	// First ensure the public key is a single line without any newlines
+	cleanPublicKey := strings.TrimSpace(strings.ReplaceAll(publicKey, "\n", " "))
+	entry := fmt.Sprintf("%s %s %s\n", hostname, cleanPublicKey, peeringID)
 
 	// Check if entry already exists
 	knownHosts, err := os.ReadFile(m.knownHosts)
@@ -320,6 +345,7 @@ func (m *SSHKeyManager) RemoveKnownHost(
 }
 
 // RemoveKeyPair removes a key pair for a peering ID
+// Also attempts to remove related entries from known_hosts and authorized_keys
 func (m *SSHKeyManager) RemoveKeyPair(ctx context.Context, peeringID string) error {
 	// Validate peering ID
 	if err := validatePeeringID(peeringID); err != nil {
@@ -337,6 +363,29 @@ func (m *SSHKeyManager) RemoveKeyPair(ctx context.Context, peeringID string) err
 	if err := os.RemoveAll(peerDir); err != nil {
 		return errors.Wrap(err, errors.SSHKeyPairDeleteFailed).
 			WithMetadata("path", peerDir)
+	}
+
+	// Also clean up related entries - don't fail if these operations fail
+	// since the primary operation (removing key files) succeeded
+
+	// Try to remove from known_hosts
+	err := m.RemoveKnownHost(ctx, peeringID, "")
+	if err != nil {
+		m.logger.Debug("Failed to remove entry from known_hosts during key pair removal",
+			"peering_id", peeringID, "error", err)
+	} else {
+		m.logger.Debug("Successfully removed entry from known_hosts during key pair removal",
+			"peering_id", peeringID)
+	}
+
+	// Try to remove from authorized_keys
+	err = m.RemoveAuthorizedKey(peeringID)
+	if err != nil {
+		m.logger.Debug("Failed to remove entry from authorized_keys during key pair removal",
+			"peering_id", peeringID, "error", err)
+	} else {
+		m.logger.Debug("Successfully removed entry from authorized_keys during key pair removal",
+			"peering_id", peeringID)
 	}
 
 	return nil
@@ -573,7 +622,12 @@ func parseKnownHosts(content string) []KnownHostEntry {
 	var entries []KnownHostEntry
 	lines := strings.Split(content, "\n")
 
-	for _, line := range lines {
+	// This will help us handle multi-line entries
+	var currentEntry string
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -585,35 +639,59 @@ func parseKnownHosts(content string) []KnownHostEntry {
 			continue
 		}
 
-		// First split by space to get the hostname
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) < 2 {
+		// Check if this is a continuation line (starts with whitespace)
+		if i > 0 && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+			// This is a continuation of the previous line
+			currentEntry += " " + strings.TrimSpace(line)
 			continue
 		}
 
-		hostname := parts[0]
-		rest := parts[1]
-
-		// Now split the rest by space, counting from the end to get the peering ID (last field)
-		restParts := strings.Fields(rest)
-		if len(restParts) < 2 {
-			continue // Need at least a public key and peering ID
+		// If we have a current entry, process it before starting a new one
+		if currentEntry != "" {
+			processKnownHostEntry(currentEntry, &entries)
+			currentEntry = ""
 		}
 
-		// Last field is the peering ID
-		peeringID := restParts[len(restParts)-1]
+		// Start a new entry
+		currentEntry = line
+	}
 
-		// Everything else is the public key (minus the last field)
-		publicKey := strings.Join(restParts[:len(restParts)-1], " ")
-
-		entries = append(entries, KnownHostEntry{
-			Hostname:  hostname,
-			PublicKey: publicKey,
-			PeeringID: peeringID,
-		})
+	// Process the last entry if there is one
+	if currentEntry != "" {
+		processKnownHostEntry(currentEntry, &entries)
 	}
 
 	return entries
+}
+
+// processKnownHostEntry processes a single known_hosts entry
+func processKnownHostEntry(line string, entries *[]KnownHostEntry) {
+	// First split by space to get the hostname
+	parts := strings.SplitN(line, " ", 2)
+	if len(parts) < 2 {
+		return // Skip invalid entries
+	}
+
+	hostname := parts[0]
+	rest := parts[1]
+
+	// Now split the rest by space, counting from the end to get the peering ID (last field)
+	restParts := strings.Fields(rest)
+	if len(restParts) < 2 {
+		return // Need at least a public key and peering ID
+	}
+
+	// Last field is the peering ID
+	peeringID := restParts[len(restParts)-1]
+
+	// Everything else is the public key (minus the last field)
+	publicKey := strings.Join(restParts[:len(restParts)-1], " ")
+
+	*entries = append(*entries, KnownHostEntry{
+		Hostname:  hostname,
+		PublicKey: publicKey,
+		PeeringID: peeringID,
+	})
 }
 
 // generateED25519KeyPair generates an ED25519 SSH key pair
