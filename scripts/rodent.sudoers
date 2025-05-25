@@ -56,14 +56,20 @@ Cmnd_Alias FACL_COMMANDS = \
 Cmnd_Alias SYSTEM_COMMANDS = \
     /bin/mount *, \
     /bin/mount -l, \
+    /usr/bin/ip *, \
     /usr/sbin/ip *, \
     /usr/bin/systemctl start rodent*, \
     /usr/bin/systemctl stop rodent*, \
     /usr/bin/systemctl restart rodent*, \
-    /usr/bin/systemctl status rodent*, \
     /usr/bin/systemctl enable rodent*, \
+    /usr/bin/systemctl status *, \
     /usr/bin/systemctl is-enabled *, \
     /usr/bin/systemctl is-active *, \
+    /usr/bin/systemctl is-failed *, \
+    /usr/bin/systemctl daemon-reload *, \
+    /usr/bin/systemctl list-*, \
+    /usr/bin/networkctl *, \
+    /usr/bin/resolvectl *, \
     /usr/bin/journalctl *
 
 # Command aliases for privileged file operations
@@ -95,7 +101,35 @@ Cmnd_Alias FILE_OPERATIONS = \
     /bin/cp * /etc/krb5.conf, \
     /bin/tee /etc/krb5.conf, \
     /bin/tee -a /etc/krb5.conf, \
-    /bin/test -e /etc/krb5.conf
+    /bin/test -e /etc/krb5.conf, \
+    /bin/cat /etc/systemd/network*, \
+    /bin/cp * /etc/systemd/network*, \
+    /bin/tee /etc/systemd/network*, \
+    /bin/tee -a /etc/systemd/network*, \
+    /bin/test -e /etc/systemd/network*, \
+    /bin/chmod * /etc/systemd/network*, \
+    /bin/rm -f /etc/systemd/network*, \
+    /bin/cat /etc/systemd/resolve*, \
+    /bin/cp * /etc/systemd/resolve*, \
+    /bin/tee /etc/systemd/resolve*, \
+    /bin/tee -a /etc/systemd/resolve*, \
+    /bin/test -e /etc/systemd/resolve*, \
+    /bin/chmod * /etc/systemd/resolve*, \
+    /bin/rm -f /etc/systemd/resolve*, \
+    /bin/cat /run/systemd/network*, \
+    /bin/cp * /run/systemd/network*, \
+    /bin/tee /run/systemd/network*, \
+    /bin/tee -a /run/systemd/network*, \
+    /bin/test -e /run/systemd/network*, \
+    /bin/chmod * /run/systemd/network*, \
+    /bin/rm -f /run/systemd/network*, \
+    /bin/cat /run/systemd/resolve*, \
+    /bin/cp * /run/systemd/resolve*, \
+    /bin/tee /run/systemd/resolve*, \
+    /bin/tee -a /run/systemd/resolve*, \
+    /bin/chmod * /run/systemd/resolve*, \
+    /bin/rm -f /run/systemd/resolve*, \
+    /bin/test -e /run/systemd/resolve*
 
 # Grant permissions to the rodent user
 rodent ALL=(ALL) NOPASSWD: ZFS_COMMANDS, SMB_COMMANDS, DOCKER_COMMANDS, FACL_COMMANDS, SYSTEM_COMMANDS, FILE_OPERATIONS

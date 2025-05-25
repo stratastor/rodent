@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/constants"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var (

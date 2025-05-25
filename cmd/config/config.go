@@ -22,7 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stratastor/rodent/config"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func NewConfigCmd() *cobra.Command {
