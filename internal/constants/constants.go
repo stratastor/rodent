@@ -32,6 +32,9 @@ const (
 	APIKeys    = APIBase + "/keys"
 	APISSHKeys = APIKeys + "/ssh"
 
+	// APINetwork is the base path for network management API endpoints
+	APINetwork = APIBase + "/network"
+
 	// Template paths - relative paths
 	TemplatesBasePath = "internal/templates"
 )

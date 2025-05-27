@@ -129,6 +129,13 @@ func Start(ctx context.Context, port int) error {
 	}
 	defer sshKeyHandler.Close()
 
+	// Register network management routes
+	networkHandler, err := registerNetworkRoutes(engine)
+	if err != nil {
+		return fmt.Errorf("failed to register network routes: %w", err)
+	}
+	_ = networkHandler // Handler doesn't implement Close() method
+
 	toggle.StartRegistrationProcess(ctx, l)
 
 	srv = &http.Server{

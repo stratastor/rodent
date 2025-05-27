@@ -20,6 +20,9 @@ import (
 	"github.com/stratastor/rodent/pkg/facl"
 	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
 	sshAPI "github.com/stratastor/rodent/pkg/keys/ssh/api"
+	"github.com/stratastor/rodent/pkg/netmage"
+	netmageAPI "github.com/stratastor/rodent/pkg/netmage/api"
+	"github.com/stratastor/rodent/pkg/netmage/types"
 	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	"github.com/stratastor/rodent/pkg/zfs/api"
@@ -210,4 +213,38 @@ func registerSSHKeyRoutes(engine *gin.Engine) (*sshAPI.SSHKeyHandler, error) {
 	sshAPI.RegisterSSHKeyGRPCHandlers(sshKeyHandler)
 
 	return sshKeyHandler, nil
+}
+
+// registerNetworkRoutes registers network management API routes
+func registerNetworkRoutes(engine *gin.Engine) (*netmageAPI.NetworkHandler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "network")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create network manager with networkd renderer (default)
+	ctx := context.Background()
+	networkManager, err := netmage.NewManager(ctx, l, types.RendererNetworkd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create network manager: %w", err)
+	}
+
+	// Create network handler
+	networkHandler := netmageAPI.NewNetworkHandler(networkManager, l)
+
+	// API group with version
+	v1 := engine.Group(constants.APINetwork)
+	{
+		// Register network routes
+		networkHandler.RegisterRoutes(v1)
+	}
+
+	// Register gRPC handlers
+	netmageAPI.RegisterNetworkGRPCHandlers(networkHandler)
+
+	return networkHandler, nil
 }

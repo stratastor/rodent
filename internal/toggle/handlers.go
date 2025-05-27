@@ -114,4 +114,9 @@ func RegisterAllHandlers() {
 			l.Info("Registered services gRPC handlers")
 		}
 	}
+
+	// Note: Network gRPC handlers are registered in pkg/server/routes.go 
+	// within registerNetworkRoutes() function, not here. This is because
+	// the network manager needs to be created during server startup
+	// with proper context and renderer configuration.
 }
