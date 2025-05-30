@@ -8,9 +8,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/system/privilege"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/netmage/types"
 )
@@ -20,7 +23,7 @@ type manager struct {
 	logger      logger.Logger
 	executor    *CommandExecutor
 	renderer    types.Renderer
-	ipCmd       *IPCommand
+	sudoOps     *privilege.SudoFileOperations
 	netplanCmd  *NetplanCommand
 }
 
@@ -38,15 +41,22 @@ func NewManager(ctx context.Context, logger logger.Logger, renderer types.Render
 		renderer = types.RendererNetworkd // Default to networkd
 	}
 
-	// Initialize command wrappers
-	ipCmd := NewIPCommand(executor)
-	netplanCmd := NewNetplanCommand(executor)
+	// Create sudo file operations for privileged file access
+	allowedPaths := []string{"/etc/netplan"}
+	sudoOps := privilege.NewSudoFileOperations(
+		logger,
+		command.NewCommandExecutor(true),
+		allowedPaths,
+	)
+
+	// Initialize netplan command wrapper
+	netplanCmd := NewNetplanCommand(executor, sudoOps)
 
 	m := &manager{
 		logger:     logger,
 		executor:   executor,
 		renderer:   renderer,
-		ipCmd:      ipCmd,
+		sudoOps:    sudoOps,
 		netplanCmd: netplanCmd,
 	}
 
@@ -85,116 +95,69 @@ func (m *manager) GetInterface(ctx context.Context, name string) (*types.Network
 		return nil, errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
 
-	// Get basic interface info
-	interfaces, err := m.ipCmd.ShowInterface(ctx, name)
+	// Get netplan status for the specific interface
+	status, err := m.netplanCmd.GetStatus(ctx, name)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NetworkInterfaceNotFound)
 	}
 
-	if len(interfaces) == 0 {
+	// Check if interface exists in netplan status
+	ifaceStatus, exists := status.Interfaces[name]
+	if !exists {
 		return nil, errors.New(errors.NetworkInterfaceNotFound, 
 			fmt.Sprintf("interface %s not found", name))
 	}
 
-	iface := interfaces[0]
-
-	// Get IP addresses
-	addresses, err := m.ipCmd.GetAddresses(ctx, name)
-	if err != nil {
-		m.logger.Warn("Failed to get IP addresses for interface", 
-			"interface", name, "error", err)
-		// Don't fail completely, just log the warning
-	} else {
-		iface.IPAddresses = addresses
-	}
-
-	// Get routes for this interface
-	routes, err := m.ipCmd.GetRoutes(ctx, "", name)
-	if err != nil {
-		m.logger.Warn("Failed to get routes for interface", 
-			"interface", name, "error", err)
-	} else {
-		iface.Routes = routes
-	}
-
-	// Get netplan status if available
-	status, err := m.netplanCmd.GetStatus(ctx, name)
-	if err != nil {
-		m.logger.Debug("Failed to get netplan status for interface", 
-			"interface", name, "error", err)
-	} else if ifaceStatus, exists := status.Interfaces[name]; exists {
-		// Merge netplan status information
-		iface.Backend = ifaceStatus.Backend
-		iface.Vendor = ifaceStatus.Vendor
-		iface.DNSAddresses = ifaceStatus.DNSAddresses
-		iface.DNSSearch = ifaceStatus.DNSSearch
-	}
+	// Convert netplan status to NetworkInterface
+	iface := m.convertInterfaceStatus(name, ifaceStatus)
 
 	return iface, nil
 }
 
 // ListInterfaces retrieves information about all network interfaces
 func (m *manager) ListInterfaces(ctx context.Context) ([]*types.NetworkInterface, error) {
-	interfaces, err := m.ipCmd.ShowInterface(ctx, "")
+	// Get netplan status for all interfaces
+	status, err := m.netplanCmd.GetStatus(ctx, "")
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NetworkOperationFailed)
 	}
 
-	// Enhance each interface with additional information
-	for _, iface := range interfaces {
-		// Get IP addresses
-		addresses, err := m.ipCmd.GetAddresses(ctx, iface.Name)
-		if err != nil {
-			m.logger.Warn("Failed to get IP addresses for interface", 
-				"interface", iface.Name, "error", err)
-		} else {
-			iface.IPAddresses = addresses
-		}
-
-		// Get routes for this interface
-		routes, err := m.ipCmd.GetRoutes(ctx, "", iface.Name)
-		if err != nil {
-			m.logger.Warn("Failed to get routes for interface", 
-				"interface", iface.Name, "error", err)
-		} else {
-			iface.Routes = routes
-		}
-	}
-
-	// Get netplan status for all interfaces
-	status, err := m.netplanCmd.GetStatus(ctx, "")
-	if err != nil {
-		m.logger.Debug("Failed to get netplan status", "error", err)
-	} else {
-		// Merge netplan status information
-		for _, iface := range interfaces {
-			if ifaceStatus, exists := status.Interfaces[iface.Name]; exists {
-				iface.Backend = ifaceStatus.Backend
-				iface.Vendor = ifaceStatus.Vendor
-				iface.DNSAddresses = ifaceStatus.DNSAddresses
-				iface.DNSSearch = ifaceStatus.DNSSearch
-			}
-		}
+	// Convert netplan status to NetworkInterface list
+	var interfaces []*types.NetworkInterface
+	for name, ifaceStatus := range status.Interfaces {
+		iface := m.convertInterfaceStatus(name, ifaceStatus)
+		interfaces = append(interfaces, iface)
 	}
 
 	return interfaces, nil
 }
 
-// SetInterfaceState sets the administrative state of an interface
+// SetInterfaceState sets the administrative state of an interface using networkctl
 func (m *manager) SetInterfaceState(ctx context.Context, name string, state types.InterfaceState) error {
 	if name == "" {
 		return errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
 
+	var cmd string
 	switch state {
 	case types.InterfaceStateUp:
-		return m.ipCmd.SetInterfaceUp(ctx, name)
+		cmd = "up"
 	case types.InterfaceStateDown:
-		return m.ipCmd.SetInterfaceDown(ctx, name)
+		cmd = "down"
 	default:
 		return errors.New(errors.NetworkOperationFailed, 
 			fmt.Sprintf("invalid interface state: %s", state))
 	}
+
+	result, err := m.executor.ExecuteCommand(ctx, "networkctl", cmd, name)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkInterfaceOperationFailed).
+			WithMetadata("interface", name).
+			WithMetadata("state", string(state)).
+			WithMetadata("output", result.Stderr)
+	}
+
+	return nil
 }
 
 // GetInterfaceStatistics retrieves statistics for a network interface
@@ -203,10 +166,12 @@ func (m *manager) GetInterfaceStatistics(ctx context.Context, name string) (*typ
 		return nil, errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
 
-	return m.ipCmd.GetStatistics(ctx, name)
+	// For now, return empty statistics as netplan doesn't provide interface statistics
+	// This would need to be implemented using /proc/net/dev or similar
+	return &types.InterfaceStatistics{}, nil
 }
 
-// AddIPAddress adds an IP address to an interface
+// AddIPAddress adds an IP address to an interface via netplan configuration
 func (m *manager) AddIPAddress(ctx context.Context, iface string, address string) error {
 	if iface == "" || address == "" {
 		return errors.New(errors.NetworkAddressInvalid, "interface and address cannot be empty")
@@ -216,16 +181,85 @@ func (m *manager) AddIPAddress(ctx context.Context, iface string, address string
 		return err
 	}
 
-	return m.ipCmd.AddAddress(ctx, iface, address)
+	// Get current netplan config
+	config, err := m.netplanCmd.GetConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Find and update the interface configuration
+	if config.Network == nil {
+		config.Network = &types.NetworkConfig{
+			Version:   types.DefaultNetplanConfigVersion,
+			Renderer:  m.renderer,
+			Ethernets: make(map[string]*types.EthernetConfig),
+		}
+	}
+
+	if config.Network.Ethernets == nil {
+		config.Network.Ethernets = make(map[string]*types.EthernetConfig)
+	}
+
+	// Get or create ethernet config for interface
+	ethConfig, exists := config.Network.Ethernets[iface]
+	if !exists {
+		ethConfig = &types.EthernetConfig{}
+		config.Network.Ethernets[iface] = ethConfig
+	}
+
+	// Add address to the list if not already present
+	for _, addr := range ethConfig.Addresses {
+		if addr == address {
+			return nil // Address already exists
+		}
+	}
+	ethConfig.Addresses = append(ethConfig.Addresses, address)
+
+	// Update netplan configuration
+	if err := m.netplanCmd.SetConfig(ctx, config); err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	return nil
 }
 
-// RemoveIPAddress removes an IP address from an interface
+// RemoveIPAddress removes an IP address from an interface via netplan configuration
 func (m *manager) RemoveIPAddress(ctx context.Context, iface string, address string) error {
 	if iface == "" || address == "" {
 		return errors.New(errors.NetworkAddressInvalid, "interface and address cannot be empty")
 	}
 
-	return m.ipCmd.RemoveAddress(ctx, iface, address)
+	// Get current netplan config
+	config, err := m.netplanCmd.GetConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	if config.Network == nil || config.Network.Ethernets == nil {
+		return errors.New(errors.NetworkInterfaceNotFound, "interface not found in configuration")
+	}
+
+	// Find interface configuration
+	ethConfig, exists := config.Network.Ethernets[iface]
+	if !exists {
+		return errors.New(errors.NetworkInterfaceNotFound, "interface not found in configuration")
+	}
+
+	// Remove address from the list
+	var newAddresses []string
+	for _, addr := range ethConfig.Addresses {
+		if addr != address {
+			newAddresses = append(newAddresses, addr)
+		}
+	}
+	ethConfig.Addresses = newAddresses
+
+	// Update netplan configuration
+	if err := m.netplanCmd.SetConfig(ctx, config); err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	return nil
 }
 
 // GetIPAddresses retrieves all IP addresses for an interface
@@ -234,10 +268,16 @@ func (m *manager) GetIPAddresses(ctx context.Context, iface string) ([]*types.IP
 		return nil, errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
 
-	return m.ipCmd.GetAddresses(ctx, iface)
+	// Get interface information which includes addresses
+	networkInterface, err := m.GetInterface(ctx, iface)
+	if err != nil {
+		return nil, err
+	}
+
+	return networkInterface.IPAddresses, nil
 }
 
-// AddRoute adds a network route
+// AddRoute adds a network route via netplan configuration
 func (m *manager) AddRoute(ctx context.Context, route *types.Route) error {
 	if route == nil {
 		return errors.New(errors.NetworkRouteOperationFailed, "route cannot be nil")
@@ -247,10 +287,13 @@ func (m *manager) AddRoute(ctx context.Context, route *types.Route) error {
 		return errors.New(errors.NetworkRouteOperationFailed, "route destination cannot be empty")
 	}
 
-	return m.ipCmd.AddRoute(ctx, route)
+	// Add route to appropriate interface configuration
+	// This is a simplified implementation - would need to determine the correct interface
+	// and update the netplan configuration accordingly
+	return errors.New(errors.NetworkFeatureUnsupported, "route management via netplan not fully implemented")
 }
 
-// RemoveRoute removes a network route
+// RemoveRoute removes a network route via netplan configuration
 func (m *manager) RemoveRoute(ctx context.Context, route *types.Route) error {
 	if route == nil {
 		return errors.New(errors.NetworkRouteOperationFailed, "route cannot be nil")
@@ -260,12 +303,45 @@ func (m *manager) RemoveRoute(ctx context.Context, route *types.Route) error {
 		return errors.New(errors.NetworkRouteOperationFailed, "route destination cannot be empty")
 	}
 
-	return m.ipCmd.RemoveRoute(ctx, route)
+	// Remove route from appropriate interface configuration
+	// This is a simplified implementation - would need to determine the correct interface
+	// and update the netplan configuration accordingly
+	return errors.New(errors.NetworkFeatureUnsupported, "route management via netplan not fully implemented")
 }
 
-// GetRoutes retrieves network routes
+// GetRoutes retrieves network routes from netplan status
 func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, error) {
-	return m.ipCmd.GetRoutes(ctx, table, "")
+	// Get netplan status for all interfaces
+	status, err := m.netplanCmd.GetStatus(ctx, "")
+	if err != nil {
+		return nil, errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Collect routes from all interfaces
+	var routes []*types.Route
+	for _, ifaceStatus := range status.Interfaces {
+		for _, routeStatus := range ifaceStatus.Routes {
+			// Filter by table if specified
+			if table != "" && routeStatus.Table != table {
+				continue
+			}
+
+			route := &types.Route{
+				To:       routeStatus.To,
+				From:     routeStatus.From,
+				Via:      routeStatus.Via,
+				Table:    routeStatus.Table,
+				Metric:   routeStatus.Metric,
+				Family:   types.Family(routeStatus.Family),
+				Type:     types.RouteType(routeStatus.Type),
+				Scope:    types.RouteScope(routeStatus.Scope),
+				Protocol: types.RouteProtocol(routeStatus.Protocol),
+			}
+			routes = append(routes, route)
+		}
+	}
+
+	return routes, nil
 }
 
 // GetNetplanConfig retrieves the current netplan configuration
@@ -580,4 +656,60 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 	}
 
 	return info, nil
+}
+
+// convertInterfaceStatus converts netplan InterfaceStatus to NetworkInterface
+func (m *manager) convertInterfaceStatus(name string, ifaceStatus *types.InterfaceStatus) *types.NetworkInterface {
+	iface := &types.NetworkInterface{
+		Index:        ifaceStatus.Index,
+		Name:         name,
+		Type:         types.DeviceType(ifaceStatus.Type),
+		MACAddress:   ifaceStatus.MACAddress,
+		AdminState:   types.InterfaceState(ifaceStatus.AdminState),
+		OperState:    types.InterfaceState(ifaceStatus.OperState),
+		Backend:      ifaceStatus.Backend,
+		Vendor:       ifaceStatus.Vendor,
+		DNSAddresses: ifaceStatus.DNSAddresses,
+		DNSSearch:    ifaceStatus.DNSSearch,
+		Interfaces:   ifaceStatus.Interfaces,
+		Bridge:       ifaceStatus.Bridge,
+	}
+
+	// Convert addresses
+	var addresses []*types.IPAddress
+	for addrStr, addrStatus := range ifaceStatus.Addresses {
+		address := &types.IPAddress{
+			Address:      addrStr,
+			PrefixLength: addrStatus.Prefix,
+			Flags:        addrStatus.Flags,
+		}
+		// Determine address family from format
+		if strings.Contains(addrStr, ":") {
+			address.Family = types.FamilyIPv6
+		} else {
+			address.Family = types.FamilyIPv4
+		}
+		addresses = append(addresses, address)
+	}
+	iface.IPAddresses = addresses
+
+	// Convert routes
+	var routes []*types.Route
+	for _, routeStatus := range ifaceStatus.Routes {
+		route := &types.Route{
+			To:       routeStatus.To,
+			From:     routeStatus.From,
+			Via:      routeStatus.Via,
+			Table:    routeStatus.Table,
+			Metric:   routeStatus.Metric,
+			Family:   types.Family(routeStatus.Family),
+			Type:     types.RouteType(routeStatus.Type),
+			Scope:    types.RouteScope(routeStatus.Scope),
+			Protocol: types.RouteProtocol(routeStatus.Protocol),
+		}
+		routes = append(routes, route)
+	}
+	iface.Routes = routes
+
+	return iface
 }

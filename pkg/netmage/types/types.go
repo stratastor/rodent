@@ -494,7 +494,7 @@ type InterfaceStatus struct {
 	Bridge       string                   `json:"bridge,omitempty"`
 }
 
-// AddressStatus represents address status
+// AddressStatus represents address status from netplan
 type AddressStatus struct {
 	Prefix int      `json:"prefix"`
 	Flags  []string `json:"flags,omitempty"`
@@ -531,7 +531,8 @@ type InterfaceDiff struct {
 
 // DiffState represents configuration differences
 type DiffState struct {
-	MissingRoutes []*RouteStatus `json:"missing_routes,omitempty"`
+	MissingAddresses []string       `json:"missing_addresses,omitempty"`
+	MissingRoutes    []*RouteStatus  `json:"missing_routes,omitempty"`
 }
 
 // MissingInterface represents an interface missing from system or netplan
