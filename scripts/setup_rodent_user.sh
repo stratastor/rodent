@@ -162,6 +162,7 @@ NETWORKCTL_PATH=$(detect_binary "networkctl" "/usr/bin/networkctl")
 RESOLVECTL_PATH=$(detect_binary "resolvectl" "/usr/bin/resolvectl")
 JOURNALCTL_PATH=$(detect_binary "journalctl" "/usr/bin/journalctl")
 NETPLAN_PATH=$(detect_binary "netplan" "/usr/sbin/netplan")
+WHICH_PATH=$(detect_binary "which" "/usr/bin/which")
 
 # File operation binaries
 CAT_PATH=$(detect_binary "cat" "/bin/cat")
@@ -236,6 +237,7 @@ mkdir -p /var/log/rodent
 
 # Configuration directory structure
 mkdir -p /home/rodent/.rodent/ssh
+mkdir -p /home/rodent/.rodent/services
 mkdir -p /home/rodent/.rodent/templates/traefik
 mkdir -p /home/rodent/.rodent/state
 mkdir -p /home/rodent/.rodent/shares/smb
@@ -255,6 +257,7 @@ if command -v setfacl >/dev/null 2>&1; then
     echo "Setting file ACLs..."
     setfacl -R -m d:u:rodent:rwx /var/lib/rodent 2>/dev/null || true
     setfacl -R -m d:u:rodent:rwx /var/log/rodent 2>/dev/null || true
+    setfacl -R -m d:u:rodent:rw /etc/samba 2>/dev/null || true
     setfacl -m d:u:rodent:rw /etc/samba/smb.conf 2>/dev/null || true
     setfacl -m d:u:rodent:rw /etc/krb5.conf 2>/dev/null || true
     setfacl -m d:u:rodent:rw /etc/hosts 2>/dev/null || true
@@ -288,6 +291,13 @@ if [ -d "/etc/rodent" ]; then
   echo "Copying existing configuration from /etc/rodent..."
   cp -r /etc/rodent/* /home/rodent/.rodent/ 2>/dev/null || echo "No files to copy from /etc/rodent"
   chown -R rodent:rodent /home/rodent/.rodent
+fi
+
+# Copy existing Samba configuration from /etc/samba/shares.d if it exists
+if [ -d "/etc/rodent" ]; then
+  echo "Copying existing configuration from /etc/samba/shares..."
+  cp -r /etc/samba/shares.d/* /home/rodent/.rodent/shares/smb/ 2>/dev/null || echo "No files to copy from /etc/samba/shares.d"
+  chown -R rodent:rodent /home/rodent/.rodent/shares
 fi
 
 # Create configuration file if it doesn't exist
@@ -412,6 +422,7 @@ Cmnd_Alias FACL_COMMANDS = \\
 Cmnd_Alias SYSTEM_COMMANDS = \\
     $MOUNT_PATH *, \\
     $MOUNT_PATH -l, \\
+    $WHICH_PATH *, \\
     $IP_PATH *, \\
     $SYSTEMCTL_PATH start rodent*, \\
     $SYSTEMCTL_PATH stop rodent*, \\

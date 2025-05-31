@@ -36,7 +36,8 @@ func NewSudoFileOperations(
 	// Compile regexp patterns for path validation
 	allowedRegexp := make([]*regexp.Regexp, 0, len(allowedPaths))
 	for _, path := range allowedPaths {
-		re := regexp.MustCompile("^" + regexp.QuoteMeta(path) + "($|/.*)")
+		// Allow exact path, subdirectories, and backup files with extensions/timestamps
+		re := regexp.MustCompile("^" + regexp.QuoteMeta(path) + "($|/.*|\\..*)")
 		allowedRegexp = append(allowedRegexp, re)
 	}
 	

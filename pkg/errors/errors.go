@@ -66,7 +66,14 @@ func (e *RodentError) WithMetadata(key, value string) *RodentError {
 	if e.Metadata == nil {
 		e.Metadata = make(map[string]string)
 	}
-	e.Metadata[key] = value
+
+	// If key already exists, append the new value with a comma separator
+	if existingValue, exists := e.Metadata[key]; exists {
+		e.Metadata[key] = existingValue + "," + value
+	} else {
+		e.Metadata[key] = value
+	}
+
 	return e
 }
 

@@ -13,85 +13,86 @@ const (
 // Network error codes (1900-1999)
 const (
 	// General networking errors (1900-1919)
-	NetworkOperationFailed = 1900 + iota // Generic network operation failed
-	NetworkPermissionDenied              // Permission denied for network operation
-	NetworkConfigurationInvalid         // Invalid network configuration
-	NetworkInterfaceNotFound             // Network interface not found
-	NetworkInterfaceOperationFailed      // Network interface operation failed
-	NetworkAddressInvalid                // Invalid network address
-	NetworkRouteOperationFailed          // Network route operation failed
-	NetworkDNSConfigurationFailed        // DNS configuration failed
-	NetworkValidationFailed              // Network configuration validation failed
-	NetworkStateInconsistent             // Network state is inconsistent
-	NetworkResourceBusy                  // Network resource is busy
-	NetworkTimeout                       // Network operation timed out
-	NetworkConnectivityFailed            // Network connectivity test failed
-	NetworkFeatureUnsupported            // Network feature not supported
-	NetworkPolicyViolation               // Network policy violation
-	NetworkBackendError                  // Network backend error
+	NetworkOperationFailed          = 1900 + iota // Generic network operation failed
+	NetworkPermissionDenied                       // Permission denied for network operation
+	NetworkConfigurationInvalid                   // Invalid network configuration
+	NetworkInterfaceNotFound                      // Network interface not found
+	NetworkInterfaceOperationFailed               // Network interface operation failed
+	NetworkAddressInvalid                         // Invalid network address
+	NetworkRouteOperationFailed                   // Network route operation failed
+	NetworkDNSConfigurationFailed                 // DNS configuration failed
+	NetworkValidationFailed                       // Network configuration validation failed
+	NetworkStateInconsistent                      // Network state is inconsistent
+	NetworkResourceBusy                           // Network resource is busy
+	NetworkTimeout                                // Network operation timed out
+	NetworkConnectivityFailed                     // Network connectivity test failed
+	NetworkFeatureUnsupported                     // Network feature not supported
+	NetworkPolicyViolation                        // Network policy violation
+	NetworkBackendError                           // Network backend error
 
 	// Netplan-specific errors (1920-1949)
-	NetplanCommandFailed     = 1920 + iota // Netplan command failed
-	NetplanConfigInvalid                   // Invalid Netplan configuration
-	NetplanApplyFailed                     // Netplan apply failed
-	NetplanGenerateFailed                  // Netplan generate failed
-	NetplanTryFailed                       // Netplan try failed
-	NetplanGetFailed                       // Netplan get failed
-	NetplanSetFailed                       // Netplan set failed
-	NetplanStatusFailed                    // Netplan status failed
-	NetplanVersionUnsupported              // Netplan version not supported
-	NetplanYAMLParseError                  // Netplan YAML parsing error
-	NetplanYAMLValidationError             // Netplan YAML validation error
-	NetplanRendererInvalid                 // Invalid Netplan renderer
-	NetplanFileOperationFailed             // Netplan file operation failed
-	NetplanBackupFailed                    // Netplan backup operation failed
-	NetplanRestoreFailed                   // Netplan restore operation failed
-	NetplanDiffFailed                      // Netplan diff operation failed
-	NetplanConfigFileNotFound              // Netplan config file not found
-	NetplanConfigFileLocked                // Netplan config file locked
-	NetplanRollbackFailed                  // Netplan rollback failed
-	NetplanTryTimeout                      // Netplan try timeout
-	NetplanTryCancelled                    // Netplan try cancelled
+	NetplanCommandFailed       = 1920 + iota // Netplan command failed
+	NetplanCommandNotFound                   // Netplan command not found
+	NetplanConfigInvalid                     // Invalid Netplan configuration
+	NetplanApplyFailed                       // Netplan apply failed
+	NetplanGenerateFailed                    // Netplan generate failed
+	NetplanTryFailed                         // Netplan try failed
+	NetplanGetFailed                         // Netplan get failed
+	NetplanSetFailed                         // Netplan set failed
+	NetplanStatusFailed                      // Netplan status failed
+	NetplanVersionUnsupported                // Netplan version not supported
+	NetplanYAMLParseError                    // Netplan YAML parsing error
+	NetplanYAMLValidationError               // Netplan YAML validation error
+	NetplanRendererInvalid                   // Invalid Netplan renderer
+	NetplanFileOperationFailed               // Netplan file operation failed
+	NetplanBackupFailed                      // Netplan backup operation failed
+	NetplanRestoreFailed                     // Netplan restore operation failed
+	NetplanDiffFailed                        // Netplan diff operation failed
+	NetplanConfigFileNotFound                // Netplan config file not found
+	NetplanConfigFileLocked                  // Netplan config file locked
+	NetplanRollbackFailed                    // Netplan rollback failed
+	NetplanTryTimeout                        // Netplan try timeout
+	NetplanTryCancelled                      // Netplan try cancelled
 
 	// IP command errors (1950-1979)
-	IPCommandFailed         = 1950 + iota // IP command failed
-	IPLinkOperationFailed                 // IP link operation failed
-	IPAddressOperationFailed              // IP address operation failed
-	IPRouteOperationFailed                // IP route operation failed
-	IPRuleOperationFailed                 // IP rule operation failed
-	IPNeighborOperationFailed             // IP neighbor operation failed
-	IPTunnelOperationFailed               // IP tunnel operation failed
-	IPNamespaceOperationFailed            // IP namespace operation failed
-	IPJSONParseError                      // IP command JSON parsing error
-	IPInterfaceStateError                 // IP interface state error
-	IPBridgeOperationFailed               // IP bridge operation failed
-	IPVLANOperationFailed                 // IP VLAN operation failed
-	IPBondOperationFailed                 // IP bond operation failed
-	IPMTUOperationFailed                  // IP MTU operation failed
-	IPMACAddressOperationFailed           // IP MAC address operation failed
+	IPCommandFailed             = 1950 + iota // IP command failed
+	IPLinkOperationFailed                     // IP link operation failed
+	IPAddressOperationFailed                  // IP address operation failed
+	IPRouteOperationFailed                    // IP route operation failed
+	IPRuleOperationFailed                     // IP rule operation failed
+	IPNeighborOperationFailed                 // IP neighbor operation failed
+	IPTunnelOperationFailed                   // IP tunnel operation failed
+	IPNamespaceOperationFailed                // IP namespace operation failed
+	IPJSONParseError                          // IP command JSON parsing error
+	IPInterfaceStateError                     // IP interface state error
+	IPBridgeOperationFailed                   // IP bridge operation failed
+	IPVLANOperationFailed                     // IP VLAN operation failed
+	IPBondOperationFailed                     // IP bond operation failed
+	IPMTUOperationFailed                      // IP MTU operation failed
+	IPMACAddressOperationFailed               // IP MAC address operation failed
 
 	// Network validation errors (1980-1999)
-	NetworkIPAddressInvalid = 1980 + iota // Invalid IP address format
-	NetworkCIDRInvalid                    // Invalid CIDR notation
-	NetworkMACAddressInvalid              // Invalid MAC address format
-	NetworkPortInvalid                    // Invalid port number
-	NetworkHostnameInvalid                // Invalid hostname format
-	NetworkVLANIDInvalid                  // Invalid VLAN ID
-	NetworkMTUInvalid                     // Invalid MTU value
-	NetworkGatewayInvalid                 // Invalid gateway address
-	NetworkDNSServerInvalid               // Invalid DNS server address
-	NetworkSearchDomainInvalid            // Invalid search domain
-	NetworkInterfaceNameInvalid           // Invalid interface name
-	NetworkBondModeInvalid                // Invalid bond mode
-	NetworkBridgeConfigInvalid            // Invalid bridge configuration
-	NetworkTunnelConfigInvalid            // Invalid tunnel configuration
-	NetworkRoutingTableInvalid            // Invalid routing table
-	NetworkMetricInvalid                  // Invalid route metric
-	NetworkPrefixLengthInvalid            // Invalid prefix length
-	NetworkProtocolInvalid                // Invalid network protocol
-	NetworkScopeInvalid                   // Invalid route scope
-	NetworkTypeInvalid                    // Invalid network type
-	NetworkBondConfigInvalid              // Invalid bond configuration
+	NetworkIPAddressInvalid     = 1980 + iota // Invalid IP address format
+	NetworkCIDRInvalid                        // Invalid CIDR notation
+	NetworkMACAddressInvalid                  // Invalid MAC address format
+	NetworkPortInvalid                        // Invalid port number
+	NetworkHostnameInvalid                    // Invalid hostname format
+	NetworkVLANIDInvalid                      // Invalid VLAN ID
+	NetworkMTUInvalid                         // Invalid MTU value
+	NetworkGatewayInvalid                     // Invalid gateway address
+	NetworkDNSServerInvalid                   // Invalid DNS server address
+	NetworkSearchDomainInvalid                // Invalid search domain
+	NetworkInterfaceNameInvalid               // Invalid interface name
+	NetworkBondModeInvalid                    // Invalid bond mode
+	NetworkBridgeConfigInvalid                // Invalid bridge configuration
+	NetworkTunnelConfigInvalid                // Invalid tunnel configuration
+	NetworkRoutingTableInvalid                // Invalid routing table
+	NetworkMetricInvalid                      // Invalid route metric
+	NetworkPrefixLengthInvalid                // Invalid prefix length
+	NetworkProtocolInvalid                    // Invalid network protocol
+	NetworkScopeInvalid                       // Invalid route scope
+	NetworkTypeInvalid                        // Invalid network type
+	NetworkBondConfigInvalid                  // Invalid bond configuration
 )
 
 func init() {
@@ -188,6 +189,11 @@ func init() {
 			"Netplan command failed",
 			DomainNetwork,
 			http.StatusInternalServerError,
+		},
+		NetplanCommandNotFound: {
+			"Netplan command not found",
+			DomainNetwork,
+			http.StatusNotFound,
 		},
 		NetplanConfigInvalid: {
 			"Invalid Netplan configuration",

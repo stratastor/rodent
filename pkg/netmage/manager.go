@@ -20,15 +20,19 @@ import (
 
 // manager implements the networking management functionality
 type manager struct {
-	logger      logger.Logger
-	executor    *CommandExecutor
-	renderer    types.Renderer
-	sudoOps     *privilege.SudoFileOperations
-	netplanCmd  *NetplanCommand
+	logger     logger.Logger
+	executor   *CommandExecutor
+	renderer   types.Renderer
+	sudoOps    *privilege.SudoFileOperations
+	netplanCmd *NetplanCommand
 }
 
 // NewManager creates a new networking manager instance
-func NewManager(ctx context.Context, logger logger.Logger, renderer types.Renderer) (types.Manager, error) {
+func NewManager(
+	ctx context.Context,
+	logger logger.Logger,
+	renderer types.Renderer,
+) (types.Manager, error) {
 	if logger == nil {
 		return nil, errors.New(errors.NetworkOperationFailed, "logger cannot be nil")
 	}
@@ -65,7 +69,7 @@ func NewManager(ctx context.Context, logger logger.Logger, renderer types.Render
 		return nil, errors.Wrap(err, errors.NetplanCommandFailed)
 	}
 
-	m.logger.Info("Network manager initialized", 
+	m.logger.Info("Network manager initialized",
 		"renderer", renderer,
 		"netplan_major_version", "1.x")
 
@@ -76,14 +80,20 @@ func NewManager(ctx context.Context, logger logger.Logger, renderer types.Render
 func (m *manager) validateNetplanAvailability(ctx context.Context) error {
 	// Check if netplan is available
 	result, err := m.executor.ExecuteCommand(ctx, "which", "netplan")
+	m.logger.Debug("Checking netplan availability",
+		"result", result.Stdout,
+		"error", err)
 	if err != nil || result.ExitCode != 0 {
-		return errors.New(errors.NetplanCommandFailed, "netplan not found in system PATH")
+		return errors.Wrap(err, errors.NetplanCommandNotFound)
 	}
 
 	// Simple functionality check
 	result, err = m.executor.ExecuteCommand(ctx, "netplan", "--help")
+	m.logger.Debug("Validating netplan command",
+		"result", result.Stdout,
+		"error", err)
 	if err != nil || result.ExitCode != 0 {
-		return errors.New(errors.NetplanCommandFailed, "netplan command not functional")
+		return errors.Wrap(err, errors.NetplanCommandFailed)
 	}
 
 	return nil
@@ -104,7 +114,7 @@ func (m *manager) GetInterface(ctx context.Context, name string) (*types.Network
 	// Check if interface exists in netplan status
 	ifaceStatus, exists := status.Interfaces[name]
 	if !exists {
-		return nil, errors.New(errors.NetworkInterfaceNotFound, 
+		return nil, errors.New(errors.NetworkInterfaceNotFound,
 			fmt.Sprintf("interface %s not found", name))
 	}
 
@@ -133,7 +143,11 @@ func (m *manager) ListInterfaces(ctx context.Context) ([]*types.NetworkInterface
 }
 
 // SetInterfaceState sets the administrative state of an interface using networkctl
-func (m *manager) SetInterfaceState(ctx context.Context, name string, state types.InterfaceState) error {
+func (m *manager) SetInterfaceState(
+	ctx context.Context,
+	name string,
+	state types.InterfaceState,
+) error {
 	if name == "" {
 		return errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
@@ -145,7 +159,7 @@ func (m *manager) SetInterfaceState(ctx context.Context, name string, state type
 	case types.InterfaceStateDown:
 		cmd = "down"
 	default:
-		return errors.New(errors.NetworkOperationFailed, 
+		return errors.New(errors.NetworkOperationFailed,
 			fmt.Sprintf("invalid interface state: %s", state))
 	}
 
@@ -161,7 +175,10 @@ func (m *manager) SetInterfaceState(ctx context.Context, name string, state type
 }
 
 // GetInterfaceStatistics retrieves statistics for a network interface
-func (m *manager) GetInterfaceStatistics(ctx context.Context, name string) (*types.InterfaceStatistics, error) {
+func (m *manager) GetInterfaceStatistics(
+	ctx context.Context,
+	name string,
+) (*types.InterfaceStatistics, error) {
 	if name == "" {
 		return nil, errors.New(errors.NetworkInterfaceNotFound, "interface name cannot be empty")
 	}
@@ -290,7 +307,10 @@ func (m *manager) AddRoute(ctx context.Context, route *types.Route) error {
 	// Add route to appropriate interface configuration
 	// This is a simplified implementation - would need to determine the correct interface
 	// and update the netplan configuration accordingly
-	return errors.New(errors.NetworkFeatureUnsupported, "route management via netplan not fully implemented")
+	return errors.New(
+		errors.NetworkFeatureUnsupported,
+		"route management via netplan not fully implemented",
+	)
 }
 
 // RemoveRoute removes a network route via netplan configuration
@@ -306,7 +326,10 @@ func (m *manager) RemoveRoute(ctx context.Context, route *types.Route) error {
 	// Remove route from appropriate interface configuration
 	// This is a simplified implementation - would need to determine the correct interface
 	// and update the netplan configuration accordingly
-	return errors.New(errors.NetworkFeatureUnsupported, "route management via netplan not fully implemented")
+	return errors.New(
+		errors.NetworkFeatureUnsupported,
+		"route management via netplan not fully implemented",
+	)
 }
 
 // GetRoutes retrieves network routes from netplan status
@@ -369,7 +392,10 @@ func (m *manager) ApplyNetplanConfig(ctx context.Context) error {
 }
 
 // TryNetplanConfig tries a netplan configuration with automatic rollback
-func (m *manager) TryNetplanConfig(ctx context.Context, timeout time.Duration) (*types.NetplanTryResult, error) {
+func (m *manager) TryNetplanConfig(
+	ctx context.Context,
+	timeout time.Duration,
+) (*types.NetplanTryResult, error) {
 	if timeout <= 0 {
 		timeout = 120 * time.Second // Default timeout
 	}
@@ -378,7 +404,10 @@ func (m *manager) TryNetplanConfig(ctx context.Context, timeout time.Duration) (
 }
 
 // GetNetplanStatus retrieves netplan status
-func (m *manager) GetNetplanStatus(ctx context.Context, iface string) (*types.NetplanStatus, error) {
+func (m *manager) GetNetplanStatus(
+	ctx context.Context,
+	iface string,
+) (*types.NetplanStatus, error) {
 	return m.netplanCmd.GetStatus(ctx, iface)
 }
 
@@ -418,15 +447,15 @@ func (m *manager) ValidateNetplanConfig(ctx context.Context, config *types.Netpl
 
 	// Validate version
 	if config.Network.Version != types.DefaultNetplanConfigVersion {
-		return errors.New(errors.NetplanConfigInvalid, 
+		return errors.New(errors.NetplanConfigInvalid,
 			fmt.Sprintf("unsupported network version: %d", config.Network.Version))
 	}
 
 	// Validate renderer
 	if config.Network.Renderer != "" {
-		if config.Network.Renderer != types.RendererNetworkd && 
-		   config.Network.Renderer != types.RendererNetworkManager {
-			return errors.New(errors.NetplanRendererInvalid, 
+		if config.Network.Renderer != types.RendererNetworkd &&
+			config.Network.Renderer != types.RendererNetworkManager {
+			return errors.New(errors.NetplanRendererInvalid,
 				fmt.Sprintf("invalid renderer: %s", config.Network.Renderer))
 		}
 	}
@@ -510,7 +539,7 @@ func (m *manager) validateBridgeConfig(name string, bridge *types.BridgeConfig) 
 
 	// Validate member interfaces
 	if len(bridge.Interfaces) == 0 {
-		return errors.New(errors.NetworkBridgeConfigInvalid, 
+		return errors.New(errors.NetworkBridgeConfigInvalid,
 			fmt.Sprintf("bridge %s must have at least one member interface", name))
 	}
 
@@ -531,7 +560,7 @@ func (m *manager) validateBondConfig(name string, bond *types.BondConfig) error 
 
 	// Validate member interfaces
 	if len(bond.Interfaces) < 2 {
-		return errors.New(errors.NetworkBondConfigInvalid, 
+		return errors.New(errors.NetworkBondConfigInvalid,
 			fmt.Sprintf("bond %s must have at least two member interfaces", name))
 	}
 
@@ -552,13 +581,13 @@ func (m *manager) validateVLANConfig(name string, vlan *types.VLANConfig) error 
 
 	// Validate VLAN ID
 	if vlan.ID < 1 || vlan.ID > 4094 {
-		return errors.New(errors.NetworkVLANIDInvalid, 
+		return errors.New(errors.NetworkVLANIDInvalid,
 			fmt.Sprintf("invalid VLAN ID %d: must be between 1 and 4094", vlan.ID))
 	}
 
 	// Validate link interface
 	if vlan.Link == "" {
-		return errors.New(errors.NetworkConfigurationInvalid, 
+		return errors.New(errors.NetworkConfigurationInvalid,
 			fmt.Sprintf("VLAN %s must specify a link interface", name))
 	}
 
@@ -585,17 +614,17 @@ func (m *manager) ValidateInterfaceName(name string) error {
 	}
 
 	if len(name) > 15 {
-		return errors.New(errors.NetworkInterfaceNameInvalid, 
+		return errors.New(errors.NetworkInterfaceNameInvalid,
 			fmt.Sprintf("interface name '%s' is too long (max 15 characters)", name))
 	}
 
 	// Basic validation - interface names should not contain special characters
 	for _, char := range name {
-		if !((char >= 'a' && char <= 'z') || 
-			 (char >= 'A' && char <= 'Z') || 
-			 (char >= '0' && char <= '9') || 
-			 char == '-' || char == '_' || char == '.') {
-			return errors.New(errors.NetworkInterfaceNameInvalid, 
+		if !((char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '-' || char == '_' || char == '.') {
+			return errors.New(errors.NetworkInterfaceNameInvalid,
 				fmt.Sprintf("interface name '%s' contains invalid character '%c'", name, char))
 		}
 	}
@@ -650,7 +679,8 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 
 	// Get DNS information from netplan status
 	status, err := m.GetNetplanStatus(ctx, "")
-	if err == nil && status.NetplanGlobalState != nil && status.NetplanGlobalState.Nameservers != nil {
+	if err == nil && status.NetplanGlobalState != nil &&
+		status.NetplanGlobalState.Nameservers != nil {
 		info.DNSServers = status.NetplanGlobalState.Nameservers.Addresses
 		info.SearchDomains = status.NetplanGlobalState.Nameservers.Search
 	}
@@ -659,7 +689,10 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 }
 
 // convertInterfaceStatus converts netplan InterfaceStatus to NetworkInterface
-func (m *manager) convertInterfaceStatus(name string, ifaceStatus *types.InterfaceStatus) *types.NetworkInterface {
+func (m *manager) convertInterfaceStatus(
+	name string,
+	ifaceStatus *types.InterfaceStatus,
+) *types.NetworkInterface {
 	iface := &types.NetworkInterface{
 		Index:        ifaceStatus.Index,
 		Name:         name,
