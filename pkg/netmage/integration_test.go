@@ -44,6 +44,49 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 
 	// Test 1: Validate current configuration with safe apply (no changes)
 	t.Run("ValidateCurrentConfig", func(t *testing.T) {
+		// First, let's manually execute netplan status and see what we get
+		executor := NewCommandExecutor(true)
+		
+		t.Log("=== Manual netplan status command ===")
+		rawResult, err := executor.ExecuteCommand(ctx, "netplan", "status", "--all", "--verbose", "-f", "json")
+		if err != nil {
+			t.Logf("Raw netplan command failed: %v", err)
+		} else {
+			t.Logf("Raw netplan stdout (%d bytes): %s", len(rawResult.Stdout), rawResult.Stdout)
+			if rawResult.Stderr != "" {
+				t.Logf("Raw netplan stderr: %s", rawResult.Stderr)
+			}
+		}
+		
+		t.Log("=== Manager GetNetplanStatus call ===")
+		parsedStatus, err := manager.GetNetplanStatus(ctx, "")
+		if err != nil {
+			t.Logf("Manager GetNetplanStatus failed: %v", err)
+		} else {
+			t.Logf("Parsed status interface count: %d", len(parsedStatus.Interfaces))
+			if parsedStatus.NetplanGlobalState != nil {
+				t.Logf("Global state online: %v", parsedStatus.NetplanGlobalState.Online)
+			}
+			for name, iface := range parsedStatus.Interfaces {
+				t.Logf("Interface %s: backend=%s, admin=%s, oper=%s, type=%s", 
+					name, iface.Backend, iface.AdminState, iface.OperState, iface.Type)
+			}
+		}
+		
+		t.Log("=== Manager GetRoutes call ===")
+		routes, err := manager.GetRoutes(ctx, "main")
+		if err != nil {
+			t.Logf("Manager GetRoutes failed: %v", err)
+		} else {
+			t.Logf("Parsed routes count: %d", len(routes))
+			for i, route := range routes {
+				if i < 10 { // Show first 10 routes
+					t.Logf("Route %d: to=%s, via=%s, table=%s, family=%v", 
+						i, route.To, route.Via, route.Table, route.Family)
+				}
+			}
+		}
+		
 		options := &types.SafeConfigOptions{
 			ConnectivityTargets:     []string{"172.31.0.1"}, // Test gateway only
 			ConnectivityTimeout:     10 * time.Second,
