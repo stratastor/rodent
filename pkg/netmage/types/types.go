@@ -112,6 +112,9 @@ type Manager interface {
 	TryNetplanConfig(ctx context.Context, timeout time.Duration) (*NetplanTryResult, error)
 	GetNetplanStatus(ctx context.Context, iface string) (*NetplanStatus, error)
 	GetNetplanDiff(ctx context.Context) (*NetplanDiff, error)
+	
+	// Safe configuration management (replacement for unreliable TryNetplanConfig)  
+	SafeApplyConfig(ctx context.Context, config *NetplanConfig, options *SafeConfigOptions) (*SafeConfigResult, error)
 
 	// Backup and restore
 	BackupNetplanConfig(ctx context.Context) (string, error)
@@ -616,4 +619,72 @@ type BackupRequest struct {
 // RestoreRequest represents a request to restore from backup
 type RestoreRequest struct {
 	BackupID string `json:"backup_id" binding:"required"`
+}
+
+// SafeConfigOptions represents options for safe configuration management
+type SafeConfigOptions struct {
+	// Connectivity monitoring
+	ConnectivityTargets     []string      `json:"connectivity_targets"`
+	ConnectivityTimeout     time.Duration `json:"connectivity_timeout"`
+	ConnectivityInterval    time.Duration `json:"connectivity_interval"`
+	MaxConnectivityFailures int           `json:"max_connectivity_failures"`
+	
+	// Validation options
+	SkipPreValidation  bool `json:"skip_pre_validation"`
+	SkipPostValidation bool `json:"skip_post_validation"`
+	
+	// Backup and rollback
+	AutoBackup           bool          `json:"auto_backup"`
+	AutoRollback         bool          `json:"auto_rollback"`
+	RollbackTimeout      time.Duration `json:"rollback_timeout"`
+	BackupDescription    string        `json:"backup_description"`
+	
+	// Application strategy
+	GracePeriod          time.Duration `json:"grace_period"`
+	ValidateInterfaces   bool          `json:"validate_interfaces"`
+	ValidateRoutes       bool          `json:"validate_routes"`
+	ValidateConnectivity bool          `json:"validate_connectivity"`
+}
+
+// SafeConfigResult represents the result of a safe configuration operation
+type SafeConfigResult struct {
+	Success         bool                    `json:"success"`
+	Applied         bool                    `json:"applied"`
+	RolledBack      bool                    `json:"rolled_back"`
+	BackupID        string                  `json:"backup_id,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+	Message         string                  `json:"message"`
+	
+	// Validation results
+	PreValidation   *ValidationResult       `json:"pre_validation,omitempty"`
+	PostValidation  *ValidationResult       `json:"post_validation,omitempty"`
+	
+	// Connectivity results
+	Connectivity    *ConnectivityResult     `json:"connectivity,omitempty"`
+	
+	// Timing information
+	StartTime       time.Time               `json:"start_time"`
+	ApplyTime       time.Time               `json:"apply_time,omitempty"`
+	CompletionTime  time.Time               `json:"completion_time"`
+	TotalDuration   time.Duration           `json:"total_duration"`
+}
+
+// ValidationResult represents validation results
+type ValidationResult struct {
+	Success        bool     `json:"success"`
+	SyntaxValid    bool     `json:"syntax_valid"`
+	InterfaceValid bool     `json:"interface_valid"`
+	RouteValid     bool     `json:"route_valid"`
+	Errors         []string `json:"errors,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
+}
+
+// ConnectivityResult represents connectivity test results
+type ConnectivityResult struct {
+	InitialSuccess   bool                    `json:"initial_success"`
+	FinalSuccess     bool                    `json:"final_success"`
+	TargetResults    map[string]bool         `json:"target_results"`
+	FailedChecks     int                     `json:"failed_checks"`
+	TotalChecks      int                     `json:"total_checks"`
+	MonitoringTime   time.Duration           `json:"monitoring_time"`
 }

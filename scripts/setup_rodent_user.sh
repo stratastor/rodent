@@ -163,6 +163,7 @@ RESOLVECTL_PATH=$(detect_binary "resolvectl" "/usr/bin/resolvectl")
 JOURNALCTL_PATH=$(detect_binary "journalctl" "/usr/bin/journalctl")
 NETPLAN_PATH=$(detect_binary "netplan" "/usr/sbin/netplan")
 WHICH_PATH=$(detect_binary "which" "/usr/bin/which")
+PING_PATH=$(detect_binary "which" "/usr/bin/ping")
 
 # File operation binaries
 CAT_PATH=$(detect_binary "cat" "/bin/cat")
@@ -423,6 +424,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $MOUNT_PATH *, \\
     $MOUNT_PATH -l, \\
     $WHICH_PATH *, \\
+    $PING_PATH *, \\
     $IP_PATH *, \\
     $SYSTEMCTL_PATH start rodent*, \\
     $SYSTEMCTL_PATH stop rodent*, \\

@@ -33,14 +33,22 @@ type NetplanCommand struct {
 }
 
 // NewNetplanCommand creates a new Netplan command wrapper
-func NewNetplanCommand(executor *CommandExecutor, sudoOps *privilege.SudoFileOperations) *NetplanCommand {
+func NewNetplanCommand(
+	executor *CommandExecutor,
+	sudoOps *privilege.SudoFileOperations,
+) *NetplanCommand {
 	backupDir := filepath.Join(config.GetConfigDir(), "backup", "netplan")
-	
-	return &NetplanCommand{
+
+	nc := &NetplanCommand{
 		executor:  executor,
 		sudoOps:   sudoOps,
 		backupDir: backupDir,
 	}
+
+	// Ensure netmage config file exists with minimal content
+	nc.ensureConfigFileExists()
+
+	return nc
 }
 
 // GetConfig retrieves the current netplan configuration
@@ -65,27 +73,22 @@ func (nc *NetplanCommand) SetConfig(ctx context.Context, config *types.NetplanCo
 		return errors.Wrap(err, errors.NetplanYAMLParseError)
 	}
 
-	// Write to temporary file first for validation
-	tempConfigPath := NetplanConfigPath + ".tmp"
-	if err := nc.sudoOps.WriteFile(ctx, tempConfigPath, yamlData, 0644); err != nil {
+	// Create temporary directory structure for validation
+	tempDir, err := nc.createTempConfigForValidation(ctx, yamlData)
+	if err != nil {
 		return errors.Wrap(err, errors.NetplanFileOperationFailed)
 	}
+	defer os.RemoveAll(tempDir) // Clean up temp directory
 
 	// Validate the temporary configuration
-	if err := nc.validateConfigFile(ctx, tempConfigPath); err != nil {
-		// Clean up temporary file on validation failure
-		nc.sudoOps.DeleteFile(ctx, tempConfigPath)
+	if err := nc.validateConfigFile(ctx, tempDir); err != nil {
 		return errors.Wrap(err, errors.NetplanYAMLValidationError)
 	}
 
-	// Move temporary file to actual config path
-	if err := nc.sudoOps.CopyFile(ctx, tempConfigPath, NetplanConfigPath); err != nil {
-		nc.sudoOps.DeleteFile(ctx, tempConfigPath)
+	// Write validated config to actual location
+	if err := nc.sudoOps.WriteFile(ctx, NetplanConfigPath, yamlData, 0600); err != nil {
 		return errors.Wrap(err, errors.NetplanFileOperationFailed)
 	}
-
-	// Clean up temporary file
-	nc.sudoOps.DeleteFile(ctx, tempConfigPath)
 
 	return nil
 }
@@ -106,7 +109,10 @@ func (nc *NetplanCommand) Apply(ctx context.Context) error {
 }
 
 // Try tries a netplan configuration with automatic rollback
-func (nc *NetplanCommand) Try(ctx context.Context, timeout time.Duration) (*types.NetplanTryResult, error) {
+func (nc *NetplanCommand) Try(
+	ctx context.Context,
+	timeout time.Duration,
+) (*types.NetplanTryResult, error) {
 	// Validate current configuration before trying
 	if err := nc.ValidateConfig(ctx); err != nil {
 		return &types.NetplanTryResult{
@@ -120,7 +126,7 @@ func (nc *NetplanCommand) Try(ctx context.Context, timeout time.Duration) (*type
 
 	timeoutStr := strconv.Itoa(int(timeout.Seconds()))
 	result, err := nc.executor.ExecuteCommand(ctx, "netplan", "try", "--timeout", timeoutStr)
-	
+
 	tryResult := &types.NetplanTryResult{
 		Success: err == nil,
 		Applied: err == nil,
@@ -138,7 +144,10 @@ func (nc *NetplanCommand) Try(ctx context.Context, timeout time.Duration) (*type
 }
 
 // GetStatus retrieves netplan status
-func (nc *NetplanCommand) GetStatus(ctx context.Context, iface string) (*types.NetplanStatus, error) {
+func (nc *NetplanCommand) GetStatus(
+	ctx context.Context,
+	iface string,
+) (*types.NetplanStatus, error) {
 	args := []string{"status", "--all", "--verbose", "-f", "json"}
 	if iface != "" {
 		args = []string{"status", iface, "--verbose", "-f", "json"}
@@ -159,7 +168,16 @@ func (nc *NetplanCommand) GetStatus(ctx context.Context, iface string) (*types.N
 
 // GetDiff retrieves differences between current state and netplan config
 func (nc *NetplanCommand) GetDiff(ctx context.Context) (*types.NetplanDiff, error) {
-	result, err := nc.executor.ExecuteCommand(ctx, "netplan", "status", "--all", "--verbose", "-f", "json", "--diff")
+	result, err := nc.executor.ExecuteCommand(
+		ctx,
+		"netplan",
+		"status",
+		"--all",
+		"--verbose",
+		"-f",
+		"json",
+		"--diff",
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NetplanDiffFailed)
 	}
@@ -200,33 +218,30 @@ func (nc *NetplanCommand) Backup(ctx context.Context) (string, error) {
 // Restore restores netplan configuration from a backup
 func (nc *NetplanCommand) Restore(ctx context.Context, backupID string) error {
 	backupPath := filepath.Join(nc.backupDir, fmt.Sprintf("%s.yaml", backupID))
-	
+
 	// Read backup file
 	backupData, err := os.ReadFile(backupPath)
 	if err != nil {
 		return errors.Wrap(err, errors.NetplanRestoreFailed)
 	}
 
-	// Write to temporary file first for validation
-	tempConfigPath := NetplanConfigPath + ".tmp"
-	if err := nc.sudoOps.WriteFile(ctx, tempConfigPath, backupData, 0644); err != nil {
+	// Create temporary directory structure for validation
+	tempDir, err := nc.createTempConfigForValidation(ctx, backupData)
+	if err != nil {
 		return errors.Wrap(err, errors.NetplanRestoreFailed)
 	}
+	defer os.RemoveAll(tempDir) // Clean up temp directory
 
 	// Validate the backup configuration
-	if err := nc.validateConfigFile(ctx, tempConfigPath); err != nil {
-		nc.sudoOps.DeleteFile(ctx, tempConfigPath)
-		return errors.Wrap(err, errors.NetplanRestoreFailed).WithMetadata("reason", "backup validation failed")
+	if err := nc.validateConfigFile(ctx, tempDir); err != nil {
+		return errors.Wrap(err, errors.NetplanRestoreFailed).
+			WithMetadata("reason", "backup validation failed")
 	}
 
-	// Move temporary file to actual config path
-	if err := nc.sudoOps.CopyFile(ctx, tempConfigPath, NetplanConfigPath); err != nil {
-		nc.sudoOps.DeleteFile(ctx, tempConfigPath)
+	// Write validated config to actual location
+	if err := nc.sudoOps.WriteFile(ctx, NetplanConfigPath, backupData, 0600); err != nil {
 		return errors.Wrap(err, errors.NetplanRestoreFailed)
 	}
-
-	// Clean up temporary file
-	nc.sudoOps.DeleteFile(ctx, tempConfigPath)
 
 	return nil
 }
@@ -246,16 +261,16 @@ func (nc *NetplanCommand) ListBackups(ctx context.Context) ([]*types.ConfigBacku
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
 			continue
 		}
-		
+
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		
+
 		// Extract backup ID from filename
 		name := entry.Name()
 		backupID := name[:len(name)-5] // Remove .yaml extension
-		
+
 		backup := &types.ConfigBackup{
 			ID:          backupID,
 			Timestamp:   info.ModTime(),
@@ -281,7 +296,7 @@ func (nc *NetplanCommand) validateConfigFile(ctx context.Context, configPath str
 	if configPath != "" {
 		// Use --root-dir to validate specific config file
 		// We need to validate in the context of /etc/netplan directory
-		args = []string{"--root-dir", "/", "get", "all"}
+		args = []string{"get", "all", "--root-dir", configPath}
 	} else {
 		// Validate all current configurations
 		args = []string{"get", "all"}
@@ -289,7 +304,57 @@ func (nc *NetplanCommand) validateConfigFile(ctx context.Context, configPath str
 
 	result, err := nc.executor.ExecuteCommand(ctx, "netplan", args...)
 	if err != nil {
-		return errors.Wrap(err, errors.NetplanYAMLValidationError).WithMetadata("output", result.Stderr)
+		return errors.Wrap(err, errors.NetplanYAMLValidationError).
+			WithMetadata("output", result.Stderr)
 	}
 	return nil
+}
+
+// ensureConfigFileExists creates the netmage config file if it doesn't exist
+// and ensures correct permissions (600) to avoid netplan warnings
+func (nc *NetplanCommand) ensureConfigFileExists() {
+	ctx := context.Background()
+
+	// Check if file already exists
+	_, err := nc.sudoOps.ReadFile(ctx, NetplanConfigPath)
+	if err != nil {
+		// Create minimal config file
+		minimalConfig := `# Netmage configuration file
+# This file is managed by the netmage package
+network:
+  version: 2
+  renderer: networkd
+`
+		// Write minimal config with correct permissions (ignore errors - it's best effort)
+		nc.sudoOps.WriteFile(ctx, NetplanConfigPath, []byte(minimalConfig), 0600)
+	} else {
+		// File exists, but ensure correct permissions to avoid netplan warnings
+		nc.executor.ExecuteCommand(ctx, "chmod", "600", NetplanConfigPath)
+	}
+}
+
+// createTempConfigForValidation creates a temporary directory structure
+// with proper netplan hierarchy for validation using --root-dir
+func (nc *NetplanCommand) createTempConfigForValidation(ctx context.Context, configData []byte) (string, error) {
+	// Create temporary directory
+	tempDir, err := os.MkdirTemp("", "netplan-validation-")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %v", err)
+	}
+
+	// Create nested directory structure: tempDir/etc/netplan/
+	netplanDir := filepath.Join(tempDir, "etc", "netplan")
+	if err := os.MkdirAll(netplanDir, 0755); err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to create netplan directory structure: %v", err)
+	}
+
+	// Write config file to temp netplan directory
+	tempConfigFile := filepath.Join(netplanDir, "90-rodent-netmage.yaml")
+	if err := os.WriteFile(tempConfigFile, configData, 0600); err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to write temp config file: %v", err)
+	}
+
+	return tempDir, nil
 }
