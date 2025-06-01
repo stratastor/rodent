@@ -708,21 +708,23 @@ func (m *manager) convertInterfaceStatus(
 		Bridge:       ifaceStatus.Bridge,
 	}
 
-	// Convert addresses
+	// Convert addresses - netplan format is []map[string]*AddressStatus
 	var addresses []*types.IPAddress
-	for addrStr, addrStatus := range ifaceStatus.Addresses {
-		address := &types.IPAddress{
-			Address:      addrStr,
-			PrefixLength: addrStatus.Prefix,
-			Flags:        addrStatus.Flags,
+	for _, addrMap := range ifaceStatus.Addresses {
+		for addrStr, addrStatus := range addrMap {
+			address := &types.IPAddress{
+				Address:      addrStr,
+				PrefixLength: addrStatus.Prefix,
+				Flags:        addrStatus.Flags,
+			}
+			// Determine address family from format
+			if strings.Contains(addrStr, ":") {
+				address.Family = types.FamilyIPv6
+			} else {
+				address.Family = types.FamilyIPv4
+			}
+			addresses = append(addresses, address)
 		}
-		// Determine address family from format
-		if strings.Contains(addrStr, ":") {
-			address.Family = types.FamilyIPv6
-		} else {
-			address.Family = types.FamilyIPv4
-		}
-		addresses = append(addresses, address)
 	}
 	iface.IPAddresses = addresses
 

@@ -335,7 +335,10 @@ network:
 
 // createTempConfigForValidation creates a temporary directory structure
 // with proper netplan hierarchy for validation using --root-dir
-func (nc *NetplanCommand) createTempConfigForValidation(ctx context.Context, configData []byte) (string, error) {
+func (nc *NetplanCommand) createTempConfigForValidation(
+	_ context.Context,
+	configData []byte,
+) (string, error) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "netplan-validation-")
 	if err != nil {

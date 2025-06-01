@@ -390,24 +390,11 @@ func (m *manager) validatePostApplyInterfaces(ctx context.Context) error {
 			return lastErr
 		}
 
-		// Debug log the parsed status to understand what we're getting
-		m.logger.Debug("GetStatus parsed result", 
-			"interface_count", len(status.Interfaces),
-			"global_state_online", status.NetplanGlobalState != nil && status.NetplanGlobalState.Online)
-
 		managedCount := 0
 		upCount := 0
 		var nonUpInterfaces []string
 		
 		for name, iface := range status.Interfaces {
-			// Debug log each interface to see what we're parsing
-			m.logger.Debug("Processing interface", 
-				"name", name,
-				"backend", iface.Backend,
-				"admin_state", iface.AdminState,
-				"oper_state", iface.OperState,
-				"type", iface.Type)
-				
 			if iface.Backend == "networkd" {
 				managedCount++
 				
