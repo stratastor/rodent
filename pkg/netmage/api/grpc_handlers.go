@@ -49,6 +49,10 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 	// System information operations
 	client.RegisterCommandHandler(proto.CmdNetworkSystemInfo, handleSystemInfo(networkHandler))
 
+	// Global DNS management operations
+	client.RegisterCommandHandler(proto.CmdNetworkDNSGetGlobal, handleDNSGetGlobal(networkHandler))
+	client.RegisterCommandHandler(proto.CmdNetworkDNSSetGlobal, handleDNSSetGlobal(networkHandler))
+
 	// Validation operations
 	client.RegisterCommandHandler(proto.CmdNetworkValidateIP, handleValidateIP(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkValidateInterfaceName, handleValidateInterfaceName(networkHandler))
@@ -716,5 +720,48 @@ func handleValidateNetplanConfig(h *NetworkHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Netplan config validation", result)
+	}
+}
+
+// DNS HANDLERS
+
+// handleDNSGetGlobal returns a handler for getting global DNS configuration
+func handleDNSGetGlobal(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		ctx := context.Background()
+
+		dns, err := h.manager.GetGlobalDNS(ctx)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Global DNS configuration", dns)
+	}
+}
+
+// handleDNSSetGlobal returns a handler for setting global DNS configuration
+func handleDNSSetGlobal(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload types.GlobalDNSRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		dns := &types.NameserverConfig{
+			Addresses: payload.Addresses,
+			Search:    payload.Search,
+		}
+
+		ctx := context.Background()
+		if err := h.manager.SetGlobalDNS(ctx, dns); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message": "Global DNS configuration updated successfully",
+			"dns":     dns,
+		}
+
+		return successResponse(req.RequestId, "Global DNS updated", result)
 	}
 }

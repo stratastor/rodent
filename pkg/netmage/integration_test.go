@@ -46,9 +46,17 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 	t.Run("ValidateCurrentConfig", func(t *testing.T) {
 		// First, let's manually execute netplan status and see what we get
 		executor := NewCommandExecutor(true)
-		
+
 		t.Log("=== Manual netplan status command ===")
-		rawResult, err := executor.ExecuteCommand(ctx, "netplan", "status", "--all", "--verbose", "-f", "json")
+		rawResult, err := executor.ExecuteCommand(
+			ctx,
+			"netplan",
+			"status",
+			"--all",
+			"--verbose",
+			"-f",
+			"json",
+		)
 		if err != nil {
 			t.Logf("Raw netplan command failed: %v", err)
 		} else {
@@ -57,7 +65,7 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 				t.Logf("Raw netplan stderr: %s", rawResult.Stderr)
 			}
 		}
-		
+
 		t.Log("=== Manager GetNetplanStatus call ===")
 		parsedStatus, err := manager.GetNetplanStatus(ctx, "")
 		if err != nil {
@@ -68,11 +76,11 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 				t.Logf("Global state online: %v", parsedStatus.NetplanGlobalState.Online)
 			}
 			for name, iface := range parsedStatus.Interfaces {
-				t.Logf("Interface %s: backend=%s, admin=%s, oper=%s, type=%s", 
+				t.Logf("Interface %s: backend=%s, admin=%s, oper=%s, type=%s",
 					name, iface.Backend, iface.AdminState, iface.OperState, iface.Type)
 			}
 		}
-		
+
 		t.Log("=== Manager GetRoutes call ===")
 		routes, err := manager.GetRoutes(ctx, "main")
 		if err != nil {
@@ -81,12 +89,12 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 			t.Logf("Parsed routes count: %d", len(routes))
 			for i, route := range routes {
 				if i < 10 { // Show first 10 routes
-					t.Logf("Route %d: to=%s, via=%s, table=%s, family=%v", 
+					t.Logf("Route %d: to=%s, via=%s, table=%s, family=%v",
 						i, route.To, route.Via, route.Table, route.Family)
 				}
 			}
 		}
-		
+
 		options := &types.SafeConfigOptions{
 			ConnectivityTargets:     []string{"172.31.0.1"}, // Test gateway only
 			ConnectivityTimeout:     10 * time.Second,
@@ -254,6 +262,104 @@ func TestSafeApplyConfig_Integration(t *testing.T) {
 		}
 
 		t.Logf("Default options: %+v", options)
+	})
+
+	// Test 5: Global DNS management
+	t.Run("GlobalDNSManagement", func(t *testing.T) {
+		// Get current DNS configuration for restoration later
+		originalDNS, err := manager.GetGlobalDNS(ctx)
+		if err != nil {
+			t.Fatalf("Failed to get original DNS config: %v", err)
+		}
+		t.Logf(
+			"Original DNS config: addresses=%v, search=%v",
+			originalDNS.Addresses,
+			originalDNS.Search,
+		)
+
+		// Test setting new DNS configuration
+		testDNS := &types.NameserverConfig{
+			Addresses: []string{"172.31.11.191", "1.1.1.1"},
+			Search:    []string{"ad.strata.internal"},
+		}
+
+		t.Logf(
+			"Setting test DNS config: addresses=%v, search=%v",
+			testDNS.Addresses,
+			testDNS.Search,
+		)
+		err = manager.SetGlobalDNS(ctx, testDNS)
+		if err != nil {
+			t.Errorf("Failed to set test DNS config: %v", err)
+			return
+		}
+
+		// Wait a moment for systemd-resolved to restart and apply changes
+		time.Sleep(3 * time.Second)
+
+		// Verify the DNS was set correctly
+		currentDNS, err := manager.GetGlobalDNS(ctx)
+		if err != nil {
+			t.Errorf("Failed to get DNS config after setting: %v", err)
+		} else {
+			t.Logf("DNS config after setting: addresses=%v, search=%v", currentDNS.Addresses, currentDNS.Search)
+
+			// Check if search domain was applied
+			if len(currentDNS.Search) > 0 && currentDNS.Search[0] == "ad.strata.internal" {
+				t.Logf("Search domain correctly set to: %v", currentDNS.Search)
+			} else {
+				t.Logf("Search domain may not be updated yet in netplan status: %v", currentDNS.Search)
+			}
+		}
+
+		// Test DNS resolution functionality using dig
+		t.Logf("Testing DNS resolution with new config...")
+
+		// Create a non-sudo command executor for dig
+		digExecutor := NewCommandExecutor(false)
+		digResult, err := digExecutor.ExecuteCommand(ctx, "dig", "+short", "ad.strata.internal")
+		if err != nil {
+			t.Logf("DNS resolution test failed (this may be expected): %v", err)
+		} else {
+			t.Logf("DNS resolution result: %s", digResult.Stdout)
+		}
+
+		// Check systemd-resolved status
+		resolvectlResult, err := digExecutor.ExecuteCommand(
+			ctx,
+			"resolvectl",
+			"status",
+			"--no-pager",
+		)
+		if err != nil {
+			t.Logf("Failed to get resolvectl status: %v", err)
+		} else {
+			t.Logf("Resolvectl status:\n%s", resolvectlResult.Stdout)
+		}
+
+		// Restore original DNS configuration
+		t.Logf(
+			"Restoring original DNS config: addresses=%v, search=%v",
+			originalDNS.Addresses,
+			originalDNS.Search,
+		)
+		err = manager.SetGlobalDNS(ctx, originalDNS)
+		if err != nil {
+			t.Errorf("Failed to restore original DNS config: %v", err)
+		} else {
+			t.Logf("Successfully restored original DNS configuration")
+		}
+
+		// Wait for restoration to take effect
+		time.Sleep(3 * time.Second)
+
+		// Verify restoration
+		restoredDNS, err := manager.GetGlobalDNS(ctx)
+		if err != nil {
+			t.Errorf("Failed to verify DNS restoration: %v", err)
+		} else {
+			t.Logf("DNS config after restoration: addresses=%v, search=%v", restoredDNS.Addresses, restoredDNS.Search)
+		}
 	})
 }
 

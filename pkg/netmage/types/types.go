@@ -131,6 +131,10 @@ type Manager interface {
 
 	// System information
 	GetSystemNetworkInfo(ctx context.Context) (*SystemNetworkInfo, error)
+
+	// Global DNS management
+	GetGlobalDNS(ctx context.Context) (*NameserverConfig, error)
+	SetGlobalDNS(ctx context.Context, dns *NameserverConfig) error
 }
 
 // NetworkInterface represents a network interface
@@ -657,6 +661,12 @@ type BackupRequest struct {
 // RestoreRequest represents a request to restore from backup
 type RestoreRequest struct {
 	BackupID string `json:"backup_id" binding:"required"`
+}
+
+// GlobalDNSRequest represents a request to update global DNS settings
+type GlobalDNSRequest struct {
+	Addresses []string `json:"addresses" binding:"required"`
+	Search    []string `json:"search,omitempty"`
 }
 
 // SafeConfigOptions represents options for safe configuration management

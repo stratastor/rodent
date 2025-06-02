@@ -163,7 +163,8 @@ RESOLVECTL_PATH=$(detect_binary "resolvectl" "/usr/bin/resolvectl")
 JOURNALCTL_PATH=$(detect_binary "journalctl" "/usr/bin/journalctl")
 NETPLAN_PATH=$(detect_binary "netplan" "/usr/sbin/netplan")
 WHICH_PATH=$(detect_binary "which" "/usr/bin/which")
-PING_PATH=$(detect_binary "which" "/usr/bin/ping")
+PING_PATH=$(detect_binary "ping" "/usr/bin/ping")
+HOSTNAMECTL_PATH=$(detect_binary "hostnamectl" "/usr/bin/hostnamectl")
 
 # File operation binaries
 CAT_PATH=$(detect_binary "cat" "/bin/cat")
@@ -172,6 +173,7 @@ TEE_PATH=$(detect_binary "tee" "/bin/tee")
 RM_PATH=$(detect_binary "rm" "/bin/rm")
 CHMOD_PATH=$(detect_binary "chmod" "/bin/chmod")
 TEST_PATH=$(detect_binary "test" "/usr/bin/test")
+MKDIR_PATH=$(detect_binary "mkdir" "/usr/bin/mkdir")
 
 # ZFS binaries
 ZFS_PATH=$(detect_binary "zfs" "/usr/local/sbin/zfs")
@@ -430,6 +432,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $SYSTEMCTL_PATH stop rodent*, \\
     $SYSTEMCTL_PATH restart rodent*, \\
     $SYSTEMCTL_PATH enable rodent*, \\
+    $SYSTEMCTL_PATH restart systemd-resolved*, \\
     $SYSTEMCTL_PATH status *, \\
     $SYSTEMCTL_PATH is-enabled *, \\
     $SYSTEMCTL_PATH is-active *, \\
@@ -440,6 +443,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $NETWORKCTL_PATH *, \\
     $RESOLVECTL_PATH *, \\
     $JOURNALCTL_PATH *, \\
+    $HOSTNAMECTL_PATH *, \\
     $NETPLAN_PATH *
 
 # Command aliases for file operations

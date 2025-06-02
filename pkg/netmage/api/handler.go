@@ -94,6 +94,13 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	// System information routes
 	router.GET("/system", h.GetSystemNetworkInfo)
 
+	// Global DNS management routes
+	dns := router.Group("/dns")
+	{
+		dns.GET("/global", h.GetGlobalDNS)
+		dns.PUT("/global", h.SetGlobalDNS)
+	}
+
 	// Validation routes
 	validation := router.Group("/validate")
 	{
@@ -637,5 +644,44 @@ func (h *NetworkHandler) ValidateNetplanConfig(c *gin.Context) {
 
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
 		"valid": true,
+	})
+}
+
+// GetGlobalDNS handles GET /dns/global
+func (h *NetworkHandler) GetGlobalDNS(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	dns, err := h.manager.GetGlobalDNS(ctx)
+	if err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, dns)
+}
+
+// SetGlobalDNS handles PUT /dns/global
+func (h *NetworkHandler) SetGlobalDNS(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req types.GlobalDNSRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	dns := &types.NameserverConfig{
+		Addresses: req.Addresses,
+		Search:    req.Search,
+	}
+
+	if err := h.manager.SetGlobalDNS(ctx, dns); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message": "Global DNS configuration updated successfully",
+		"dns":     dns,
 	})
 }

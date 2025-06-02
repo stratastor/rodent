@@ -46,7 +46,7 @@ func NewManager(
 	}
 
 	// Create sudo file operations for privileged file access
-	allowedPaths := []string{"/etc/netplan"}
+	allowedPaths := []string{"/etc/netplan", "/etc/systemd/resolved.conf.d"}
 	sudoOps := privilege.NewSudoFileOperations(
 		logger,
 		command.NewCommandExecutor(true),
@@ -648,7 +648,7 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 	}
 
 	// Get hostname
-	result, err := m.executor.ExecuteCommand(ctx, "hostname")
+	result, err := m.executor.ExecuteCommand(ctx, "hostnamectl hostname")
 	if err == nil && result.ExitCode == 0 {
 		info.Hostname = result.Stdout
 	}
@@ -686,6 +686,85 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 	}
 
 	return info, nil
+}
+
+// GetGlobalDNS retrieves the current global DNS configuration from netplan status
+func (m *manager) GetGlobalDNS(ctx context.Context) (*types.NameserverConfig, error) {
+	// Get netplan status to read global DNS state
+	status, err := m.GetNetplanStatus(ctx, "")
+	if err != nil {
+		return nil, errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	dns := &types.NameserverConfig{}
+
+	// Extract DNS from netplan global state if available
+	if status.NetplanGlobalState != nil && status.NetplanGlobalState.Nameservers != nil {
+		dns.Addresses = status.NetplanGlobalState.Nameservers.Addresses
+		dns.Search = status.NetplanGlobalState.Nameservers.Search
+	}
+
+	m.logger.Debug("Retrieved global DNS configuration",
+		"addresses", dns.Addresses,
+		"search", dns.Search)
+
+	return dns, nil
+}
+
+// SetGlobalDNS sets the global DNS configuration via systemd-resolved
+func (m *manager) SetGlobalDNS(ctx context.Context, dns *types.NameserverConfig) error {
+	if dns == nil {
+		return errors.New(errors.NetworkConfigurationInvalid, "DNS configuration cannot be nil")
+	}
+
+	// Validate DNS addresses
+	for _, addr := range dns.Addresses {
+		if err := m.ValidateIPAddress(addr); err != nil {
+			return errors.Wrap(err, errors.NetworkIPAddressInvalid).
+				WithMetadata("dns_address", addr)
+		}
+	}
+
+	m.logger.Info("Setting global DNS configuration",
+		"addresses", dns.Addresses,
+		"search", dns.Search)
+
+	// Create systemd-resolved configuration file
+	configPath := "/etc/systemd/resolved.conf.d/90-netmage.conf"
+	configContent := "[Resolve]\n"
+
+	if len(dns.Addresses) > 0 {
+		configContent += "DNS=" + strings.Join(dns.Addresses, " ") + "\n"
+	}
+
+	if len(dns.Search) > 0 {
+		configContent += "Domains=" + strings.Join(dns.Search, " ") + "\n"
+	}
+
+	// Ensure the directory exists
+	result, err := m.executor.ExecuteCommand(ctx, "mkdir", "-p", "/etc/systemd/resolved.conf.d")
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed).
+			WithMetadata("output", result.Stderr)
+	}
+
+	// Write the configuration file
+	if err := m.sudoOps.WriteFile(ctx, configPath, []byte(configContent), 0644); err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed).
+			WithMetadata("config_path", configPath)
+	}
+
+	// Restart systemd-resolved to apply the changes
+	result, err = m.executor.ExecuteCommand(ctx, "systemctl", "restart", "systemd-resolved")
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed).
+			WithMetadata("output", result.Stderr)
+	}
+
+	m.logger.Info("Global DNS configuration applied successfully",
+		"config_path", configPath)
+
+	return nil
 }
 
 // convertInterfaceStatus converts netplan InterfaceStatus to NetworkInterface
