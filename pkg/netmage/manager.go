@@ -87,15 +87,6 @@ func (m *manager) validateNetplanAvailability(ctx context.Context) error {
 		return errors.Wrap(err, errors.NetplanCommandNotFound)
 	}
 
-	// Simple functionality check
-	result, err = m.executor.ExecuteCommand(ctx, "netplan", "--help")
-	m.logger.Debug("Validating netplan command",
-		"result", result.Stdout,
-		"error", err)
-	if err != nil || result.ExitCode != 0 {
-		return errors.Wrap(err, errors.NetplanCommandFailed)
-	}
-
 	return nil
 }
 
@@ -677,20 +668,31 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 		}
 	}
 
-	// Get DNS information from netplan status
-	status, err := m.GetNetplanStatus(ctx, "")
-	if err == nil && status.NetplanGlobalState != nil &&
-		status.NetplanGlobalState.Nameservers != nil {
-		info.DNSServers = status.NetplanGlobalState.Nameservers.Addresses
-		info.SearchDomains = status.NetplanGlobalState.Nameservers.Search
+	// Get DNS information from resolvectl for accuracy
+	if dns, err := m.GetGlobalDNS(ctx); err == nil {
+		info.DNSServers = dns.Addresses
+		info.SearchDomains = dns.Search
 	}
 
 	return info, nil
 }
 
-// GetGlobalDNS retrieves the current global DNS configuration from netplan status
+// GetGlobalDNS retrieves the current global DNS configuration with fallback
 func (m *manager) GetGlobalDNS(ctx context.Context) (*types.NameserverConfig, error) {
-	// Get netplan status to read global DNS state
+	// First try resolvectl status for accurate DNS information
+	result, err := m.executor.ExecuteCommand(ctx, "resolvectl", "status", "--no-pager")
+	if err == nil {
+		dns, parseErr := m.parseResolvectlStatus(result.Stdout)
+		if parseErr == nil && len(dns.Addresses) > 0 && len(dns.Search) > 0 {
+			// Only use resolvectl if we have both addresses and search domains
+			m.logger.Debug("Retrieved global DNS configuration from resolvectl",
+				"addresses", dns.Addresses,
+				"search", dns.Search)
+			return dns, nil
+		}
+	}
+
+	// Fall back to netplan status if resolvectl doesn't have global DNS info
 	status, err := m.GetNetplanStatus(ctx, "")
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NetworkOperationFailed)
@@ -704,7 +706,7 @@ func (m *manager) GetGlobalDNS(ctx context.Context) (*types.NameserverConfig, er
 		dns.Search = status.NetplanGlobalState.Nameservers.Search
 	}
 
-	m.logger.Debug("Retrieved global DNS configuration",
+	m.logger.Debug("Retrieved global DNS configuration from netplan fallback",
 		"addresses", dns.Addresses,
 		"search", dns.Search)
 
@@ -826,4 +828,57 @@ func (m *manager) convertInterfaceStatus(
 	iface.Routes = routes
 
 	return iface
+}
+
+// parseResolvectlStatus parses the output of `resolvectl status` to extract global DNS configuration
+func (m *manager) parseResolvectlStatus(output string) (*types.NameserverConfig, error) {
+	dns := &types.NameserverConfig{}
+	lines := strings.Split(output, "\n")
+	
+	inGlobalSection := false
+	
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		
+		// Check if we're entering the Global section
+		if trimmed == "Global" {
+			inGlobalSection = true
+			continue
+		}
+		
+		// Check if we're leaving the Global section (new Link section starts)
+		if strings.HasPrefix(trimmed, "Link ") {
+			inGlobalSection = false
+			continue
+		}
+		
+		// Only process lines in the Global section
+		if !inGlobalSection {
+			continue
+		}
+		
+		// Parse DNS Servers line
+		if strings.HasPrefix(trimmed, "DNS Servers:") {
+			dnsLine := strings.TrimPrefix(trimmed, "DNS Servers:")
+			dnsLine = strings.TrimSpace(dnsLine)
+			if dnsLine != "" {
+				// Split by spaces and filter out empty strings
+				servers := strings.Fields(dnsLine)
+				dns.Addresses = servers
+			}
+		}
+		
+		// Parse DNS Domain line
+		if strings.HasPrefix(trimmed, "DNS Domain:") {
+			domainLine := strings.TrimPrefix(trimmed, "DNS Domain:")
+			domainLine = strings.TrimSpace(domainLine)
+			if domainLine != "" {
+				// DNS domains are space-separated
+				domains := strings.Fields(domainLine)
+				dns.Search = domains
+			}
+		}
+	}
+	
+	return dns, nil
 }

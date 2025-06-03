@@ -18,14 +18,29 @@ import (
 // RegisterNetworkGRPCHandlers registers all network-related command handlers with Toggle
 func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 	// Interface management operations
-	client.RegisterCommandHandler(proto.CmdNetworkInterfacesList, handleInterfacesList(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkInterfacesGet, handleInterfacesGet(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkInterfacesSetState, handleInterfacesSetState(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkInterfacesGetStats, handleInterfacesGetStats(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkInterfacesList,
+		handleInterfacesList(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkInterfacesGet,
+		handleInterfacesGet(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkInterfacesSetState,
+		handleInterfacesSetState(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkInterfacesGetStats,
+		handleInterfacesGetStats(networkHandler),
+	)
 
 	// IP address management operations
 	client.RegisterCommandHandler(proto.CmdNetworkAddressesAdd, handleAddressesAdd(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkAddressesRemove, handleAddressesRemove(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkAddressesRemove,
+		handleAddressesRemove(networkHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdNetworkAddressesGet, handleAddressesGet(networkHandler))
 
 	// Route management operations
@@ -34,18 +49,36 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 	client.RegisterCommandHandler(proto.CmdNetworkRoutesRemove, handleRoutesRemove(networkHandler))
 
 	// Netplan configuration operations
-	client.RegisterCommandHandler(proto.CmdNetworkNetplanGetConfig, handleNetplanGetConfig(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkNetplanSetConfig, handleNetplanSetConfig(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkNetplanGetConfig,
+		handleNetplanGetConfig(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkNetplanSetConfig,
+		handleNetplanSetConfig(networkHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanApply, handleNetplanApply(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanTry, handleNetplanTry(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkNetplanSafeApply, handleNetplanSafeApply(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkNetplanStatus, handleNetplanStatus(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkNetplanSafeApply,
+		handleNetplanSafeApply(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkNetplanStatus,
+		handleNetplanStatus(networkHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanDiff, handleNetplanDiff(networkHandler))
 
 	// Backup and restore operations
 	client.RegisterCommandHandler(proto.CmdNetworkBackupsList, handleBackupsList(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkBackupsCreate, handleBackupsCreate(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkBackupsRestore, handleBackupsRestore(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkBackupsCreate,
+		handleBackupsCreate(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkBackupsRestore,
+		handleBackupsRestore(networkHandler),
+	)
 
 	// System information operations
 	client.RegisterCommandHandler(proto.CmdNetworkSystemInfo, handleSystemInfo(networkHandler))
@@ -56,8 +89,14 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 
 	// Validation operations
 	client.RegisterCommandHandler(proto.CmdNetworkValidateIP, handleValidateIP(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkValidateInterfaceName, handleValidateInterfaceName(networkHandler))
-	client.RegisterCommandHandler(proto.CmdNetworkValidateNetplanConfig, handleValidateNetplanConfig(networkHandler))
+	client.RegisterCommandHandler(
+		proto.CmdNetworkValidateInterfaceName,
+		handleValidateInterfaceName(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkValidateNetplanConfig,
+		handleValidateNetplanConfig(networkHandler),
+	)
 }
 
 // Helper for parsing JSON payload from a command request
@@ -69,7 +108,11 @@ func parseJSONPayload(cmd *proto.CommandRequest, out interface{}) error {
 }
 
 // successResponse creates a successful response with the provided data
-func successResponse(requestID string, message string, data interface{}) (*proto.CommandResponse, error) {
+func successResponse(
+	requestID string,
+	message string,
+	data interface{},
+) (*proto.CommandResponse, error) {
 	response := APIResponse{
 		Success: true,
 		Result:  data,
@@ -103,7 +146,7 @@ func errorResponse(requestID string, err error) (*proto.CommandResponse, error) 
 		}
 
 		// Add metadata if available
-		if rodentErr.Metadata != nil && len(rodentErr.Metadata) > 0 {
+		if len(rodentErr.Metadata) > 0 {
 			response.Error.Meta = make(map[string]interface{})
 			for k, v := range rodentErr.Metadata {
 				response.Error.Meta[k] = v
@@ -164,7 +207,10 @@ func handleInterfacesGet(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -190,7 +236,10 @@ func handleInterfacesSetState(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
+			)
 		}
 
 		var state types.InterfaceState
@@ -200,7 +249,13 @@ func handleInterfacesSetState(h *NetworkHandler) client.CommandHandler {
 		case "down", "DOWN":
 			state = types.InterfaceStateDown
 		default:
-			return errorResponse(req.RequestId, errors.New(errors.NetworkOperationFailed, "Invalid interface state: must be 'up' or 'down'"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(
+					errors.NetworkOperationFailed,
+					"Invalid interface state: must be 'up' or 'down'",
+				),
+			)
 		}
 
 		ctx := context.Background()
@@ -230,7 +285,10 @@ func handleInterfacesGetStats(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -308,7 +366,10 @@ func handleAddressesGet(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Interface == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -645,7 +706,10 @@ func handleValidateIP(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Address == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkIPAddressInvalid, "IP address cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkIPAddressInvalid, "IP address cannot be empty"),
+			)
 		}
 
 		var result map[string]interface{}
@@ -678,7 +742,10 @@ func handleValidateInterfaceName(h *NetworkHandler) client.CommandHandler {
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.NetworkInterfaceNameInvalid, "Interface name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetworkInterfaceNameInvalid, "Interface name cannot be empty"),
+			)
 		}
 
 		var result map[string]interface{}

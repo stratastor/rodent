@@ -127,7 +127,7 @@ func (h *NetworkHandler) sendError(c *gin.Context, err error) {
 	}
 
 	if rodentErr, ok := err.(*errors.RodentError); ok {
-		h.logger.Error("Network API error", 
+		h.logger.Error("Network API error",
 			"error", err,
 			"code", rodentErr.Code,
 			"domain", rodentErr.Domain,
@@ -141,7 +141,7 @@ func (h *NetworkHandler) sendError(c *gin.Context, err error) {
 		}
 
 		// Add metadata if available
-		if rodentErr.Metadata != nil && len(rodentErr.Metadata) > 0 {
+		if len(rodentErr.Metadata) > 0 {
 			response.Error.Meta = make(map[string]interface{})
 			for k, v := range rodentErr.Metadata {
 				response.Error.Meta[k] = v
