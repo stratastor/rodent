@@ -319,8 +319,8 @@ func (nc *NetplanCommand) ensureConfigFileExists() {
 	_, err := nc.sudoOps.ReadFile(ctx, NetplanConfigPath)
 	if err != nil {
 		// Create minimal config file
-		minimalConfig := `# Netmage configuration file
-# This file is managed by the netmage package
+		minimalConfig := `# Rodent - Netmage configuration file
+# This file is managed by Rodent's Netmage module
 network:
   version: 2
   renderer: networkd

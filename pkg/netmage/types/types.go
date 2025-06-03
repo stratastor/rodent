@@ -669,6 +669,12 @@ type GlobalDNSRequest struct {
 	Search    []string `json:"search,omitempty"`
 }
 
+// SafeConfigRequest represents a request to safely apply netplan configuration
+type SafeConfigRequest struct {
+	Config  *NetplanConfig     `json:"config"  binding:"required"`
+	Options *SafeConfigOptions `json:"options,omitempty"`
+}
+
 // SafeConfigOptions represents options for safe configuration management
 type SafeConfigOptions struct {
 	// Connectivity monitoring

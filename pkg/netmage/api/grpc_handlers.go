@@ -38,6 +38,7 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanSetConfig, handleNetplanSetConfig(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanApply, handleNetplanApply(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanTry, handleNetplanTry(networkHandler))
+	client.RegisterCommandHandler(proto.CmdNetworkNetplanSafeApply, handleNetplanSafeApply(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanStatus, handleNetplanStatus(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkNetplanDiff, handleNetplanDiff(networkHandler))
 
@@ -763,5 +764,23 @@ func handleDNSSetGlobal(h *NetworkHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Global DNS updated", result)
+	}
+}
+
+// handleNetplanSafeApply returns a handler for safely applying netplan config
+func handleNetplanSafeApply(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload types.SafeConfigRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		result, err := h.manager.SafeApplyConfig(ctx, payload.Config, payload.Options)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Netplan safe apply completed", result)
 	}
 }

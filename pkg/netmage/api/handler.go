@@ -78,6 +78,7 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 		netplan.PUT("/config", h.SetNetplanConfig)
 		netplan.POST("/apply", h.ApplyNetplanConfig)
 		netplan.POST("/try", h.TryNetplanConfig)
+		netplan.POST("/safe-apply", h.SafeApplyConfig)
 		netplan.GET("/status", h.GetNetplanStatus)
 		netplan.GET("/status/:interface", h.GetNetplanStatusInterface)
 		netplan.GET("/diff", h.GetNetplanDiff)
@@ -684,4 +685,23 @@ func (h *NetworkHandler) SetGlobalDNS(c *gin.Context) {
 		"message": "Global DNS configuration updated successfully",
 		"dns":     dns,
 	})
+}
+
+// SafeApplyConfig handles POST /netplan/safe-apply
+func (h *NetworkHandler) SafeApplyConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req types.SafeConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	result, err := h.manager.SafeApplyConfig(ctx, req.Config, req.Options)
+	if err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, result)
 }
