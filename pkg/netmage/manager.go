@@ -335,8 +335,23 @@ func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, 
 	var routes []*types.Route
 	for ifaceName, ifaceStatus := range status.Interfaces {
 		for _, routeStatus := range ifaceStatus.Routes {
+			// Convert table value to string (can be string or number)
+			var tableStr string
+			switch v := routeStatus.Table.(type) {
+			case string:
+				tableStr = v
+			case int:
+				tableStr = fmt.Sprintf("%d", v)
+			case float64:
+				tableStr = fmt.Sprintf("%.0f", v)
+			default:
+				if v != nil {
+					tableStr = fmt.Sprintf("%v", v)
+				}
+			}
+
 			// Filter by table if specified
-			if table != "" && routeStatus.Table != table {
+			if table != "" && tableStr != table {
 				continue
 			}
 
@@ -345,7 +360,7 @@ func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, 
 				From:     routeStatus.From,
 				Via:      routeStatus.Via,
 				Device:   ifaceName, // Add the interface name as device
-				Table:    routeStatus.Table,
+				Table:    tableStr,
 				Metric:   routeStatus.Metric,
 				Family:   types.Family(routeStatus.Family),
 				Type:     types.RouteType(routeStatus.Type),
@@ -806,12 +821,27 @@ func (m *manager) convertInterfaceStatus(
 	// Convert routes
 	var routes []*types.Route
 	for _, routeStatus := range ifaceStatus.Routes {
+		// Convert table value to string (can be string or number)
+		var tableStr string
+		switch v := routeStatus.Table.(type) {
+		case string:
+			tableStr = v
+		case int:
+			tableStr = fmt.Sprintf("%d", v)
+		case float64:
+			tableStr = fmt.Sprintf("%.0f", v)
+		default:
+			if v != nil {
+				tableStr = fmt.Sprintf("%v", v)
+			}
+		}
+
 		route := &types.Route{
 			To:       routeStatus.To,
 			From:     routeStatus.From,
 			Via:      routeStatus.Via,
 			Device:   name, // Add the interface name as device
-			Table:    routeStatus.Table,
+			Table:    tableStr,
 			Metric:   routeStatus.Metric,
 			Family:   types.Family(routeStatus.Family),
 			Type:     types.RouteType(routeStatus.Type),

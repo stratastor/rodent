@@ -7,6 +7,7 @@ package types
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -657,16 +658,16 @@ type AddressStatus struct {
 
 // RouteStatus represents route status
 type RouteStatus struct {
-	To       string `json:"to"`
-	From     string `json:"from,omitempty"`
-	Via      string `json:"via,omitempty"`
-	Device   string `json:"device,omitempty"`
-	Family   int    `json:"family"`
-	Metric   int    `json:"metric,omitempty"`
-	Type     string `json:"type"`
-	Scope    string `json:"scope"`
-	Protocol string `json:"protocol"`
-	Table    string `json:"table,omitempty"`
+	To       string      `json:"to"`
+	From     string      `json:"from,omitempty"`
+	Via      string      `json:"via,omitempty"`
+	Device   string      `json:"device,omitempty"`
+	Family   int         `json:"family"`
+	Metric   int         `json:"metric,omitempty"`
+	Type     string      `json:"type"`
+	Scope    string      `json:"scope"`
+	Protocol string      `json:"protocol"`
+	Table    interface{} `json:"table,omitempty"` // Can be string ("main", "local") or int (100, 101)
 }
 
 // NetplanDiff represents differences between current state and netplan config
@@ -809,6 +810,88 @@ type SafeConfigOptions struct {
 	ValidateInterfaces   bool          `json:"validate_interfaces"`
 	ValidateRoutes       bool          `json:"validate_routes"`
 	ValidateConnectivity bool          `json:"validate_connectivity"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for SafeConfigOptions
+// Duration fields can be provided as either:
+// - Numbers (treated as seconds): 30 -> 30 seconds
+// - Duration strings: "30s", "5m", "1h30m"
+func (sco *SafeConfigOptions) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct that matches the JSON structure
+	type TempSafeConfigOptions struct {
+		ConnectivityTargets     []string    `json:"connectivity_targets"`
+		ConnectivityTimeout     interface{} `json:"connectivity_timeout"`
+		ConnectivityInterval    interface{} `json:"connectivity_interval"`
+		MaxConnectivityFailures int         `json:"max_connectivity_failures"`
+		SkipPreValidation       bool        `json:"skip_pre_validation"`
+		SkipPostValidation      bool        `json:"skip_post_validation"`
+		AutoBackup              bool        `json:"auto_backup"`
+		AutoRollback            bool        `json:"auto_rollback"`
+		RollbackTimeout         interface{} `json:"rollback_timeout"`
+		BackupDescription       string      `json:"backup_description"`
+		GracePeriod             interface{} `json:"grace_period"`
+		ValidateInterfaces      bool        `json:"validate_interfaces"`
+		ValidateRoutes          bool        `json:"validate_routes"`
+		ValidateConnectivity    bool        `json:"validate_connectivity"`
+	}
+
+	var temp TempSafeConfigOptions
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Copy direct fields
+	sco.ConnectivityTargets = temp.ConnectivityTargets
+	sco.MaxConnectivityFailures = temp.MaxConnectivityFailures
+	sco.SkipPreValidation = temp.SkipPreValidation
+	sco.SkipPostValidation = temp.SkipPostValidation
+	sco.AutoBackup = temp.AutoBackup
+	sco.AutoRollback = temp.AutoRollback
+	sco.BackupDescription = temp.BackupDescription
+	sco.ValidateInterfaces = temp.ValidateInterfaces
+	sco.ValidateRoutes = temp.ValidateRoutes
+	sco.ValidateConnectivity = temp.ValidateConnectivity
+
+	// Parse duration fields
+	var err error
+	if sco.ConnectivityTimeout, err = parseDurationField(temp.ConnectivityTimeout); err != nil {
+		return err
+	}
+	if sco.ConnectivityInterval, err = parseDurationField(temp.ConnectivityInterval); err != nil {
+		return err
+	}
+	if sco.RollbackTimeout, err = parseDurationField(temp.RollbackTimeout); err != nil {
+		return err
+	}
+	if sco.GracePeriod, err = parseDurationField(temp.GracePeriod); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// parseDurationField parses a duration field that can be either a number (seconds) or a duration string
+func parseDurationField(value interface{}) (time.Duration, error) {
+	if value == nil {
+		return 0, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// Try to parse as duration string first
+		if d, err := time.ParseDuration(v); err == nil {
+			return d, nil
+		}
+		return 0, fmt.Errorf("invalid duration string: %s", v)
+	case float64:
+		// Treat as seconds
+		return time.Duration(v) * time.Second, nil
+	case int:
+		// Treat as seconds
+		return time.Duration(v) * time.Second, nil
+	default:
+		return 0, fmt.Errorf("invalid duration type: %T", v)
+	}
 }
 
 // SafeConfigResult represents the result of a safe configuration operation
