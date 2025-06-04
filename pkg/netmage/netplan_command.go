@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	NetplanConfigPath = "/etc/netplan/90-rodent-netmage.yaml"
+	NetplanConfigPath       = "/etc/netplan/90-rodent-netmage.yaml"
+	NetplanBackupFilePrefix = "netmage_backup_"
 )
 
 // NetplanCommand wraps netplan commands for network configuration management
@@ -37,7 +38,7 @@ func NewNetplanCommand(
 	executor *CommandExecutor,
 	sudoOps *privilege.SudoFileOperations,
 ) *NetplanCommand {
-	backupDir := filepath.Join(config.GetConfigDir(), "backup", "netplan")
+	backupDir := filepath.Join(config.GetConfigDir(), "backup", "netmage")
 
 	nc := &NetplanCommand{
 		executor:  executor,
@@ -198,7 +199,7 @@ func (nc *NetplanCommand) Backup(ctx context.Context) (string, error) {
 	}
 
 	// Generate backup ID
-	backupID := fmt.Sprintf("backup_%d", time.Now().Unix())
+	backupID := fmt.Sprintf("%s%s", NetplanBackupFilePrefix, time.Now().Format("20060102-150405"))
 	backupPath := filepath.Join(nc.backupDir, fmt.Sprintf("%s.yaml", backupID))
 
 	// Read current config file
@@ -274,7 +275,7 @@ func (nc *NetplanCommand) ListBackups(ctx context.Context) ([]*types.ConfigBacku
 		backup := &types.ConfigBackup{
 			ID:          backupID,
 			Timestamp:   info.ModTime(),
-			Description: fmt.Sprintf("Netplan backup %s", backupID),
+			Description: fmt.Sprintf("Netmage backup %s", backupID),
 			FilePath:    filepath.Join(nc.backupDir, name),
 			Size:        info.Size(),
 		}

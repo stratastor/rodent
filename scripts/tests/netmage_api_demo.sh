@@ -10,38 +10,39 @@
 set -e
 
 # Configuration
-API_BASE="${NETMAGE_API_BASE:-http://localhost:8080/api/v1/network}"
+API_BASE="${NETMAGE_API_BASE:-http://localhost:8042/api/v1/rodent/network}"
 VERBOSE=${VERBOSE:-false}
 DRY_RUN=${DRY_RUN:-false}
+USE_INTERFACE="${USE_INTERFACE:-enX0}"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
+# Pastel colors for output
+SOFT_CORAL='\033[38;2;255;183;178m'    # Soft coral for errors
+MINT_GREEN='\033[38;2;152;251;152m'    # Mint green for success
+PEACH='\033[38;2;255;218;185m'         # Peach for warnings
+LAVENDER='\033[38;2;230;230;250m'      # Lavender for info
+SOFT_PINK='\033[38;2;255;182;193m'     # Soft pink for sections
+POWDER_BLUE='\033[38;2;176;224;230m'   # Powder blue for commands
 NC='\033[0m' # No Color
 
 # Helper functions
 log() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${LAVENDER}[INFO]${NC} $1"
 }
 
 success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${MINT_GREEN}[SUCCESS]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${SOFT_CORAL}[ERROR]${NC} $1"
 }
 
 warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${PEACH}[WARNING]${NC} $1"
 }
 
 section() {
-    echo -e "\n${PURPLE}=== $1 ===${NC}"
+    echo -e "\n${SOFT_PINK}=== $1 ===${NC}"
 }
 
 # Print command and response
@@ -51,7 +52,7 @@ execute_curl() {
     local data="$3"
     local description="$4"
     
-    echo -e "\n${CYAN}Command:${NC} $description"
+    echo -e "\n${POWDER_BLUE}Command:${NC} $description"
     
     local curl_cmd="curl -s -X $method \"$API_BASE$endpoint\""
     
@@ -63,10 +64,10 @@ execute_curl() {
         curl_cmd="$curl_cmd -v"
     fi
     
-    echo -e "${YELLOW}$ $curl_cmd${NC}"
+    echo -e "${PEACH}$ $curl_cmd${NC}"
     
     if [ "$DRY_RUN" = "true" ]; then
-        echo -e "${YELLOW}[DRY-RUN] Command not executed${NC}"
+        echo -e "${PEACH}[DRY-RUN] Command not executed${NC}"
         return
     fi
     
@@ -79,12 +80,12 @@ execute_curl() {
         response=$(curl -s -X "$method" "$API_BASE$endpoint" 2>/dev/null || echo '{"success":false,"error":{"message":"Request failed"}}')
     fi
     
-    echo -e "${GREEN}Response:${NC}"
-    echo "$response" | python3 -m json.tool 2>/dev/null || echo "$response"
+    echo -e "${MINT_GREEN}Response:${NC}"
+    echo "$response" | jq --color-output '.' 2>/dev/null || echo "$response"
     
     # Check if response indicates success
-    local success_status=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null || echo "false")
-    if [ "$success_status" = "True" ]; then
+    local success_status=$(echo "$response" | jq -r '.success // false' 2>/dev/null || echo "false")
+    if [ "$success_status" = "true" ]; then
         success "API call succeeded"
     else
         error "API call failed or returned error"
@@ -115,7 +116,7 @@ COMMANDS:
     safe-apply         Safe configuration apply demo
 
 ENVIRONMENT VARIABLES:
-    NETMAGE_API_BASE   API base URL (default: http://localhost:8080/api/v1/network)
+    NETMAGE_API_BASE   API base URL (default: http://localhost:8042/api/v1/rodent/network)
     VERBOSE            Enable verbose output (true/false)
     DRY_RUN            Show commands without executing (true/false)
 
@@ -127,7 +128,7 @@ EXAMPLES:
     $0 interfaces validation
 
     # Use different server
-    NETMAGE_API_BASE=http://server:8080/api/v1/network $0 system
+    NETMAGE_API_BASE=http://server:8042/api/v1/rodent/network $0 system
 
     # Dry run to see commands
     $0 --dry-run all
@@ -152,13 +153,13 @@ demo_interfaces() {
     
     # Get first interface name for subsequent tests
     log "Getting first interface name for detailed tests..."
-    local first_interface
+    local first_interface="$USE_INTERFACE"
     if [ "$DRY_RUN" != "true" ]; then
         first_interface=$(curl -s "$API_BASE/interfaces" | \
-            python3 -c "import sys, json; data=json.load(sys.stdin); print(data['result']['interfaces'][0]['name'] if data.get('success') and data['result']['interfaces'] else 'eth0')" 2>/dev/null || echo "eth0")
+            jq -r '.result.interfaces[] | select(.type == "ethernet" and .name != "lo") | .name | select(.) | first // "enX0"' 2>/dev/null || echo "$USE_INTERFACE")
         log "Using interface: $first_interface"
     else
-        first_interface="eth0"
+        first_interface=$USE_INTERFACE
     fi
     
     execute_curl "GET" "/interfaces/$first_interface" "" \
@@ -177,7 +178,7 @@ demo_interfaces() {
 demo_addresses() {
     section "IP Address Management"
     
-    local test_interface="eth0"
+    local test_interface="$USE_INTERFACE"
     
     execute_curl "GET" "/addresses/$test_interface" "" \
         "Get IP addresses for interface"
@@ -304,23 +305,22 @@ demo_safe_apply() {
     if [ "$DRY_RUN" != "true" ]; then
         log "Getting current configuration..."
         local current_config=$(curl -s "$API_BASE/netplan/config" | \
-            python3 -c "import sys, json; data=json.load(sys.stdin); print(json.dumps(data['result']) if data.get('success') else '{}')" 2>/dev/null || echo '{}')
+            jq -c '.result // {}' 2>/dev/null || echo '{}')
         
         if [ "$current_config" != "{}" ]; then
-            local safe_apply_payload=$(cat << EOF
-{
-    "config": $current_config,
-    "options": {
-        "skip_pre_validation": true,
-        "skip_post_validation": true,
-        "validate_connectivity": false,
-        "auto_backup": true,
-        "auto_rollback": false,
-        "grace_period": "5s"
-    }
-}
-EOF
-)
+            local safe_apply_payload=$(jq -n \
+                --argjson config "$current_config" \
+                '{
+                    "config": $config,
+                    "options": {
+                        "skip_pre_validation": true,
+                        "skip_post_validation": true,
+                        "validate_connectivity": false,
+                        "auto_backup": true,
+                        "auto_rollback": false,
+                        "grace_period": "5s"
+                    }
+                }')
             execute_curl "POST" "/netplan/safe-apply" \
                 "$safe_apply_payload" \
                 "Safe apply current configuration (test mode)"
@@ -375,10 +375,10 @@ main() {
     fi
     
     # Print configuration
-    echo -e "${BLUE}Network Management API Demo${NC}"
-    echo -e "API Base URL: ${CYAN}$API_BASE${NC}"
-    echo -e "Verbose: ${CYAN}$VERBOSE${NC}"
-    echo -e "Dry Run: ${CYAN}$DRY_RUN${NC}"
+    echo -e "${LAVENDER}Network Management API Demo${NC}"
+    echo -e "API Base URL: ${POWDER_BLUE}$API_BASE${NC}"
+    echo -e "Verbose: ${POWDER_BLUE}$VERBOSE${NC}"
+    echo -e "Dry Run: ${POWDER_BLUE}$DRY_RUN${NC}"
     
     if [ "$DRY_RUN" = "true" ]; then
         warning "DRY RUN MODE - Commands will be shown but not executed"
@@ -456,8 +456,8 @@ check_dependencies() {
         missing_deps+=("curl")
     fi
     
-    if ! command -v python3 >/dev/null 2>&1; then
-        missing_deps+=("python3")
+    if ! command -v jq >/dev/null 2>&1; then
+        missing_deps+=("jq")
     fi
     
     if [ ${#missing_deps[@]} -gt 0 ]; then

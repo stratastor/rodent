@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -33,9 +34,14 @@ func NewCommandExecutor(useSudo bool) *CommandExecutor {
 }
 
 // ExecuteCommand executes a command and returns structured result
-func (ce *CommandExecutor) ExecuteCommand(ctx context.Context, cmd string, args ...string) (*CommandResult, error) {
+func (ce *CommandExecutor) ExecuteCommand(
+	ctx context.Context,
+	cmd string,
+	args ...string,
+) (*CommandResult, error) {
+	common.Log.Debug("Executing command", "cmd", cmd, "args", args)
 	output, err := ce.executor.ExecuteWithCombinedOutput(ctx, cmd, args...)
-	
+
 	result := &CommandResult{
 		Stdout:   string(output),
 		Stderr:   "",

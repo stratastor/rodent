@@ -639,7 +639,7 @@ func (m *manager) GetSystemNetworkInfo(ctx context.Context) (*types.SystemNetwor
 	}
 
 	// Get hostname
-	result, err := m.executor.ExecuteCommand(ctx, "hostnamectl hostname")
+	result, err := m.executor.ExecuteCommand(ctx, "hostnamectl", "hostname")
 	if err == nil && result.ExitCode == 0 {
 		info.Hostname = result.Stdout
 	}
@@ -834,29 +834,29 @@ func (m *manager) convertInterfaceStatus(
 func (m *manager) parseResolvectlStatus(output string) (*types.NameserverConfig, error) {
 	dns := &types.NameserverConfig{}
 	lines := strings.Split(output, "\n")
-	
+
 	inGlobalSection := false
-	
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		// Check if we're entering the Global section
 		if trimmed == "Global" {
 			inGlobalSection = true
 			continue
 		}
-		
+
 		// Check if we're leaving the Global section (new Link section starts)
 		if strings.HasPrefix(trimmed, "Link ") {
 			inGlobalSection = false
 			continue
 		}
-		
+
 		// Only process lines in the Global section
 		if !inGlobalSection {
 			continue
 		}
-		
+
 		// Parse DNS Servers line
 		if strings.HasPrefix(trimmed, "DNS Servers:") {
 			dnsLine := strings.TrimPrefix(trimmed, "DNS Servers:")
@@ -867,7 +867,7 @@ func (m *manager) parseResolvectlStatus(output string) (*types.NameserverConfig,
 				dns.Addresses = servers
 			}
 		}
-		
+
 		// Parse DNS Domain line
 		if strings.HasPrefix(trimmed, "DNS Domain:") {
 			domainLine := strings.TrimPrefix(trimmed, "DNS Domain:")
@@ -879,6 +879,6 @@ func (m *manager) parseResolvectlStatus(output string) (*types.NameserverConfig,
 			}
 		}
 	}
-	
+
 	return dns, nil
 }
