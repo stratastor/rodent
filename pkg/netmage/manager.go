@@ -333,7 +333,7 @@ func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, 
 
 	// Collect routes from all interfaces
 	var routes []*types.Route
-	for _, ifaceStatus := range status.Interfaces {
+	for ifaceName, ifaceStatus := range status.Interfaces {
 		for _, routeStatus := range ifaceStatus.Routes {
 			// Filter by table if specified
 			if table != "" && routeStatus.Table != table {
@@ -344,6 +344,7 @@ func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, 
 				To:       routeStatus.To,
 				From:     routeStatus.From,
 				Via:      routeStatus.Via,
+				Device:   ifaceName, // Add the interface name as device
 				Table:    routeStatus.Table,
 				Metric:   routeStatus.Metric,
 				Family:   types.Family(routeStatus.Family),
@@ -789,23 +790,16 @@ func (m *manager) convertInterfaceStatus(
 		Bridge:       ifaceStatus.Bridge,
 	}
 
-	// Convert addresses - netplan format is []map[string]*AddressStatus
+	// Convert addresses - now handled by custom UnmarshalJSON
 	var addresses []*types.IPAddress
-	for _, addrMap := range ifaceStatus.Addresses {
-		for addrStr, addrStatus := range addrMap {
-			address := &types.IPAddress{
-				Address:      addrStr,
-				PrefixLength: addrStatus.Prefix,
-				Flags:        addrStatus.Flags,
-			}
-			// Determine address family from format
-			if strings.Contains(addrStr, ":") {
-				address.Family = types.FamilyIPv6
-			} else {
-				address.Family = types.FamilyIPv4
-			}
-			addresses = append(addresses, address)
+	for _, addrStatus := range ifaceStatus.Addresses {
+		address := &types.IPAddress{
+			Address:      addrStatus.Address,
+			PrefixLength: addrStatus.PrefixLength,
+			Family:       addrStatus.Family,
+			Flags:        addrStatus.Flags,
 		}
+		addresses = append(addresses, address)
 	}
 	iface.IPAddresses = addresses
 
@@ -816,6 +810,7 @@ func (m *manager) convertInterfaceStatus(
 			To:       routeStatus.To,
 			From:     routeStatus.From,
 			Via:      routeStatus.Via,
+			Device:   name, // Add the interface name as device
 			Table:    routeStatus.Table,
 			Metric:   routeStatus.Metric,
 			Family:   types.Family(routeStatus.Family),

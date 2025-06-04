@@ -8,7 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"strings"
 	"time"
+
+	"github.com/stratastor/rodent/internal/common"
 )
 
 // Supported Netplan version range
@@ -498,14 +501,118 @@ func (ns *NetplanStatus) UnmarshalJSON(data []byte) error {
 			// Everything else should be an interface
 			var interfaceStatus InterfaceStatus
 			if err := json.Unmarshal(value, &interfaceStatus); err != nil {
-				// Skip non-interface entries
+				// Log the error for debugging
+				common.Log.Debug("Failed to unmarshal interface", "interface", key, "error", err.Error())
 				continue
 			}
+			common.Log.Debug("Successfully unmarshaled interface", "interface", key)
 			ns.Interfaces[key] = &interfaceStatus
 		}
 	}
 
 	return nil
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for InterfaceStatus
+func (is *InterfaceStatus) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct that matches the netplan format exactly
+	type TempInterfaceStatus struct {
+		Index        int                           `json:"index"`
+		AdminState   string                        `json:"adminstate"`
+		OperState    string                        `json:"operstate"`
+		Type         string                        `json:"type"`
+		Backend      string                        `json:"backend,omitempty"`
+		ID           string                        `json:"id,omitempty"`
+		MACAddress   string                        `json:"macaddress,omitempty"`
+		Vendor       string                        `json:"vendor,omitempty"`
+		Addresses    []map[string]map[string]interface{} `json:"addresses,omitempty"`
+		DNSAddresses []string                      `json:"dns_addresses,omitempty"`
+		DNSSearch    []string                      `json:"dns_search,omitempty"`
+		Routes       []*RouteStatus                `json:"routes,omitempty"`
+		Interfaces   []string                      `json:"interfaces,omitempty"`
+		Bridge       string                        `json:"bridge,omitempty"`
+	}
+
+	var temp TempInterfaceStatus
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Copy direct fields
+	is.Index = temp.Index
+	is.AdminState = temp.AdminState
+	is.OperState = temp.OperState
+	is.Type = temp.Type
+	is.Backend = temp.Backend
+	is.ID = temp.ID
+	is.MACAddress = temp.MACAddress
+	is.Vendor = temp.Vendor
+	is.DNSAddresses = temp.DNSAddresses
+	is.DNSSearch = temp.DNSSearch
+	is.Routes = temp.Routes
+	is.Interfaces = temp.Interfaces
+	is.Bridge = temp.Bridge
+
+	// Convert addresses from netplan format: []map[string]map[string]interface{}
+	// Format: [{"192.168.1.1": {"prefix": 24, "flags": ["dynamic"]}}]
+	for _, addrMap := range temp.Addresses {
+		for addrStr, addrDetails := range addrMap {
+			address := &AddressStatus{
+				Address:      addrStr,
+				PrefixLength: 0,
+				Flags:        []string{},
+			}
+			
+			// Extract prefix
+			if prefix, ok := addrDetails["prefix"]; ok {
+				if prefixInt, ok := prefix.(float64); ok {
+					address.Prefix = int(prefixInt)
+					address.PrefixLength = int(prefixInt)
+				}
+			}
+			
+			// Extract flags
+			if flags, ok := addrDetails["flags"]; ok {
+				if flagSlice, ok := flags.([]interface{}); ok {
+					for _, flag := range flagSlice {
+						if flagStr, ok := flag.(string); ok {
+							address.Flags = append(address.Flags, flagStr)
+						}
+					}
+				}
+			}
+			
+			// Determine address family from format
+			if strings.Contains(addrStr, ":") {
+				address.Family = FamilyIPv6
+			} else {
+				address.Family = FamilyIPv4
+			}
+			
+			is.Addresses = append(is.Addresses, address)
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom JSON marshaling for NetplanStatus
+// This recreates the flat structure that netplan uses
+func (ns *NetplanStatus) MarshalJSON() ([]byte, error) {
+	// Create a map to hold the flat structure
+	result := make(map[string]interface{})
+	
+	// Add the global state if it exists
+	if ns.NetplanGlobalState != nil {
+		result["netplan-global-state"] = ns.NetplanGlobalState
+	}
+	
+	// Add all interfaces at the root level
+	for name, iface := range ns.Interfaces {
+		result[name] = iface
+	}
+	
+	return json.Marshal(result)
 }
 
 // NetplanGlobalState represents global netplan state
@@ -523,26 +630,29 @@ type NameserverStatus struct {
 
 // InterfaceStatus represents interface status from netplan
 type InterfaceStatus struct {
-	Index        int                         `json:"index"`
-	AdminState   string                      `json:"adminstate"`
-	OperState    string                      `json:"operstate"`
-	Type         string                      `json:"type"`
-	Backend      string                      `json:"backend,omitempty"`
-	ID           string                      `json:"id,omitempty"`
-	MACAddress   string                      `json:"macaddress,omitempty"`
-	Vendor       string                      `json:"vendor,omitempty"`
-	Addresses    []map[string]*AddressStatus `json:"addresses,omitempty"`
-	DNSAddresses []string                    `json:"dns_addresses,omitempty"`
-	DNSSearch    []string                    `json:"dns_search,omitempty"`
-	Routes       []*RouteStatus              `json:"routes,omitempty"`
-	Interfaces   []string                    `json:"interfaces,omitempty"`
-	Bridge       string                      `json:"bridge,omitempty"`
+	Index        int              `json:"index"`
+	AdminState   string           `json:"adminstate"`
+	OperState    string           `json:"operstate"`
+	Type         string           `json:"type"`
+	Backend      string           `json:"backend,omitempty"`
+	ID           string           `json:"id,omitempty"`
+	MACAddress   string           `json:"macaddress,omitempty"`
+	Vendor       string           `json:"vendor,omitempty"`
+	Addresses    []*AddressStatus `json:"addresses,omitempty"`
+	DNSAddresses []string         `json:"dns_addresses,omitempty"`
+	DNSSearch    []string         `json:"dns_search,omitempty"`
+	Routes       []*RouteStatus   `json:"routes,omitempty"`
+	Interfaces   []string         `json:"interfaces,omitempty"`
+	Bridge       string           `json:"bridge,omitempty"`
 }
 
 // AddressStatus represents address status from netplan
 type AddressStatus struct {
-	Prefix int      `json:"prefix"`
-	Flags  []string `json:"flags,omitempty"`
+	Address      string   `json:"address"`
+	Prefix       int      `json:"prefix"`
+	Flags        []string `json:"flags,omitempty"`
+	PrefixLength int      `json:"prefix_length"`
+	Family       Family   `json:"family"`
 }
 
 // RouteStatus represents route status
@@ -550,6 +660,7 @@ type RouteStatus struct {
 	To       string `json:"to"`
 	From     string `json:"from,omitempty"`
 	Via      string `json:"via,omitempty"`
+	Device   string `json:"device,omitempty"`
 	Family   int    `json:"family"`
 	Metric   int    `json:"metric,omitempty"`
 	Type     string `json:"type"`

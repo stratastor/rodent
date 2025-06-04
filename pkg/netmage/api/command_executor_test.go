@@ -53,13 +53,12 @@ func TestCommandExecutorIntegration(t *testing.T) {
 			t.Logf("Interface %s: index=%d, type=%s, admin=%s, oper=%s",
 				name, iface.Index, iface.Type, iface.AdminState, iface.OperState)
 
-			// Validate addresses structure - should be []map[string]*AddressStatus
-			for i, addrMap := range iface.Addresses {
-				for addrStr, addrStatus := range addrMap {
-					t.Logf("  Address %d: %s (prefix: %d, flags: %v)",
-						i, addrStr, addrStatus.Prefix, addrStatus.Flags)
-					assert.True(t, addrStatus.Prefix > 0, "Prefix should be positive")
-				}
+			// Validate addresses structure - now []*AddressStatus
+			for i, addrStatus := range iface.Addresses {
+				t.Logf("  Address %d: %s (prefix: %d, flags: %v)",
+					i, addrStatus.Address, addrStatus.Prefix, addrStatus.Flags)
+				assert.True(t, addrStatus.Prefix > 0, "Prefix should be positive")
+				assert.NotEmpty(t, addrStatus.Address, "Address should not be empty")
 			}
 
 			// Validate routes
