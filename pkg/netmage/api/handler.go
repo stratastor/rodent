@@ -50,9 +50,9 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	interfaces := router.Group("/interfaces")
 	{
 		interfaces.GET("", h.ListInterfaces)
-		interfaces.GET("/:name", h.GetInterface)
-		interfaces.PUT("/:name/state", h.SetInterfaceState)
-		interfaces.GET("/:name/statistics", h.GetInterfaceStatistics)
+		interfaces.GET("/:iface_name", h.GetInterface)
+		interfaces.PUT("/:iface_name/state", h.SetInterfaceState)
+		interfaces.GET("/:iface_name/statistics", h.GetInterfaceStatistics)
 	}
 
 	// IP address management routes
@@ -60,7 +60,7 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		addresses.POST("", h.AddIPAddress)
 		addresses.DELETE("", h.RemoveIPAddress)
-		addresses.GET("/:interface", h.GetIPAddresses)
+		addresses.GET("/:iface_name", h.GetIPAddresses)
 	}
 
 	// Route management routes
@@ -80,7 +80,7 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 		netplan.POST("/try", h.TryNetplanConfig)
 		netplan.POST("/safe-apply", h.SafeApplyConfig)
 		netplan.GET("/status", h.GetNetplanStatus)
-		netplan.GET("/status/:interface", h.GetNetplanStatusInterface)
+		netplan.GET("/status/:iface_name", h.GetNetplanStatusInterface)
 		netplan.GET("/diff", h.GetNetplanDiff)
 	}
 
@@ -89,7 +89,7 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		backups.GET("", h.ListBackups)
 		backups.POST("", h.CreateBackup)
-		backups.POST("/:id/restore", h.RestoreBackup)
+		backups.POST("/:backup_id/restore", h.RestoreBackup)
 	}
 
 	// System information routes
@@ -179,9 +179,9 @@ func (h *NetworkHandler) ListInterfaces(c *gin.Context) {
 	})
 }
 
-// GetInterface handles GET /interfaces/:name
+// GetInterface handles GET /interfaces/:iface_name
 func (h *NetworkHandler) GetInterface(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("iface_name")
 	ctx := c.Request.Context()
 
 	iface, err := h.manager.GetInterface(ctx, name)
@@ -193,9 +193,9 @@ func (h *NetworkHandler) GetInterface(c *gin.Context) {
 	h.sendSuccess(c, http.StatusOK, iface)
 }
 
-// SetInterfaceState handles PUT /interfaces/:name/state
+// SetInterfaceState handles PUT /interfaces/:iface_name/state
 func (h *NetworkHandler) SetInterfaceState(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("iface_name")
 	ctx := c.Request.Context()
 
 	var req types.InterfaceRequest
@@ -216,9 +216,9 @@ func (h *NetworkHandler) SetInterfaceState(c *gin.Context) {
 	})
 }
 
-// GetInterfaceStatistics handles GET /interfaces/:name/statistics
+// GetInterfaceStatistics handles GET /interfaces/:iface_name/statistics
 func (h *NetworkHandler) GetInterfaceStatistics(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("iface_name")
 	ctx := c.Request.Context()
 
 	stats, err := h.manager.GetInterfaceStatistics(ctx, name)
@@ -277,9 +277,9 @@ func (h *NetworkHandler) RemoveIPAddress(c *gin.Context) {
 	})
 }
 
-// GetIPAddresses handles GET /addresses/:interface
+// GetIPAddresses handles GET /addresses/:iface_name
 func (h *NetworkHandler) GetIPAddresses(c *gin.Context) {
-	iface := c.Param("interface")
+	iface := c.Param("iface_name")
 	ctx := c.Request.Context()
 
 	addresses, err := h.manager.GetIPAddresses(ctx, iface)
@@ -485,9 +485,9 @@ func (h *NetworkHandler) GetNetplanStatus(c *gin.Context) {
 	h.sendSuccess(c, http.StatusOK, status)
 }
 
-// GetNetplanStatusInterface handles GET /netplan/status/:interface
+// GetNetplanStatusInterface handles GET /netplan/status/:iface_name
 func (h *NetworkHandler) GetNetplanStatusInterface(c *gin.Context) {
-	iface := c.Param("interface")
+	iface := c.Param("iface_name")
 	ctx := c.Request.Context()
 
 	status, err := h.manager.GetNetplanStatus(ctx, iface)
@@ -544,9 +544,9 @@ func (h *NetworkHandler) CreateBackup(c *gin.Context) {
 	})
 }
 
-// RestoreBackup handles POST /backups/:id/restore
+// RestoreBackup handles POST /backups/:backup_id/restore
 func (h *NetworkHandler) RestoreBackup(c *gin.Context) {
-	backupID := c.Param("id")
+	backupID := c.Param("backup_id")
 	ctx := c.Request.Context()
 
 	if err := h.manager.RestoreNetplanConfig(ctx, backupID); err != nil {
