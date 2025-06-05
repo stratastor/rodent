@@ -243,14 +243,14 @@ func (h *NetworkHandler) AddIPAddress(c *gin.Context) {
 		return
 	}
 
-	if err := h.manager.AddIPAddress(ctx, req.Interface, req.Address); err != nil {
+	if err := h.manager.AddIPAddress(ctx, req.IfaceName, req.Address); err != nil {
 		h.sendError(c, err)
 		return
 	}
 
 	h.sendSuccess(c, http.StatusCreated, map[string]interface{}{
 		"message":   "IP address added successfully",
-		"interface": req.Interface,
+		"interface": req.IfaceName,
 		"address":   req.Address,
 	})
 }
@@ -265,14 +265,14 @@ func (h *NetworkHandler) RemoveIPAddress(c *gin.Context) {
 		return
 	}
 
-	if err := h.manager.RemoveIPAddress(ctx, req.Interface, req.Address); err != nil {
+	if err := h.manager.RemoveIPAddress(ctx, req.IfaceName, req.Address); err != nil {
 		h.sendError(c, err)
 		return
 	}
 
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
 		"message":   "IP address removed successfully",
-		"interface": req.Interface,
+		"interface": req.IfaceName,
 		"address":   req.Address,
 	})
 }

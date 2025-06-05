@@ -199,14 +199,14 @@ func handleInterfacesList(h *NetworkHandler) client.CommandHandler {
 func handleInterfacesGet(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			Name string `json:"name"`
+			IfaceName string `json:"iface_name"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		if payload.Name == "" {
+		if payload.IfaceName == "" {
 			return errorResponse(
 				req.RequestId,
 				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
@@ -214,7 +214,7 @@ func handleInterfacesGet(h *NetworkHandler) client.CommandHandler {
 		}
 
 		ctx := context.Background()
-		iface, err := h.manager.GetInterface(ctx, payload.Name)
+		iface, err := h.manager.GetInterface(ctx, payload.IfaceName)
 		if err != nil {
 			return errorResponse(req.RequestId, err)
 		}
@@ -226,16 +226,12 @@ func handleInterfacesGet(h *NetworkHandler) client.CommandHandler {
 // handleInterfacesSetState returns a handler for setting interface state
 func handleInterfacesSetState(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		var payload struct {
-			Name  string `json:"name"`
-			State string `json:"state"`
-		}
-
+		var payload types.InterfaceRequest
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		if payload.Name == "" {
+		if payload.IfaceName == "" {
 			return errorResponse(
 				req.RequestId,
 				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
@@ -244,28 +240,28 @@ func handleInterfacesSetState(h *NetworkHandler) client.CommandHandler {
 
 		var state types.InterfaceState
 		switch payload.State {
-		case "up", "UP":
+		case types.InterfaceStateUp:
 			state = types.InterfaceStateUp
-		case "down", "DOWN":
+		case types.InterfaceStateDown:
 			state = types.InterfaceStateDown
 		default:
 			return errorResponse(
 				req.RequestId,
 				errors.New(
 					errors.NetworkOperationFailed,
-					"Invalid interface state: must be 'up' or 'down'",
+					"Invalid interface state: must be 'UP' or 'DOWN'",
 				),
 			)
 		}
 
 		ctx := context.Background()
-		if err := h.manager.SetInterfaceState(ctx, payload.Name, state); err != nil {
+		if err := h.manager.SetInterfaceState(ctx, payload.IfaceName, state); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
 			"message":   "Interface state updated successfully",
-			"interface": payload.Name,
+			"interface": payload.IfaceName,
 			"state":     state,
 		}
 
@@ -277,14 +273,14 @@ func handleInterfacesSetState(h *NetworkHandler) client.CommandHandler {
 func handleInterfacesGetStats(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			Name string `json:"name"`
+			IfaceName string `json:"iface_name"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		if payload.Name == "" {
+		if payload.IfaceName == "" {
 			return errorResponse(
 				req.RequestId,
 				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
@@ -292,13 +288,13 @@ func handleInterfacesGetStats(h *NetworkHandler) client.CommandHandler {
 		}
 
 		ctx := context.Background()
-		stats, err := h.manager.GetInterfaceStatistics(ctx, payload.Name)
+		stats, err := h.manager.GetInterfaceStatistics(ctx, payload.IfaceName)
 		if err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
-			"interface":  payload.Name,
+			"interface":  payload.IfaceName,
 			"statistics": stats,
 		}
 
@@ -317,13 +313,13 @@ func handleAddressesAdd(h *NetworkHandler) client.CommandHandler {
 		}
 
 		ctx := context.Background()
-		if err := h.manager.AddIPAddress(ctx, payload.Interface, payload.Address); err != nil {
+		if err := h.manager.AddIPAddress(ctx, payload.IfaceName, payload.Address); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
 			"message":   "IP address added successfully",
-			"interface": payload.Interface,
+			"interface": payload.IfaceName,
 			"address":   payload.Address,
 		}
 
@@ -340,13 +336,13 @@ func handleAddressesRemove(h *NetworkHandler) client.CommandHandler {
 		}
 
 		ctx := context.Background()
-		if err := h.manager.RemoveIPAddress(ctx, payload.Interface, payload.Address); err != nil {
+		if err := h.manager.RemoveIPAddress(ctx, payload.IfaceName, payload.Address); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
 			"message":   "IP address removed successfully",
-			"interface": payload.Interface,
+			"interface": payload.IfaceName,
 			"address":   payload.Address,
 		}
 
@@ -358,14 +354,14 @@ func handleAddressesRemove(h *NetworkHandler) client.CommandHandler {
 func handleAddressesGet(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			Interface string `json:"interface"`
+			IfaceName string `json:"iface_name"`
 		}
 
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		if payload.Interface == "" {
+		if payload.IfaceName == "" {
 			return errorResponse(
 				req.RequestId,
 				errors.New(errors.NetworkInterfaceNotFound, "Interface name cannot be empty"),
@@ -373,13 +369,13 @@ func handleAddressesGet(h *NetworkHandler) client.CommandHandler {
 		}
 
 		ctx := context.Background()
-		addresses, err := h.manager.GetIPAddresses(ctx, payload.Interface)
+		addresses, err := h.manager.GetIPAddresses(ctx, payload.IfaceName)
 		if err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
-			"interface": payload.Interface,
+			"interface": payload.IfaceName,
 			"addresses": addresses,
 			"count":     len(addresses),
 		}
@@ -584,14 +580,14 @@ func handleNetplanTry(h *NetworkHandler) client.CommandHandler {
 func handleNetplanStatus(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			Interface string `json:"interface"`
+			IfaceName string `json:"iface_name"`
 		}
 
 		// Interface is optional
 		parseJSONPayload(cmd, &payload)
 
 		ctx := context.Background()
-		status, err := h.manager.GetNetplanStatus(ctx, payload.Interface)
+		status, err := h.manager.GetNetplanStatus(ctx, payload.IfaceName)
 		if err != nil {
 			return errorResponse(req.RequestId, err)
 		}

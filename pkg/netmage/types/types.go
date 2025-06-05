@@ -732,14 +732,14 @@ type SystemNetworkInfo struct {
 
 // InterfaceRequest represents a request to operate on an interface
 type InterfaceRequest struct {
-	Name   string         `json:"name"             binding:"required"`
-	State  InterfaceState `json:"state,omitempty"`
-	Action string         `json:"action,omitempty"`
+	IfaceName string         `json:"iface_name"       binding:"required"`
+	State     InterfaceState `json:"state,omitempty"`
+	Action    string         `json:"action,omitempty"`
 }
 
 // AddressRequest represents a request to add/remove an IP address
 type AddressRequest struct {
-	Interface string `json:"interface" binding:"required"`
+	IfaceName string `json:"iface_name" binding:"required"`
 	Address   string `json:"address"   binding:"required"`
 }
 
