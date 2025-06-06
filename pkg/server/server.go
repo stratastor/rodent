@@ -104,37 +104,43 @@ func Start(ctx context.Context, port int) error {
 		// We don't need to sleep here as the AD client will retry connection if needed
 	}
 
+	// Register AD routes with graceful error handling
 	adHandler, err := registerADRoutes(engine)
 	if err != nil {
-		return fmt.Errorf("failed to register AD routes: %w", err)
+		l.Error("Failed to register AD routes, continuing without AD functionality", "error", err)
+	} else {
+		defer adHandler.Close()
 	}
-	defer adHandler.Close()
 
-	// Register ACL routes
+	// Register ACL routes with graceful error handling
 	aclHandler, err := registerFaclRoutes(engine)
 	if err != nil {
-		return fmt.Errorf("failed to register ACL routes: %w", err)
+		l.Error("Failed to register ACL routes, continuing without ACL functionality", "error", err)
+	} else {
+		defer aclHandler.Close()
 	}
-	defer aclHandler.Close()
 
+	// Register shares routes with graceful error handling
 	err = registerSharesRoutes(engine)
 	if err != nil {
-		return fmt.Errorf("failed to register shares routes: %w", err)
+		l.Error("Failed to register shares routes, continuing without shares functionality", "error", err)
 	}
 
-	// Register SSH key routes
+	// Register SSH key routes with graceful error handling
 	sshKeyHandler, err := registerSSHKeyRoutes(engine)
 	if err != nil {
-		return fmt.Errorf("failed to register SSH key routes: %w", err)
+		l.Error("Failed to register SSH key routes, continuing without SSH key functionality", "error", err)
+	} else {
+		defer sshKeyHandler.Close()
 	}
-	defer sshKeyHandler.Close()
 
-	// Register network management routes
+	// Register network management routes with graceful error handling
 	networkHandler, err := registerNetworkRoutes(engine)
 	if err != nil {
-		return fmt.Errorf("failed to register network routes: %w", err)
+		l.Error("Failed to register network routes, continuing without network management functionality", "error", err)
+	} else {
+		_ = networkHandler // Handler doesn't implement Close() method
 	}
-	_ = networkHandler // Handler doesn't implement Close() method
 
 	toggle.StartRegistrationProcess(ctx, l)
 
