@@ -43,9 +43,9 @@ func validateMACAddressFormat(mac string) error {
 
 	// MAC address regex patterns (supports multiple formats)
 	patterns := []string{
-		`^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`,         // XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX
-		`^([0-9A-Fa-f]{4}\.){2}([0-9A-Fa-f]{4})$`,           // XXXX.XXXX.XXXX
-		`^([0-9A-Fa-f]{12})$`,                                // XXXXXXXXXXXX
+		`^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`, // XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX
+		`^([0-9A-Fa-f]{4}\.){2}([0-9A-Fa-f]{4})$`,   // XXXX.XXXX.XXXX
+		`^([0-9A-Fa-f]{12})$`,                       // XXXXXXXXXXXX
 	}
 
 	for _, pattern := range patterns {
@@ -60,6 +60,8 @@ func validateMACAddressFormat(mac string) error {
 
 	return fmt.Errorf("invalid MAC address format")
 }
+
+// TODO: Utilize the validation functions for netplan config updates after testing the API
 
 // validateHostnameFormat validates hostname format
 func validateHostnameFormat(hostname string) error {
@@ -157,7 +159,7 @@ func validateBridgeSTPState(stp bool) error {
 // validateDHCPIdentifier validates DHCP identifier
 func validateDHCPIdentifier(identifier string) error {
 	validIdentifiers := []string{"duid", "mac"}
-	
+
 	for _, valid := range validIdentifiers {
 		if identifier == valid {
 			return nil
@@ -170,7 +172,7 @@ func validateDHCPIdentifier(identifier string) error {
 // validateWiFiMode validates WiFi mode
 func validateWiFiMode(mode string) error {
 	validModes := []string{"infrastructure", "ap", "adhoc"}
-	
+
 	for _, validMode := range validModes {
 		if mode == validMode {
 			return nil
@@ -183,7 +185,7 @@ func validateWiFiMode(mode string) error {
 // validateWiFiBand validates WiFi band
 func validateWiFiBand(band string) error {
 	validBands := []string{"2.4GHz", "5GHz", "6GHz"}
-	
+
 	for _, validBand := range validBands {
 		if band == validBand {
 			return nil
@@ -198,7 +200,33 @@ func validateWiFiChannel(channel int) error {
 	// Simplified validation - covers most common channels
 	// 2.4GHz: 1-14, 5GHz: 36, 40, 44, 48, 52, 56, 60, 64, etc.
 	validChannels2_4 := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
-	validChannels5 := []int{36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165}
+	validChannels5 := []int{
+		36,
+		40,
+		44,
+		48,
+		52,
+		56,
+		60,
+		64,
+		100,
+		104,
+		108,
+		112,
+		116,
+		120,
+		124,
+		128,
+		132,
+		136,
+		140,
+		144,
+		149,
+		153,
+		157,
+		161,
+		165,
+	}
 
 	// Check 2.4GHz channels
 	for _, ch := range validChannels2_4 {
@@ -223,7 +251,7 @@ func validateTunnelMode(mode string) error {
 		"sit", "gre", "ip6gre", "ipip", "ip6ip6", "ip6tnl",
 		"vti", "vti6", "wireguard", "isatap", "6rd",
 	}
-	
+
 	for _, validMode := range validModes {
 		if mode == validMode {
 			return nil
@@ -244,7 +272,10 @@ func validateTTL(ttl int) error {
 // validateRoutingTableID validates routing table ID
 func validateRoutingTableID(tableID int) error {
 	if tableID < 0 || tableID > 4294967295 {
-		return fmt.Errorf("invalid routing table ID: %d (must be between 0 and 4294967295)", tableID)
+		return fmt.Errorf(
+			"invalid routing table ID: %d (must be between 0 and 4294967295)",
+			tableID,
+		)
 	}
 	return nil
 }

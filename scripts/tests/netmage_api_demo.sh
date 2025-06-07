@@ -304,6 +304,10 @@ demo_safe_apply() {
     
     if [ "$DRY_RUN" != "true" ]; then
         log "Getting current configuration..."
+
+        execute_curl "GET" "/netplan/config" "" \
+            "Get current netplan configuration"
+
         local current_config=$(curl -s "$API_BASE/netplan/config" | \
             jq -c '.result // {}' 2>/dev/null || echo '{}')
         

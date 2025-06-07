@@ -779,6 +779,17 @@ func (m *manager) SetGlobalDNS(ctx context.Context, dns *types.NameserverConfig)
 			WithMetadata("output", result.Stderr)
 	}
 
+	// Restart systemd-networkd if using networkd renderer
+	if m.renderer == types.RendererNetworkd {
+		result, err = m.executor.ExecuteCommand(ctx, "systemctl", "restart", "systemd-networkd")
+		if err != nil {
+			// If networkd restart fails, log but don't fail the DNS update
+			m.logger.Warn("Failed to restart systemd-networkd after setting global DNS",
+				"error", err,
+				"output", result.Stderr)
+		}
+	}
+
 	m.logger.Info("Global DNS configuration applied successfully",
 		"config_path", configPath)
 
