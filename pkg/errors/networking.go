@@ -4,7 +4,10 @@
 
 package errors
 
-import "net/http"
+import (
+	"maps"
+	"net/http"
+)
 
 const (
 	DomainNetwork Domain = "NETWORK"
@@ -29,7 +32,9 @@ const (
 	NetworkFeatureUnsupported                     // Network feature not supported
 	NetworkPolicyViolation                        // Network policy violation
 	NetworkBackendError                           // Network backend error
+)
 
+const (
 	// Netplan-specific errors (1920-1949)
 	NetplanCommandFailed       = 1920 + iota // Netplan command failed
 	NetplanCommandNotFound                   // Netplan command not found
@@ -53,7 +58,9 @@ const (
 	NetplanRollbackFailed                    // Netplan rollback failed
 	NetplanTryTimeout                        // Netplan try timeout
 	NetplanTryCancelled                      // Netplan try cancelled
+)
 
+const (
 	// IP command errors (1950-1979)
 	IPCommandFailed             = 1950 + iota // IP command failed
 	IPLinkOperationFailed                     // IP link operation failed
@@ -70,7 +77,9 @@ const (
 	IPBondOperationFailed                     // IP bond operation failed
 	IPMTUOperationFailed                      // IP MTU operation failed
 	IPMACAddressOperationFailed               // IP MAC address operation failed
+)
 
+const (
 	// Network validation errors (1980-1999)
 	NetworkIPAddressInvalid     = 1980 + iota // Invalid IP address format
 	NetworkCIDRInvalid                        // Invalid CIDR notation
@@ -482,7 +491,5 @@ func init() {
 	}
 
 	// Add to the global errorDefinitions map
-	for code, def := range networkErrorDefinitions {
-		errorDefinitions[code] = def
-	}
+	maps.Copy(errorDefinitions, networkErrorDefinitions)
 }
