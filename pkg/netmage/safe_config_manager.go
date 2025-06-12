@@ -56,6 +56,7 @@ func (m *manager) SafeApplyConfig(ctx context.Context, config *types.NetplanConf
 	if !options.SkipPreValidation {
 		m.logger.Debug("Performing pre-validation")
 		if err := m.performPreValidation(ctx, config, options, result.PreValidation); err != nil {
+			m.logger.Error("Pre-validation failed with error", "error", err, "validation_errors", result.PreValidation.Errors)
 			result.Error = fmt.Sprintf("Pre-validation failed: %v", err)
 			result.Message = "Configuration validation failed"
 			result.CompletionTime = time.Now()
@@ -156,32 +157,44 @@ func (m *manager) SafeApplyConfig(ctx context.Context, config *types.NetplanConf
 
 // performPreValidation validates configuration before applying
 func (m *manager) performPreValidation(ctx context.Context, config *types.NetplanConfig, options *types.SafeConfigOptions, validation *types.ValidationResult) error {
+	m.logger.Debug("Starting pre-validation checks")
+	
 	// Syntax validation
+	m.logger.Debug("Performing syntax validation")
 	if err := m.ValidateNetplanConfig(ctx, config); err != nil {
+		m.logger.Error("Syntax validation failed", "error", err)
 		validation.Errors = append(validation.Errors, fmt.Sprintf("Syntax validation: %v", err))
 		return err
 	}
 	validation.SyntaxValid = true
+	m.logger.Debug("Syntax validation passed")
 	
 	// Interface validation
 	if options.ValidateInterfaces {
+		m.logger.Debug("Performing interface validation")
 		if err := m.validateInterfaceReferences(ctx, config); err != nil {
+			m.logger.Error("Interface validation failed", "error", err)
 			validation.Errors = append(validation.Errors, fmt.Sprintf("Interface validation: %v", err))
 			return err
 		}
 		validation.InterfaceValid = true
+		m.logger.Debug("Interface validation passed")
 	}
 	
 	// Route validation
 	if options.ValidateRoutes {
+		m.logger.Debug("Performing route validation")
 		if err := m.validateRouteConfiguration(ctx, config); err != nil {
+			m.logger.Error("Route validation failed", "error", err)
 			validation.Errors = append(validation.Errors, fmt.Sprintf("Route validation: %v", err))
 			return err
 		}
 		validation.RouteValid = true
+		m.logger.Debug("Route validation passed")
 	}
 	
 	validation.Success = true
+	m.logger.Debug("All pre-validation checks passed")
 	return nil
 }
 

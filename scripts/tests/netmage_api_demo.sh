@@ -474,3 +474,4 @@ check_dependencies() {
 # Run dependency check and main function
 check_dependencies
 main "$@"
+

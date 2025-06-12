@@ -48,9 +48,6 @@ func init() {
 	}
 }
 
-// Dangerous characters that could enable command injection
-var dangerousChars = "&|><$`\\[];{}"
-
 // Commands that support JSON output
 var JSONSupportedCommands = map[string]bool{
 	"zfs get":       true,

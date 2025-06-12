@@ -72,9 +72,12 @@ func NewCommandExecutor(useSudo bool, logConfig logger.Config) *CommandExecutor 
 	}
 
 	return &CommandExecutor{
-		features: make(map[string]bool),
-		useSudo:  useSudo,
-		logger:   l,
+		features:     make(map[string]bool),
+		useSudo:      useSudo,
+		logger:       l,
+		timeout:      DefaultTimeout,
+		zfsVersion:   "N/A", // Placeholder for ZFS version
+		zpoolVersion: "N/A", // Placeholder for Zpool version
 	}
 }
 

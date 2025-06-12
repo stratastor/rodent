@@ -132,46 +132,8 @@ func successResponse(
 }
 
 // errorResponse creates an error response with the provided error
-func errorResponse(requestID string, err error) (*proto.CommandResponse, error) {
-	response := APIResponse{
-		Success: false,
-	}
-
-	if rodentErr, ok := err.(*errors.RodentError); ok {
-		response.Error = &APIError{
-			Code:    int(rodentErr.Code),
-			Domain:  string(rodentErr.Domain),
-			Message: rodentErr.Message,
-			Details: rodentErr.Details,
-		}
-
-		// Add metadata if available
-		if len(rodentErr.Metadata) > 0 {
-			response.Error.Meta = make(map[string]interface{})
-			for k, v := range rodentErr.Metadata {
-				response.Error.Meta[k] = v
-			}
-		}
-	} else {
-		response.Error = &APIError{
-			Code:    500,
-			Domain:  "NETWORK",
-			Message: "Internal server error",
-			Details: err.Error(),
-		}
-	}
-
-	payload, err := json.Marshal(response)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.ServerResponseError)
-	}
-
-	return &proto.CommandResponse{
-		RequestId: requestID,
-		Success:   false,
-		Message:   "Network operation failed",
-		Payload:   payload,
-	}, nil
+func errorResponse(_ string, err error) (*proto.CommandResponse, error) {
+	return nil, err
 }
 
 // INTERFACE HANDLERS
