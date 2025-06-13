@@ -91,6 +91,8 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 		backups.POST("", h.CreateBackup)
 		backups.GET("/:backup_id", h.GetBackup)
 		backups.POST("/:backup_id/restore", h.RestoreBackup)
+		backups.DELETE("/:backup_id", h.DeleteBackup)
+		backups.DELETE("", h.DeleteAllBackups)
 	}
 
 	// System information routes
@@ -572,6 +574,36 @@ func (h *NetworkHandler) RestoreBackup(c *gin.Context) {
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
 		"message":   "Configuration restored successfully",
 		"backup_id": backupID,
+	})
+}
+
+// DeleteBackup handles DELETE /backups/:backup_id
+func (h *NetworkHandler) DeleteBackup(c *gin.Context) {
+	backupID := c.Param("backup_id")
+	ctx := c.Request.Context()
+
+	if err := h.manager.DeleteBackup(ctx, backupID); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":   "Backup deleted successfully",
+		"backup_id": backupID,
+	})
+}
+
+// DeleteAllBackups handles DELETE /backups
+func (h *NetworkHandler) DeleteAllBackups(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	if err := h.manager.DeleteAllBackups(ctx); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message": "All backups deleted successfully",
 	})
 }
 

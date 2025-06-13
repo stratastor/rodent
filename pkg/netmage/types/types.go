@@ -128,6 +128,8 @@ type Manager interface {
 	RestoreNetplanConfig(ctx context.Context, backupID string) error
 	ListBackups(ctx context.Context) ([]*ConfigBackup, error)
 	GetBackup(ctx context.Context, backupID string) (*ConfigBackup, error)
+	DeleteBackup(ctx context.Context, backupID string) error
+	DeleteAllBackups(ctx context.Context) error
 
 	// Validation
 	ValidateNetplanConfig(ctx context.Context, config *NetplanConfig) error

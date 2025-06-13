@@ -308,6 +308,10 @@ demo_backups() {
             # Now use the newly created backup ID to demonstrate GET
             execute_curl "GET" "/backups/$backup_id" "" \
                 "Get backup contents and details for newly created backup"
+            
+            # Demonstrate delete backup using the created backup ID
+            execute_curl "DELETE" "/backups/$backup_id" "" \
+                "Delete the backup we just created"
         else
             error "Failed to create backup or extract backup ID"
             # Fallback to example
@@ -320,6 +324,9 @@ demo_backups() {
         
         execute_curl "GET" "/backups/netmage_backup_20250101-120000" "" \
             "Get backup contents and details (dry-run example)"
+        
+        execute_curl "DELETE" "/backups/netmage_backup_20250101-120000" "" \
+            "Delete a backup (dry-run example)"
     fi
     
     # Backup restoration (commented out for safety)

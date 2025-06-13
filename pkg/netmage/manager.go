@@ -451,6 +451,20 @@ func (m *manager) GetBackup(ctx context.Context, backupID string) (*types.Config
 	return m.netplanCmd.GetBackup(ctx, backupID)
 }
 
+// DeleteBackup deletes a specific backup by ID
+func (m *manager) DeleteBackup(ctx context.Context, backupID string) error {
+	if backupID == "" {
+		return errors.New(errors.NetplanBackupFailed, "backup ID cannot be empty")
+	}
+
+	return m.netplanCmd.DeleteBackup(ctx, backupID)
+}
+
+// DeleteAllBackups deletes all netplan configuration backups
+func (m *manager) DeleteAllBackups(ctx context.Context) error {
+	return m.netplanCmd.DeleteAllBackups(ctx)
+}
+
 // ValidateNetplanConfig validates a netplan configuration
 func (m *manager) ValidateNetplanConfig(ctx context.Context, config *types.NetplanConfig) error {
 	if config == nil {

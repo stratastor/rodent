@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stratastor/rodent/config"
@@ -315,6 +316,69 @@ func (nc *NetplanCommand) GetBackup(ctx context.Context, backupID string) (*type
 	}
 
 	return backup, nil
+}
+
+// DeleteBackup deletes a specific backup by ID
+func (nc *NetplanCommand) DeleteBackup(ctx context.Context, backupID string) error {
+	backupPath := filepath.Join(nc.backupDir, fmt.Sprintf("%s.yaml", backupID))
+
+	// Check if backup file exists
+	if _, err := os.Stat(backupPath); err != nil {
+		if os.IsNotExist(err) {
+			return errors.New(errors.NetplanBackupFailed, 
+				fmt.Sprintf("backup with ID '%s' not found", backupID))
+		}
+		return errors.Wrap(err, errors.NetplanBackupFailed)
+	}
+
+	// Delete the backup file
+	if err := os.Remove(backupPath); err != nil {
+		return errors.Wrap(err, errors.NetplanBackupFailed).
+			WithMetadata("backup_id", backupID).
+			WithMetadata("backup_path", backupPath)
+	}
+
+	return nil
+}
+
+// DeleteAllBackups deletes all netplan configuration backups
+func (nc *NetplanCommand) DeleteAllBackups(ctx context.Context) error {
+	entries, err := os.ReadDir(nc.backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory doesn't exist, so there are no backups to delete
+			return nil
+		}
+		return errors.Wrap(err, errors.NetplanBackupFailed)
+	}
+
+	deletedCount := 0
+	var lastError error
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+
+		// Only delete files that match the backup prefix pattern
+		if !strings.HasPrefix(entry.Name(), NetplanBackupFilePrefix) {
+			continue
+		}
+
+		backupPath := filepath.Join(nc.backupDir, entry.Name())
+		if err := os.Remove(backupPath); err != nil {
+			lastError = err
+		} else {
+			deletedCount++
+		}
+	}
+
+	if lastError != nil {
+		return errors.Wrap(lastError, errors.NetplanBackupFailed).
+			WithMetadata("deleted_count", fmt.Sprintf("%d", deletedCount))
+	}
+
+	return nil
 }
 
 // ValidateConfig validates netplan configuration by running "netplan get all"

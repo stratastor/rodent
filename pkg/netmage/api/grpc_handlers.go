@@ -83,6 +83,14 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 		proto.CmdNetworkBackupsRestore,
 		handleBackupsRestore(networkHandler),
 	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkBackupsDelete,
+		handleBackupsDelete(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkBackupsDeleteAll,
+		handleBackupsDeleteAll(networkHandler),
+	)
 
 	// System information operations
 	client.RegisterCommandHandler(proto.CmdNetworkSystemInfo, handleSystemInfo(networkHandler))
@@ -663,6 +671,55 @@ func handleBackupsRestore(h *NetworkHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Configuration restored", result)
+	}
+}
+
+// handleBackupsDelete returns a handler for deleting a specific backup
+func handleBackupsDelete(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			BackupID string `json:"backup_id"`
+		}
+
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.BackupID == "" {
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetplanBackupFailed, "Backup ID cannot be empty"),
+			)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.DeleteBackup(ctx, payload.BackupID); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":   "Backup deleted successfully",
+			"backup_id": payload.BackupID,
+		}
+
+		return successResponse(req.RequestId, "Backup deleted", result)
+	}
+}
+
+// handleBackupsDeleteAll returns a handler for deleting all backups
+func handleBackupsDeleteAll(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		ctx := context.Background()
+
+		if err := h.manager.DeleteAllBackups(ctx); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message": "All backups deleted successfully",
+		}
+
+		return successResponse(req.RequestId, "All backups deleted", result)
 	}
 }
 
