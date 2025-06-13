@@ -285,6 +285,38 @@ func (nc *NetplanCommand) ListBackups(ctx context.Context) ([]*types.ConfigBacku
 	return backups, nil
 }
 
+// GetBackup retrieves the contents of a specific backup by ID
+func (nc *NetplanCommand) GetBackup(ctx context.Context, backupID string) (*types.ConfigBackup, error) {
+	backupPath := filepath.Join(nc.backupDir, fmt.Sprintf("%s.yaml", backupID))
+
+	// Check if backup file exists and get file info
+	info, err := os.Stat(backupPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New(errors.NetplanBackupFailed, 
+				fmt.Sprintf("backup with ID '%s' not found", backupID))
+		}
+		return nil, errors.Wrap(err, errors.NetplanBackupFailed)
+	}
+
+	// Read backup file contents
+	backupData, err := os.ReadFile(backupPath)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.NetplanBackupFailed)
+	}
+
+	backup := &types.ConfigBackup{
+		ID:          backupID,
+		Timestamp:   info.ModTime(),
+		Description: fmt.Sprintf("Netmage backup %s", backupID),
+		FilePath:    backupPath,
+		Size:        info.Size(),
+		Content:     string(backupData),
+	}
+
+	return backup, nil
+}
+
 // ValidateConfig validates netplan configuration by running "netplan get all"
 func (nc *NetplanCommand) ValidateConfig(ctx context.Context) error {
 	return nc.validateConfigFile(ctx, "")

@@ -76,6 +76,10 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 		handleBackupsCreate(networkHandler),
 	)
 	client.RegisterCommandHandler(
+		proto.CmdNetworkBackupsGet,
+		handleBackupsGet(networkHandler),
+	)
+	client.RegisterCommandHandler(
 		proto.CmdNetworkBackupsRestore,
 		handleBackupsRestore(networkHandler),
 	)
@@ -609,6 +613,34 @@ func handleBackupsCreate(h *NetworkHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Backup created", result)
+	}
+}
+
+// handleBackupsGet returns a handler for getting a specific backup
+func handleBackupsGet(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			BackupID string `json:"backup_id"`
+		}
+
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.BackupID == "" {
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.NetplanBackupFailed, "Backup ID cannot be empty"),
+			)
+		}
+
+		ctx := context.Background()
+		backup, err := h.manager.GetBackup(ctx, payload.BackupID)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Backup details", backup)
 	}
 }
 

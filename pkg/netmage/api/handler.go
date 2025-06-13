@@ -89,6 +89,7 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		backups.GET("", h.ListBackups)
 		backups.POST("", h.CreateBackup)
+		backups.GET("/:backup_id", h.GetBackup)
 		backups.POST("/:backup_id/restore", h.RestoreBackup)
 	}
 
@@ -542,6 +543,20 @@ func (h *NetworkHandler) CreateBackup(c *gin.Context) {
 		"message":   "Backup created successfully",
 		"backup_id": backupID,
 	})
+}
+
+// GetBackup handles GET /backups/:backup_id
+func (h *NetworkHandler) GetBackup(c *gin.Context) {
+	backupID := c.Param("backup_id")
+	ctx := c.Request.Context()
+
+	backup, err := h.manager.GetBackup(ctx, backupID)
+	if err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, backup)
 }
 
 // RestoreBackup handles POST /backups/:backup_id/restore

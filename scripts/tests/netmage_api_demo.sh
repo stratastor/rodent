@@ -288,8 +288,39 @@ demo_backups() {
     execute_curl "GET" "/backups" "" \
         "List configuration backups"
     
-    execute_curl "POST" "/backups" "" \
-        "Create configuration backup"
+    # Create backup and capture the ID for subsequent GET demonstration
+    if [ "$DRY_RUN" != "true" ]; then
+        log "Creating backup to demonstrate GET backup contents..."
+        
+        local create_response=$(curl -s -X POST "$API_BASE/backups" 2>/dev/null || echo '{"success":false}')
+        echo -e "\n${POWDER_BLUE}Command:${NC} Create configuration backup"
+        echo -e "${PEACH}$ curl -s -X POST \"$API_BASE/backups\"${NC}"
+        echo -e "${MINT_GREEN}Response:${NC}"
+        echo "$create_response" | jq --color-output '.' 2>/dev/null || echo "$create_response"
+        
+        # Extract backup ID from response
+        local backup_id=$(echo "$create_response" | jq -r '.result.backup_id // empty' 2>/dev/null)
+        local create_success=$(echo "$create_response" | jq -r '.success // false' 2>/dev/null)
+        
+        if [ "$create_success" = "true" ] && [ -n "$backup_id" ]; then
+            success "Backup created with ID: $backup_id"
+            
+            # Now use the newly created backup ID to demonstrate GET
+            execute_curl "GET" "/backups/$backup_id" "" \
+                "Get backup contents and details for newly created backup"
+        else
+            error "Failed to create backup or extract backup ID"
+            # Fallback to example
+            execute_curl "GET" "/backups/netmage_backup_20250101-120000" "" \
+                "Get backup contents and details (fallback example)"
+        fi
+    else
+        execute_curl "POST" "/backups" "" \
+            "Create configuration backup"
+        
+        execute_curl "GET" "/backups/netmage_backup_20250101-120000" "" \
+            "Get backup contents and details (dry-run example)"
+    fi
     
     # Backup restoration (commented out for safety)
     # execute_curl "POST" "/backups/backup-id/restore" "" \

@@ -442,6 +442,15 @@ func (m *manager) ListBackups(ctx context.Context) ([]*types.ConfigBackup, error
 	return m.netplanCmd.ListBackups(ctx)
 }
 
+// GetBackup retrieves a specific backup by ID with its contents
+func (m *manager) GetBackup(ctx context.Context, backupID string) (*types.ConfigBackup, error) {
+	if backupID == "" {
+		return nil, errors.New(errors.NetplanBackupFailed, "backup ID cannot be empty")
+	}
+
+	return m.netplanCmd.GetBackup(ctx, backupID)
+}
+
 // ValidateNetplanConfig validates a netplan configuration
 func (m *manager) ValidateNetplanConfig(ctx context.Context, config *types.NetplanConfig) error {
 	if config == nil {

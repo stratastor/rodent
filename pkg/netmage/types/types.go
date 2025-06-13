@@ -127,6 +127,7 @@ type Manager interface {
 	BackupNetplanConfig(ctx context.Context) (string, error)
 	RestoreNetplanConfig(ctx context.Context, backupID string) error
 	ListBackups(ctx context.Context) ([]*ConfigBackup, error)
+	GetBackup(ctx context.Context, backupID string) (*ConfigBackup, error)
 
 	// Validation
 	ValidateNetplanConfig(ctx context.Context, config *NetplanConfig) error
@@ -714,6 +715,7 @@ type ConfigBackup struct {
 	Description string    `json:"description"`
 	FilePath    string    `json:"file_path"`
 	Size        int64     `json:"size"`
+	Content     string    `json:"content,omitempty"`
 }
 
 // SystemNetworkInfo represents overall system network information
