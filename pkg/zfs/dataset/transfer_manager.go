@@ -350,7 +350,7 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 	}
 
 	// Build receive command
-	recvPart := []string{command.BinZFS, "receive"}
+	recvPart := []string{"zfs", "receive"}
 	if recvCfg.Force {
 		recvPart = append(recvPart, "-F")
 	}
@@ -403,7 +403,7 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 			shellquote.Join(sendPart...),
 			shellquote.Join(recvPart...))
 	}
-
+	tm.logger.Debug("Built transfer command", "command", cmdStr)
 	return exec.Command("bash", "-c", cmdStr), nil
 }
 
