@@ -82,6 +82,15 @@ func RegisterZFSGRPCHandlers(poolHandler *PoolHandler, datasetHandler *DatasetHa
 	// Data transfer operations
 	client.RegisterCommandHandler(CmdTransferSend, handleTransferSend(datasetHandler))
 	client.RegisterCommandHandler(CmdTransferResumeToken, handleTransferResumeToken(datasetHandler))
+
+	// Managed transfer operations
+	client.RegisterCommandHandler(CmdTransferStart, handleManagedTransferStart(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferList, handleManagedTransferList(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferGet, handleManagedTransferGet(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferPause, handleManagedTransferPause(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferResume, handleManagedTransferResume(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferStop, handleManagedTransferStop(datasetHandler))
+	client.RegisterCommandHandler(CmdTransferDelete, handleManagedTransferDelete(datasetHandler))
 }
 
 // Helper for parsing JSON payload from a command request

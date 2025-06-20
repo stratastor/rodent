@@ -222,13 +222,13 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGINFO)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1)
 
 	go func() {
 		for sig := range sigChan {
 			switch sig {
-			case syscall.SIGUSR1, syscall.SIGINFO:
-				// Request verbose output
+			case syscall.SIGUSR1:
+				// Request verbose output (SIGUSR1 works on both Linux and macOS)
 				if cmd.Process != nil {
 					cmd.Process.Signal(sig)
 				}

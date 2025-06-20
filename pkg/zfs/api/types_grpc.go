@@ -74,4 +74,13 @@ const (
 	// Data transfer operations
 	CmdTransferSend        = proto.ZFSCmdTransferSend
 	CmdTransferResumeToken = proto.ZFSCmdTransferResumeToken
+
+	// Managed transfer operations
+	CmdTransferStart  = proto.ZFSCmdTransferStart
+	CmdTransferList   = proto.ZFSCmdTransferList
+	CmdTransferGet    = proto.ZFSCmdTransferGet
+	CmdTransferPause  = proto.ZFSCmdTransferPause
+	CmdTransferResume = proto.ZFSCmdTransferResume
+	CmdTransferStop   = proto.ZFSCmdTransferStop
+	CmdTransferDelete = proto.ZFSCmdTransferDelete
 )

@@ -775,3 +775,152 @@ func handleTransferResumeToken(h *DatasetHandler) client.CommandHandler {
 		return successResponse(req.RequestId, "Resume token retrieved", token)
 	}
 }
+
+// Managed transfer handlers
+
+// handleManagedTransferStart returns a handler for starting a managed ZFS transfer
+func handleManagedTransferStart(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var transferConfig dataset.TransferConfig
+		if err := parseJSONPayload(cmd, &transferConfig); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		// Create context for the request
+		ctx := createHandlerContext(req)
+
+		// Start the managed transfer
+		transferID, err := h.transferManager.StartTransfer(ctx, transferConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSDatasetSend)
+		}
+
+		return successResponse(req.RequestId, "Managed transfer started", map[string]string{"transfer_id": transferID})
+	}
+}
+
+// handleManagedTransferList returns a handler for listing all transfers
+func handleManagedTransferList(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		transfers := h.transferManager.ListTransfers()
+		return successResponse(req.RequestId, "Transfer list retrieved", transfers)
+	}
+}
+
+// handleManagedTransferGet returns a handler for getting a specific transfer
+func handleManagedTransferGet(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		transfer, err := h.transferManager.GetTransfer(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Transfer details retrieved", transfer)
+	}
+}
+
+// handleManagedTransferPause returns a handler for pausing a transfer
+func handleManagedTransferPause(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		err := h.transferManager.PauseTransfer(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Transfer paused successfully", nil)
+	}
+}
+
+// handleManagedTransferResume returns a handler for resuming a transfer
+func handleManagedTransferResume(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		// Create context for the request
+		ctx := createHandlerContext(req)
+
+		err := h.transferManager.ResumeTransfer(ctx, idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Transfer resumed successfully", nil)
+	}
+}
+
+// handleManagedTransferStop returns a handler for stopping a transfer
+func handleManagedTransferStop(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		err := h.transferManager.StopTransfer(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Transfer stopped successfully", nil)
+	}
+}
+
+// handleManagedTransferDelete returns a handler for deleting a transfer
+func handleManagedTransferDelete(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		err := h.transferManager.DeleteTransfer(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Transfer deleted successfully", nil)
+	}
+}
