@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	configDir   string // Directory for configuration files
-	servicesDir string // Directory for service configurations
-	keysDir     string // Directory for keys
-	sshDir      string // Directory for SSH configurations
+	configDir    string // Directory for configuration files
+	servicesDir  string // Directory for service configurations
+	keysDir      string // Directory for keys
+	sshDir       string // Directory for SSH configurations
+	transfersDir string // Directory for managing ZFS dataset transfers
 )
 
 func init() {
@@ -32,6 +33,12 @@ func init() {
 	servicesDir = filepath.Join(configDir, "services")
 	keysDir = filepath.Join(configDir, "keys")
 	sshDir = filepath.Join(keysDir, "ssh")
+	transfersDir = filepath.Join(configDir, "transfers")
+
+	// Ensure the directories exist
+	if err := EnsureDirectories(); err != nil {
+		panic(fmt.Sprintf("failed to ensure configuration directories: %v", err))
+	}
 }
 
 // GetConfigDir returns the appropriate configuration directory
@@ -54,4 +61,28 @@ func GetKeysDir() string {
 // GetSSHDir returns the directory for SSH configurations
 func GetSSHDir() string {
 	return sshDir
+}
+
+// GetTransfersDir returns the directory for managing ZFS dataset transfers
+func GetTransfersDir() string {
+	return transfersDir
+}
+
+// EnsureDirectories creates necessary directories if they do not exist
+func EnsureDirectories() error {
+	dirs := []string{
+		configDir,
+		servicesDir,
+		keysDir,
+		sshDir,
+		transfersDir,
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+
+	return nil
 }

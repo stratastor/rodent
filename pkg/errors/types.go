@@ -187,6 +187,12 @@ const (
 	ZFSDatasetReceive
 	ZFSDatasetNoReceiveToken
 
+	// Transfer management errors
+	TransferNotFound
+	TransferInvalidState
+	TransferPauseFailed
+	TransferResumeFailed
+
 	ZFSSnapshotList
 	ZFSSnapshotDestroy
 	ZFSSnapshotRollback
@@ -755,6 +761,12 @@ var errorDefinitions = map[ErrorCode]struct {
 	ZFSDatasetSend:           {"Failed to send dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetReceive:        {"Failed to receive dataset", DomainZFS, http.StatusBadRequest},
 	ZFSDatasetNoReceiveToken: {"No _receive_ token", DomainZFS, http.StatusNotFound},
+
+	// Transfer management error definitions
+	TransferNotFound:     {"Transfer not found", DomainZFS, http.StatusNotFound},
+	TransferInvalidState: {"Invalid transfer state", DomainZFS, http.StatusBadRequest},
+	TransferPauseFailed:  {"Failed to pause transfer", DomainZFS, http.StatusInternalServerError},
+	TransferResumeFailed: {"Failed to resume transfer", DomainZFS, http.StatusInternalServerError},
 
 	ZFSSnapshotList:     {"Failed to list snapshots", DomainZFS, http.StatusBadRequest},
 	ZFSSnapshotDestroy:  {"Failed to destroy snapshot", DomainZFS, http.StatusBadRequest},
