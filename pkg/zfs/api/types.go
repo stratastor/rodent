@@ -29,10 +29,12 @@ import (
 //   - Snapshot operations
 //   - Clone operations
 //   - Property management
+//   - Transfer management
 //
 // All operations use proper validation and error handling.
 type DatasetHandler struct {
-	manager *dataset.Manager
+	manager         *dataset.Manager
+	transferManager *dataset.TransferManager
 }
 
 // PoolHandler provides HTTP and gRPC endpoints for ZFS pool operations.

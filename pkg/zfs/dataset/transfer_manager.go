@@ -82,12 +82,11 @@ type TransferManager struct {
 	activeTransfers map[string]*TransferInfo
 	transfersDir    string
 	logger          logger.Logger
-	datasetManager  *Manager
 }
 
 // NewTransferManager creates a new transfer manager instance
-func (m *Manager) NewTransferManager() (*TransferManager, error) {
-	l, err := logger.NewTag(logger.Config{LogLevel: "info"}, "zfs-transfer-manager")
+func NewTransferManager(logCfg logger.Config) (*TransferManager, error) {
+	l, err := logger.NewTag(logCfg, "zfs-transfer-manager")
 	if err != nil {
 		return nil, errors.Wrap(err, errors.RodentMisc)
 	}
@@ -96,7 +95,6 @@ func (m *Manager) NewTransferManager() (*TransferManager, error) {
 		activeTransfers: make(map[string]*TransferInfo),
 		transfersDir:    config.GetTransfersDir(),
 		logger:          l,
-		datasetManager:  m,
 	}
 
 	// Load existing transfers from disk

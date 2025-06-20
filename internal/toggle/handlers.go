@@ -34,11 +34,20 @@ func RegisterAllHandlers() {
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
 
 	// Initialize managers
+	datasetHandler, _ := zfsAPI.NewDatasetHandler(nil, nil)
 	datasetManager := dataset.NewManager(executor)
+	transferManager, err := dataset.NewTransferManager(logger.Config{LogLevel: cfg.Server.LogLevel})
+	if err != nil {
+		l.Error("Failed to create dataset transfer manager", "error", err)
+	} else {
+		// Create dataset handler with transfer manager
+		datasetHandler, err = zfsAPI.NewDatasetHandler(datasetManager, transferManager)
+		if err != nil {
+			l.Error("Failed to create dataset handler", "error", err)
+		}
+	}
 	poolManager := pool.NewManager(executor)
 
-	// Create API handlers
-	datasetHandler := zfsAPI.NewDatasetHandler(datasetManager)
 	poolHandler := zfsAPI.NewPoolHandler(poolManager)
 
 	// Register ZFS-related handlers
@@ -115,7 +124,7 @@ func RegisterAllHandlers() {
 		}
 	}
 
-	// Note: Network gRPC handlers are registered in pkg/server/routes.go 
+	// Note: Network gRPC handlers are registered in pkg/server/routes.go
 	// within registerNetworkRoutes() function, not here. This is because
 	// the network manager needs to be created during server startup
 	// with proper context and renderer configuration.

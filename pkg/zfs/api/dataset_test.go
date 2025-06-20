@@ -43,10 +43,14 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *dataset.Manager
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	poolMgr := pool.NewManager(executor)
 	datasetMgr := dataset.NewManager(executor)
+	transferMgr, err := dataset.NewTransferManager(logger.Config{LogLevel: "debug"})
+	if err != nil {
+		t.Fatalf("failed to create dataset transfer manager: %v", err)
+	}
 
 	// Create test pool
 	poolName := testutil.GeneratePoolName()
-	err := poolMgr.Create(context.Background(), pool.CreateConfig{
+	err = poolMgr.Create(context.Background(), pool.CreateConfig{
 		Name: poolName,
 		VDevSpec: []pool.VDevSpec{{
 			Type:    "raidz",
@@ -64,7 +68,10 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *pool.Manager, *dataset.Manager
 	router.Use(gin.Recovery())
 
 	// Create handler and register routes
-	handler := NewDatasetHandler(datasetMgr)
+	handler, err := NewDatasetHandler(datasetMgr, transferMgr)
+	if err != nil {
+		t.Fatalf("failed to create dataset handler: %v", err)
+	}
 	handler.RegisterRoutes(router.Group(constants.APIZFS))
 
 	cleanup := func() {

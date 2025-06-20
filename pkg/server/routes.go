@@ -31,7 +31,7 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
-func registerZFSRoutes(engine *gin.Engine) {
+func registerZFSRoutes(engine *gin.Engine) (error error) {
 	// Add error handler middleware
 	engine.Use(ErrorHandler())
 
@@ -41,10 +41,20 @@ func registerZFSRoutes(engine *gin.Engine) {
 
 	// Initialize managers
 	datasetManager := dataset.NewManager(executor)
-	poolManager := pool.NewManager(executor)
+	var datasetHandler *api.DatasetHandler
+	transferManager, err := dataset.NewTransferManager(logger.Config{LogLevel: cfg.Server.LogLevel})
+	if err != nil {
+		return fmt.Errorf("failed to create dataset transfer manager: %w", err)
 
-	// Create API handlers
-	datasetHandler := api.NewDatasetHandler(datasetManager)
+	} else {
+		// Create dataset handler with transfer manager
+		datasetHandler, err = api.NewDatasetHandler(datasetManager, transferManager)
+		if err != nil {
+			return fmt.Errorf("failed to create dataset handler: %w", err)
+		}
+	}
+
+	poolManager := pool.NewManager(executor)
 	poolHandler := api.NewPoolHandler(poolManager)
 
 	// API group with version
@@ -63,6 +73,7 @@ func registerZFSRoutes(engine *gin.Engine) {
 		// Health check routes
 		// v1.GET("/health", healthCheck)
 	}
+	return nil
 }
 
 func registerADRoutes(engine *gin.Engine) (adHandler *handlers.ADHandler, err error) {

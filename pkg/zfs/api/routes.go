@@ -166,6 +166,15 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			transfer.POST("/resume-token/fetch",
 				ValidateZFSEntityName(common.TypeFilesystem),
 				h.getResumeToken)
+
+			// Managed transfer operations
+			transfer.POST("/start", h.startManagedTransfer)
+			transfer.GET("/list", h.listTransfers)
+			transfer.GET("/:transferId", h.getTransfer)
+			transfer.POST("/:transferId/pause", h.pauseTransfer)
+			transfer.POST("/:transferId/resume", h.resumeTransfer)
+			transfer.POST("/:transferId/stop", h.stopTransfer)
+			transfer.DELETE("/:transferId", h.deleteTransfer)
 		}
 	}
 }

@@ -26,8 +26,14 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 )
 
-func NewDatasetHandler(manager *dataset.Manager) *DatasetHandler {
-	return &DatasetHandler{manager: manager}
+func NewDatasetHandler(
+	manager *dataset.Manager,
+	transferManager *dataset.TransferManager,
+) (*DatasetHandler, error) {
+	return &DatasetHandler{
+		manager:         manager,
+		transferManager: transferManager,
+	}, nil
 }
 
 func (h *DatasetHandler) listDatasets(c *gin.Context) {
@@ -496,4 +502,107 @@ func (h *DatasetHandler) unshareDataset(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+// Transfer management endpoints
+
+func (h *DatasetHandler) startManagedTransfer(c *gin.Context) {
+	var req dataset.TransferConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	transferID, err := h.transferManager.StartTransfer(c.Request.Context(), req)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"transfer_id": transferID})
+}
+
+func (h *DatasetHandler) listTransfers(c *gin.Context) {
+	transfers := h.transferManager.ListTransfers()
+	c.JSON(http.StatusOK, gin.H{"transfers": transfers})
+}
+
+func (h *DatasetHandler) getTransfer(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	transfer, err := h.transferManager.GetTransfer(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"transfer": transfer})
+}
+
+func (h *DatasetHandler) pauseTransfer(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	err := h.transferManager.PauseTransfer(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *DatasetHandler) resumeTransfer(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	err := h.transferManager.ResumeTransfer(c.Request.Context(), transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *DatasetHandler) stopTransfer(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	err := h.transferManager.StopTransfer(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *DatasetHandler) deleteTransfer(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	err := h.transferManager.DeleteTransfer(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }

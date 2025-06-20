@@ -26,10 +26,14 @@ func setupTestGRPC(t *testing.T) (*PoolHandler, *DatasetHandler, string, func())
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	poolMgr := pool.NewManager(executor)
 	datasetMgr := dataset.NewManager(executor)
+	transferMgr, err := dataset.NewTransferManager(logger.Config{LogLevel: "debug"})
+	if err != nil {
+		t.Fatalf("failed to create dataset transfer manager: %v", err)
+	}
 
 	// Create test pool
 	poolName := testutil.GeneratePoolName()
-	err := poolMgr.Create(context.Background(), pool.CreateConfig{
+	err = poolMgr.Create(context.Background(), pool.CreateConfig{
 		Name: poolName,
 		VDevSpec: []pool.VDevSpec{
 			{
@@ -42,7 +46,10 @@ func setupTestGRPC(t *testing.T) (*PoolHandler, *DatasetHandler, string, func())
 
 	// Create handlers
 	poolHandler := NewPoolHandler(poolMgr)
-	datasetHandler := NewDatasetHandler(datasetMgr)
+	datasetHandler, err := NewDatasetHandler(datasetMgr, transferMgr)
+	if err != nil {
+		t.Fatalf("failed to create dataset handler: %v", err)
+	}
 
 	// Return cleanup function
 	cleanup := func() {

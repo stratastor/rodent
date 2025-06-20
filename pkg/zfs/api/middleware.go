@@ -26,8 +26,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
-	"github.com/stratastor/rodent/pkg/zfs/common"
+	zfsCommon "github.com/stratastor/rodent/pkg/zfs/common"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
@@ -118,10 +119,15 @@ func ErrorHandler() gin.HandlerFunc {
 }
 
 // Helper to add errors to context
-func APIError(c *gin.Context, err error) {
-	c.Error(err)
-	c.Abort()
-}
+// func APIError(c *gin.Context, err error) {
+// 	c.Error(err)
+// 	c.Abort()
+// }
+
+var (
+	// APIError is a helper function to return structured API errors
+	APIError = common.APIError
+)
 
 // ReadResetBody reads and resets the request body so it can be re-read by subsequent handlers
 func ReadResetBody(c *gin.Context) ([]byte, error) {
@@ -216,7 +222,7 @@ func ValidateVolumeSize() gin.HandlerFunc {
 }
 
 // ValidateZFSEntityName validates any ZFS entity name
-func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
+func ValidateZFSEntityName(dtype zfsCommon.DatasetType) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
@@ -261,22 +267,22 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 
 			// Validate name format
 			switch dtype {
-			case common.TypeZFSEntityMask:
-				err := common.EntityNameCheck(name)
+			case zfsCommon.TypeZFSEntityMask:
+				err := zfsCommon.EntityNameCheck(name)
 				if err != nil {
 					APIError(c, err)
 					return
 				}
-			case common.TypeDatasetMask:
-				err := common.DatasetNameCheck(name)
+			case zfsCommon.TypeDatasetMask:
+				err := zfsCommon.DatasetNameCheck(name)
 				if err != nil {
 					APIError(c, err)
 					return
 				}
-			case common.TypeBookmark | common.TypeSnapshot:
+			case zfsCommon.TypeBookmark | zfsCommon.TypeSnapshot:
 				// This is the case for clone creation where the name can be either a bookmark or snapshot
-				errbm := common.ValidateZFSName(name, common.TypeBookmark)
-				errsnap := common.ValidateZFSName(name, common.TypeSnapshot)
+				errbm := zfsCommon.ValidateZFSName(name, zfsCommon.TypeBookmark)
+				errsnap := zfsCommon.ValidateZFSName(name, zfsCommon.TypeSnapshot)
 				if errbm != nil && errsnap != nil {
 					APIError(
 						c,
@@ -288,7 +294,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 					return
 				}
 			default:
-				err := common.ValidateZFSName(name, dtype)
+				err := zfsCommon.ValidateZFSName(name, dtype)
 				if err != nil {
 					APIError(c, err)
 					return
@@ -301,7 +307,7 @@ func ValidateZFSEntityName(dtype common.DatasetType) gin.HandlerFunc {
 
 // isValidDatasetProperty maintains a list of valid ZFS properties
 func isValidDatasetProperty(property string) bool {
-	return common.IsValidDatasetProperty(property)
+	return zfsCommon.IsValidDatasetProperty(property)
 }
 
 // ValidatePoolName validates pool name format
@@ -489,10 +495,10 @@ func ValidateNameLength() gin.HandlerFunc {
 	}
 }
 
-func ValidatePoolProperty(propCtx common.PoolPropContext) gin.HandlerFunc {
+func ValidatePoolProperty(propCtx zfsCommon.PoolPropContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		property := c.Param("property")
-		if !common.IsValidPoolProperty(property, propCtx) {
+		if !zfsCommon.IsValidPoolProperty(property, propCtx) {
 			APIError(c, errors.New(errors.ZFSPropertyError, "Invalid pool property name"))
 			return
 		}
@@ -507,7 +513,7 @@ func ValidatePoolProperty(propCtx common.PoolPropContext) gin.HandlerFunc {
 // - ImportPoolPropContext: Properties that can be set only at pool import time
 // - ValidPoolSetPropContext: Properties that can be set at any time
 // - ValidPoolGetPropContext: Properties that can be read any time
-func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
+func ValidatePoolProperties(propCtx zfsCommon.PoolPropContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Read and store the raw body
 		body, err := ReadResetBody(c)
@@ -528,7 +534,7 @@ func ValidatePoolProperties(propCtx common.PoolPropContext) gin.HandlerFunc {
 
 		for k, v := range req.Properties {
 			// Validate property name
-			if !common.IsValidPoolProperty(k, propCtx) {
+			if !zfsCommon.IsValidPoolProperty(k, propCtx) {
 				APIError(c, errors.New(errors.ZFSPropertyError, "Invalid pool property name"))
 				return
 			}
@@ -668,8 +674,8 @@ func ValidateDiffConfig() gin.HandlerFunc {
 
 		// Validate each name
 		for _, name := range req.Names {
-			if err := common.ValidateZFSName(name, common.TypeSnapshot); err != nil {
-				if err2 := common.ValidateZFSName(name, common.TypeFilesystem); err2 != nil {
+			if err := zfsCommon.ValidateZFSName(name, zfsCommon.TypeSnapshot); err != nil {
+				if err2 := zfsCommon.ValidateZFSName(name, zfsCommon.TypeFilesystem); err2 != nil {
 					APIError(c, errors.New(errors.ZFSNameInvalid, "Invalid name format"))
 					return
 				}

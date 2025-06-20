@@ -186,10 +186,12 @@ func SetupTestWithMockToggle(t *testing.T) (*MockToggleServer, string, func()) {
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: "debug"})
 	poolMgr := pool.NewManager(executor)
 	datasetMgr := dataset.NewManager(executor)
+	transferMgr, err := dataset.NewTransferManager(logger.Config{LogLevel: "debug"})
+	require.NoError(t, err, "failed to create dataset transfer manager")
 
 	// Create test pool
 	poolName := testutil.GeneratePoolName()
-	err := poolMgr.Create(context.Background(), pool.CreateConfig{
+	err = poolMgr.Create(context.Background(), pool.CreateConfig{
 		Name: poolName,
 		VDevSpec: []pool.VDevSpec{
 			{
@@ -202,7 +204,10 @@ func SetupTestWithMockToggle(t *testing.T) (*MockToggleServer, string, func()) {
 
 	// Create and register handlers
 	poolHandler := NewPoolHandler(poolMgr)
-	datasetHandler := NewDatasetHandler(datasetMgr)
+	datasetHandler, err := NewDatasetHandler(datasetMgr, transferMgr)
+	if err != nil {
+		t.Fatalf("failed to create dataset handler: %v", err)
+	}
 
 	// Clear any existing handlers and register ZFS handlers
 	// client.ClearCommandHandlers()

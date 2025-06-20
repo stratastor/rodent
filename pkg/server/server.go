@@ -96,7 +96,10 @@ func Start(ctx context.Context, port int) error {
 		}
 	}
 
-	registerZFSRoutes(engine)
+	err = registerZFSRoutes(engine)
+	if err != nil {
+		l.Error("Failed to register ZFS routes, continuing without ZFS functionality", "error", err)
+	}
 
 	// Wait a moment for AD DC to initialize if it was just started
 	if cfg.AD.DC.Enabled {
@@ -123,13 +126,21 @@ func Start(ctx context.Context, port int) error {
 	// Register shares routes with graceful error handling
 	err = registerSharesRoutes(engine)
 	if err != nil {
-		l.Error("Failed to register shares routes, continuing without shares functionality", "error", err)
+		l.Error(
+			"Failed to register shares routes, continuing without shares functionality",
+			"error",
+			err,
+		)
 	}
 
 	// Register SSH key routes with graceful error handling
 	sshKeyHandler, err := registerSSHKeyRoutes(engine)
 	if err != nil {
-		l.Error("Failed to register SSH key routes, continuing without SSH key functionality", "error", err)
+		l.Error(
+			"Failed to register SSH key routes, continuing without SSH key functionality",
+			"error",
+			err,
+		)
 	} else {
 		defer sshKeyHandler.Close()
 	}
@@ -137,7 +148,11 @@ func Start(ctx context.Context, port int) error {
 	// Register network management routes with graceful error handling
 	networkHandler, err := registerNetworkRoutes(engine)
 	if err != nil {
-		l.Error("Failed to register network routes, continuing without network management functionality", "error", err)
+		l.Error(
+			"Failed to register network routes, continuing without network management functionality",
+			"error",
+			err,
+		)
 	} else {
 		_ = networkHandler // Handler doesn't implement Close() method
 	}
