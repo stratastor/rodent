@@ -191,6 +191,7 @@ const (
 	TransferNotFound
 	TransferInvalidState
 	TransferPauseFailed
+	TransferStopFailed
 	TransferResumeFailed
 
 	ZFSSnapshotList
@@ -766,6 +767,7 @@ var errorDefinitions = map[ErrorCode]struct {
 	TransferNotFound:     {"Transfer not found", DomainZFS, http.StatusNotFound},
 	TransferInvalidState: {"Invalid transfer state", DomainZFS, http.StatusBadRequest},
 	TransferPauseFailed:  {"Failed to pause transfer", DomainZFS, http.StatusInternalServerError},
+	TransferStopFailed:   {"Failed to stop transfer", DomainZFS, http.StatusInternalServerError},
 	TransferResumeFailed: {"Failed to resume transfer", DomainZFS, http.StatusInternalServerError},
 
 	ZFSSnapshotList:     {"Failed to list snapshots", DomainZFS, http.StatusBadRequest},

@@ -48,6 +48,16 @@ const (
 	TransferOperationSendReceive TransferOperation = "send_receive"
 )
 
+// TransferAction represents the intended action for the transfer
+type TransferAction string
+
+const (
+	TransferActionNone   TransferAction = ""
+	TransferActionPause  TransferAction = "pause"
+	TransferActionStop   TransferAction = "stop"
+	TransferActionResume TransferAction = "resume"
+)
+
 // TransferInfo holds comprehensive information about a ZFS transfer
 type TransferInfo struct {
 	ID           string            `json:"id"                      yaml:"id"`
@@ -64,6 +74,8 @@ type TransferInfo struct {
 	ConfigFile   string            `json:"config_file"             yaml:"config_file"`
 	ProgressFile string            `json:"progress_file"           yaml:"progress_file"`
 	ErrorMessage string            `json:"error_message,omitempty" yaml:"error_message,omitempty"`
+	// Internal state for action flow tracking
+	pendingAction TransferAction `json:"-"                       yaml:"-"`
 }
 
 // TransferProgress tracks the progress of a transfer operation
@@ -201,6 +213,11 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 		cmd.Stderr = logFile // Verbose output goes to log file
 	}
 
+	// Set up process group for proper signal handling
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group
+	}
+
 	// Start command
 	if err := cmd.Start(); err != nil {
 		tm.updateTransferStatusLocked(
@@ -211,16 +228,17 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 		return
 	}
 
-	// Save PID
+	// Save PID (this is the process group leader)
 	info.PID = cmd.Process.Pid
 	if err := tm.savePID(info); err != nil {
 		tm.logger.Warn("Failed to save PID", "error", err)
 	}
+	tm.logger.Debug("Transfer PID saved", "id", info.ID, "pid", info.PID)
 
 	// Monitor progress in background
 	go tm.monitorTransferProgress(info, logFile)
 
-	// Setup signal handling for graceful shutdown
+	// Setup signal handling for verbose output and system interrupts
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1)
 
@@ -233,6 +251,14 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 					cmd.Process.Signal(sig)
 				}
 			case syscall.SIGTERM, syscall.SIGINT:
+				// This is a system interrupt to the Go program (like Ctrl+C)
+				tm.logger.Info(
+					"Transfer interrupted by system signal",
+					"id",
+					info.ID,
+					"signal",
+					sig,
+				)
 				tm.StopTransfer(info.ID)
 				return
 			}
@@ -241,14 +267,49 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 
 	// Wait for command completion
 	err = cmd.Wait()
+
+	// Check final status to decide what to do
+	tm.mu.Lock()
+	finalStatus := info.Status
+	finalAction := info.pendingAction
+	tm.mu.Unlock()
+
+	tm.logger.Debug("Transfer command completed",
+		"id", info.ID, "cmd_error", err, "final_status", finalStatus, "pending_action", finalAction)
+
+	// Only update status if transfer hasn't been explicitly paused, stopped, or cancelled
+	switch finalStatus {
+	case TransferStatusPaused, TransferStatusCancelled:
+		// These statuses were set by explicit actions, don't overwrite
+		tm.logger.Debug(
+			"Transfer status already set by action",
+			"id",
+			info.ID,
+			"status",
+			finalStatus,
+		)
+		return
+	case TransferStatusCompleted, TransferStatusFailed:
+		// These might be stale, check if we should update
+		if finalAction != TransferActionNone {
+			tm.logger.Debug("Transfer has pending action, not updating status",
+				"id", info.ID, "action", finalAction)
+			return
+		}
+	}
+
+	// Update status based on command completion result
 	if err != nil {
 		if ctx.Err() != nil {
 			tm.updateTransferStatusLocked(info, TransferStatusCancelled, "Transfer cancelled")
+			tm.logger.Info("Status Update: Transfer cancelled", "id", info.ID)
 		} else {
 			tm.updateTransferStatusLocked(info, TransferStatusFailed, fmt.Sprintf("Transfer failed: %v", err))
+			tm.logger.Error("Status Update: Transfer failed", "id", info.ID, "error", err)
 		}
 	} else {
 		tm.updateTransferStatusLocked(info, TransferStatusCompleted, "")
+		tm.logger.Info("Status Update: Transfer completed", "id", info.ID)
 	}
 }
 
@@ -267,7 +328,7 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 
 	if sendCfg.ResumeToken != "" {
 		// Variant 3: Resume token send - only -PVenv flags are applicable
-		if sendCfg.Progress {
+		if sendCfg.Parsable {
 			sendPart = append(sendPart, "-P")
 		}
 		if sendCfg.Verbose {
@@ -290,7 +351,7 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 		// Variants 1 & 2: Regular send commands
 
 		// Common flags for all variants
-		if sendCfg.Progress {
+		if sendCfg.Parsable {
 			sendPart = append(sendPart, "-P") // Parsable verbose info
 		}
 		if sendCfg.Verbose {
@@ -352,7 +413,9 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 	// Build receive command
 	recvPart := []string{"zfs", "receive"}
 	if recvCfg.Force {
-		recvPart = append(recvPart, "-F")
+		if sendCfg.ResumeToken == "" {
+			recvPart = append(recvPart, "-F")
+		}
 	}
 	if recvCfg.Unmounted {
 		recvPart = append(recvPart, "-u")
@@ -428,24 +491,65 @@ func (tm *TransferManager) PauseTransfer(transferID string) error {
 		)
 	}
 
-	// Terminate the process gracefully
+	// Set pending action to pause to prevent executeTransfer from updating status
+	info.pendingAction = TransferActionPause
+
+	tm.logger.Debug("Process group before pause", "id", info.ID, "pgid", info.PID)
+	// Terminate the entire process group gracefully
 	if info.PID > 0 {
-		if err := syscall.Kill(info.PID, syscall.SIGTERM); err != nil {
-			return errors.Wrap(err, errors.TransferPauseFailed)
+		// Send SIGTERM to the entire process group (negative PID)
+		if err := syscall.Kill(-info.PID, syscall.SIGTERM); err != nil {
+			tm.logger.Warn(
+				"Failed to terminate transfer process group gracefully",
+				"id",
+				info.ID,
+				"error",
+				err,
+			)
+			// Try force kill on process group
+			if err := syscall.Kill(-info.PID, syscall.SIGKILL); err != nil {
+				tm.logger.Error(
+					"Failed to force kill transfer process group",
+					"id",
+					info.ID,
+					"error",
+					err,
+				)
+				info.pendingAction = TransferActionNone // Reset on error
+				return errors.Wrap(err, errors.TransferPauseFailed)
+			}
 		}
 
-		// Wait a bit for graceful shutdown
-		time.Sleep(2 * time.Second)
+		// Update status to paused but keep pending action until executeTransfer completes
+		tm.updateTransferStatusUnlocked(info, TransferStatusPaused, "")
+		// sleep for a couple of seconds to allow graceful termination
+		tm.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		tm.mu.Lock()
 
-		// Force kill if still running
+		// Force kill process group if still running
 		if tm.isProcessRunning(info.PID) {
-			syscall.Kill(info.PID, syscall.SIGKILL)
+			tm.logger.Warn(
+				"Transfer process group did not terminate gracefully, forcing kill",
+				"id",
+				info.ID,
+			)
+			if err := syscall.Kill(-info.PID, syscall.SIGKILL); err != nil {
+				tm.logger.Error(
+					"Failed to force kill transfer process group",
+					"id",
+					info.ID,
+					"error",
+					err,
+				)
+				info.pendingAction = TransferActionNone // Reset on error
+				return errors.Wrap(err, errors.TransferPauseFailed)
+			}
 		}
 	}
 
-	// Don't fetch resume token here - do it during resume to handle network failures robustly
-	tm.updateTransferStatusUnlocked(info, TransferStatusPaused, "")
 	tm.logger.Info("Transfer paused", "id", transferID)
+	// Note: pendingAction is intentionally left as TransferActionPause until executeTransfer() sees it
 	return nil
 }
 
@@ -486,6 +590,8 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 	// Update send config to use the fetched resume token
 	info.Config.SendConfig.ResumeToken = token
 
+	// Clear any pending action and update status to running
+	info.pendingAction = TransferActionNone
 	tm.updateTransferStatusUnlocked(info, TransferStatusRunning, "")
 
 	// Start transfer in background
@@ -516,11 +622,32 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 		return errors.New(errors.TransferInvalidState, "Transfer is already finished")
 	}
 
-	// Terminate the process
+	// Set pending action to stop to prevent executeTransfer from updating status
+	info.pendingAction = TransferActionStop
+
+	// Terminate the entire process group
 	if info.PID > 0 {
-		if err := syscall.Kill(info.PID, syscall.SIGTERM); err != nil {
-			// If SIGTERM fails, try SIGKILL
-			syscall.Kill(info.PID, syscall.SIGKILL)
+		// Send SIGTERM to the entire process group (negative PID)
+		if err := syscall.Kill(-info.PID, syscall.SIGTERM); err != nil {
+			tm.logger.Warn(
+				"Failed to terminate transfer process group gracefully",
+				"id",
+				info.ID,
+				"error",
+				err,
+			)
+			// Try force kill on process group
+			if err := syscall.Kill(-info.PID, syscall.SIGKILL); err != nil {
+				tm.logger.Error(
+					"Failed to force kill transfer process group",
+					"id",
+					info.ID,
+					"error",
+					err,
+				)
+				info.pendingAction = TransferActionNone // Reset on error
+				return errors.Wrap(err, errors.TransferStopFailed)
+			}
 		}
 	}
 
@@ -531,7 +658,10 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 		}
 	}
 
+	// Update status to cancelled but keep pending action until executeTransfer completes
 	tm.updateTransferStatusUnlocked(info, TransferStatusCancelled, "Transfer stopped by user")
+	// Note: pendingAction is intentionally left as TransferActionStop until executeTransfer() sees it
+
 	tm.logger.Info("Transfer stopped", "id", transferID)
 	return nil
 }
@@ -668,8 +798,10 @@ func (tm *TransferManager) getReceiveResumeToken(
 
 		cmdStr := fmt.Sprintf("%s sudo zfs get -H -o value receive_resume_token %s",
 			shellquote.Join(sshPart...), shellquote.Join(target))
+		tm.logger.Debug("Executing remote command to get resume token", "command", cmdStr)
 		cmd = exec.Command("bash", "-c", cmdStr)
 	} else {
+		tm.logger.Debug("Executing local command to get resume token", "target", target)
 		// Local dataset
 		cmd = exec.Command("sudo", "zfs", "get", "-H", "-o", "value", "receive_resume_token", target)
 	}
@@ -700,8 +832,10 @@ func (tm *TransferManager) abortPartialReceive(target string, remoteConfig Remot
 
 		cmdStr := fmt.Sprintf("%s sudo zfs receive -A %s",
 			shellquote.Join(sshPart...), shellquote.Join(target))
+		tm.logger.Debug("Executing remote command to abort partial receive", "command", cmdStr)
 		cmd = exec.Command("bash", "-c", cmdStr)
 	} else {
+		tm.logger.Debug("Executing local command to abort partial receive", "target", target)
 		// Local dataset
 		cmd = exec.Command("sudo", "zfs", "receive", "-A", target)
 	}
@@ -816,6 +950,11 @@ func (tm *TransferManager) loadExistingTransfers() error {
 }
 
 func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {
+	// Clear any pending action now that executeTransfer has completed
+	tm.mu.Lock()
+	info.pendingAction = TransferActionNone
+	tm.mu.Unlock()
+
 	// Clean up PID file
 	if info.PIDFile != "" {
 		os.Remove(info.PIDFile)

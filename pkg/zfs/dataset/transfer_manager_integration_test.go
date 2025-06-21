@@ -171,7 +171,7 @@ func TestTransferManager_StartTransfer_Basic(t *testing.T) {
 		SendConfig: SendConfig{
 			Snapshot: snapshotName,
 			Verbose:  true,
-			Progress: true,
+			Parsable: false,
 		},
 		ReceiveConfig: ReceiveConfig{
 			Target: testConfig.TargetFilesystem + "/test-basic" + time.Now().
@@ -250,7 +250,7 @@ func TestTransferManager_PauseResumeTransfer(t *testing.T) {
 		SendConfig: SendConfig{
 			Snapshot: snapshotName,
 			Verbose:  true,
-			Progress: true,
+			Parsable: false,
 		},
 		ReceiveConfig: ReceiveConfig{
 			Target: testConfig.TargetFilesystem + "/test-pause-resume" + time.Now().
@@ -272,12 +272,14 @@ func TestTransferManager_PauseResumeTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start transfer: %v", err)
 	}
+	// Clean up the remote filesystem
+	defer cleanupRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
 
 	t.Logf("Started transfer with ID: %s", transferID)
 
 	// Wait a bit for transfer to start
-	time.Sleep(1 * time.Second)
-	t.Logf("Slept for 1 second, now pausing transfer %s", transferID)
+	time.Sleep(2 * time.Second)
+	t.Logf("Slept for 2 seconds, now pausing transfer %s", transferID)
 
 	// Pause the transfer
 	err = transferManager.PauseTransfer(transferID)
@@ -300,8 +302,8 @@ func TestTransferManager_PauseResumeTransfer(t *testing.T) {
 	t.Logf("Transfer successfully paused")
 
 	// Wait a moment
-	time.Sleep(2 * time.Second)
-	t.Logf("Slept for 2 second, now resuming transfer %s", transferID)
+	time.Sleep(10 * time.Second)
+	t.Logf("Slept for 10 seconds, now resuming transfer %s", transferID)
 
 	// Resume the transfer
 	err = transferManager.ResumeTransfer(ctx, transferID)
@@ -337,9 +339,6 @@ func TestTransferManager_PauseResumeTransfer(t *testing.T) {
 				// Verify the filesystem was created on the remote target
 				verifyRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
 
-				// Clean up the remote filesystem
-				defer cleanupRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
-
 				return
 			case TransferStatusFailed:
 				t.Fatalf("Transfer failed after resume: %s", transfer.ErrorMessage)
@@ -365,7 +364,7 @@ func TestTransferManager_StopTransfer(t *testing.T) {
 		SendConfig: SendConfig{
 			Snapshot: snapshotName,
 			Verbose:  true,
-			Progress: true,
+			Parsable: false,
 		},
 		ReceiveConfig: ReceiveConfig{
 			Target: testConfig.TargetFilesystem + "/test-stop" + time.Now().
@@ -387,6 +386,9 @@ func TestTransferManager_StopTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start transfer: %v", err)
 	}
+
+	// Clean up any remote filesystem that might have been created before stopping
+	defer cleanupRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
 
 	t.Logf("Started transfer with ID: %s", transferID)
 
@@ -433,7 +435,7 @@ func TestTransferManager_ListTransfers(t *testing.T) {
 			SendConfig: SendConfig{
 				Snapshot: snapshotName,
 				Verbose:  true,
-				Progress: true,
+				Parsable: false,
 			},
 			ReceiveConfig: ReceiveConfig{
 				Target:    fmt.Sprintf("%s/test-list-%d", testConfig.TargetFilesystem, i),
@@ -508,7 +510,7 @@ func TestTransferManager_DeleteTransfer(t *testing.T) {
 		SendConfig: SendConfig{
 			Snapshot: snapshotName,
 			Verbose:  true,
-			Progress: true,
+			Parsable: false,
 		},
 		ReceiveConfig: ReceiveConfig{
 			Target: testConfig.TargetFilesystem + "/test-delete" + time.Now().
@@ -582,7 +584,7 @@ func TestTransferManager_NetworkResilience(t *testing.T) {
 		SendConfig: SendConfig{
 			Snapshot: snapshotName,
 			Verbose:  true,
-			Progress: true,
+			Parsable: false,
 		},
 		ReceiveConfig: ReceiveConfig{
 			Target: testConfig.TargetFilesystem + "/test-network" + time.Now().

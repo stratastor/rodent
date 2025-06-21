@@ -67,7 +67,7 @@ type SendConfig struct {
 
 	// Resume options
 	ResumeToken string `json:"resume_token"` // Token for resuming send
-	Progress    bool   `json:"progress"`     // -P: Print parsable progress statistics
+	Parsable    bool   `json:"parsable"`     // -P: Print machine-parsable verbose information about the stream package generated
 
 	// Transfer control
 	// TODO: Implement timeout
@@ -172,7 +172,6 @@ func parseSSHOptions(options string) ([]string, error) {
 	return result, nil
 }
 
-
 // GetResumeToken gets the resume token from a partially received dataset
 func (m *Manager) GetResumeToken(ctx context.Context, cfg NameConfig) (string, error) {
 	args := []string{"get", "-H", "-o", "value", "receive_resume_token", cfg.Name}
@@ -227,7 +226,7 @@ func (m *Manager) SendReceive(
 	if sendCfg.ResumeToken != "" {
 		sendPart = append(sendPart, "-t", sendCfg.ResumeToken)
 	}
-	if sendCfg.Progress {
+	if sendCfg.Parsable {
 		sendPart = append(sendPart, "-P")
 	}
 	if sendCfg.Compressed {

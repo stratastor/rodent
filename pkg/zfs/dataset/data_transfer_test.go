@@ -127,7 +127,7 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snapName,
 				Properties: true,
-				Progress:   true,
+				Parsable:   true,
 				Compressed: true,
 				LogLevel:   logLevel,
 			},
@@ -304,7 +304,7 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snapName,
 				Properties: true,
-				Progress:   true,
+				Parsable:   true,
 				LogLevel:   logLevel,
 			},
 			ReceiveConfig{
@@ -338,7 +338,7 @@ func TestDataTransferOperations(t *testing.T) {
 		err = datasetMgr.SendReceive(context.Background(),
 			SendConfig{
 				ResumeToken: token,
-				Progress:    true,
+				Parsable:    true,
 				LogLevel:    logLevel,
 			},
 			ReceiveConfig{
@@ -399,7 +399,7 @@ func TestDataTransferOperations(t *testing.T) {
 			SendConfig{
 				Snapshot:   snapName,
 				Properties: true,
-				Progress:   true,
+				Parsable:   true,
 				Compressed: true,
 				LogLevel:   logLevel,
 			},
