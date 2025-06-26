@@ -86,6 +86,8 @@ type TransferProgress struct {
 	ElapsedTime      int64     `json:"elapsed_time"            yaml:"elapsed_time"`
 	LastUpdate       time.Time `json:"last_update"             yaml:"last_update"`
 	EstimatedETA     int64     `json:"estimated_eta,omitempty" yaml:"estimated_eta,omitempty"`
+	Phase            string    `json:"phase,omitempty"         yaml:"phase,omitempty"`
+	PhaseDescription string    `json:"phase_description,omitempty" yaml:"phase_description,omitempty"`
 }
 
 // TransferManager manages enterprise-grade ZFS transfer operations
@@ -179,6 +181,62 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 	tm.updateTransferStatusLocked(info, TransferStatusRunning, "")
 	startTime := time.Now()
 	info.StartedAt = &startTime
+
+	// Pre-transfer validation: Check for initial snapshot requirement
+	sendCfg := info.Config.SendConfig
+	recvCfg := info.Config.ReceiveConfig
+	
+	if sendCfg.FromSnapshot != "" && sendCfg.ResumeToken == "" {
+		tm.logger.Info("Validating incremental transfer requirements", "id", info.ID, "from_snapshot", sendCfg.FromSnapshot)
+		
+		exists, err := tm.snapshotExistsOnTarget(sendCfg.FromSnapshot, recvCfg)
+		if err != nil {
+			tm.logger.Warn("Could not verify initial snapshot on target, proceeding anyway", "id", info.ID, "error", err)
+		} else if !exists {
+			tm.logger.Info("Initial snapshot missing on target, performing automatic initial send", "id", info.ID, "snapshot", sendCfg.FromSnapshot)
+			
+			// Update progress to show initial send phase
+			info.Progress.Phase = "initial_send"
+			info.Progress.PhaseDescription = fmt.Sprintf("Sending initial snapshot: %s", sendCfg.FromSnapshot)
+			info.Progress.LastUpdate = time.Now()
+			tm.saveProgress(info)
+			
+			if err := tm.performInitialSend(ctx, info, sendCfg.FromSnapshot); err != nil {
+				tm.updateTransferStatusLocked(
+					info,
+					TransferStatusFailed,
+					fmt.Sprintf("Failed to send initial snapshot: %v", err),
+				)
+				return
+			}
+			
+			// Update progress to show incremental phase
+			info.Progress.Phase = "incremental_send"
+			info.Progress.PhaseDescription = fmt.Sprintf("Sending incremental changes from %s to %s", sendCfg.FromSnapshot, sendCfg.Snapshot)
+			info.Progress.LastUpdate = time.Now()
+			tm.saveProgress(info)
+			
+			tm.logger.Info("Initial snapshot sent successfully, proceeding with incremental transfer", "id", info.ID)
+		} else {
+			tm.logger.Debug("Initial snapshot exists on target, proceeding with incremental transfer", "id", info.ID)
+			
+			// Update progress to show incremental phase
+			info.Progress.Phase = "incremental_send"
+			info.Progress.PhaseDescription = fmt.Sprintf("Sending incremental changes from %s to %s", sendCfg.FromSnapshot, sendCfg.Snapshot)
+			info.Progress.LastUpdate = time.Now()
+			tm.saveProgress(info)
+		}
+	} else {
+		// Not an incremental transfer - set phase for full send
+		info.Progress.Phase = "full_send"
+		if sendCfg.ResumeToken != "" {
+			info.Progress.PhaseDescription = "Resuming transfer from saved state"
+		} else {
+			info.Progress.PhaseDescription = fmt.Sprintf("Sending full snapshot: %s", sendCfg.Snapshot)
+		}
+		info.Progress.LastUpdate = time.Now()
+		tm.saveProgress(info)
+	}
 
 	// Create log file
 	logFile, err := os.Create(info.LogFile)
@@ -727,6 +785,136 @@ func (tm *TransferManager) ListTransfers() []*TransferInfo {
 
 // Helper methods
 
+// snapshotExistsOnTarget checks if a snapshot exists on the target filesystem
+func (tm *TransferManager) snapshotExistsOnTarget(snapshot string, recvCfg ReceiveConfig) (bool, error) {
+	// Extract dataset name from snapshot (format: dataset@snapshot)
+	parts := strings.Split(snapshot, "@")
+	if len(parts) != 2 {
+		return false, fmt.Errorf("invalid snapshot format: %s", snapshot)
+	}
+	
+	// Build target snapshot name using receive target
+	targetSnapshot := fmt.Sprintf("%s@%s", recvCfg.Target, parts[1])
+	
+	var cmd *exec.Cmd
+	
+	if recvCfg.RemoteConfig.Host != "" {
+		// Remote target - use SSH
+		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
+		if err != nil {
+			return false, fmt.Errorf("failed to build SSH command: %w", err)
+		}
+		
+		cmdStr := fmt.Sprintf("%s sudo zfs list -H -t snapshot %s",
+			shellquote.Join(sshPart...), shellquote.Join(targetSnapshot))
+		tm.logger.Debug("Checking remote snapshot existence", "command", cmdStr)
+		cmd = exec.Command("bash", "-c", cmdStr)
+	} else {
+		// Local target
+		tm.logger.Debug("Checking local snapshot existence", "snapshot", targetSnapshot)
+		cmd = exec.Command("sudo", "zfs", "list", "-H", "-t", "snapshot", targetSnapshot)
+	}
+	
+	err := cmd.Run()
+	if err != nil {
+		// Exit code 1 typically means snapshot doesn't exist
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		// Other errors (network, permissions, etc.)
+		return false, fmt.Errorf("failed to check snapshot existence: %w", err)
+	}
+	
+	return true, nil
+}
+
+// performInitialSend executes a full send of the initial snapshot to the target
+func (tm *TransferManager) performInitialSend(_ context.Context, info *TransferInfo, fromSnapshot string) error {
+	tm.logger.Info("Performing initial snapshot send", "id", info.ID, "snapshot", fromSnapshot)
+	
+	// Create a temporary config for the initial send (full send, not incremental)
+	initialConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot:    fromSnapshot,
+			// Copy relevant flags from original config but remove incremental settings
+			Replicate:    info.Config.SendConfig.Replicate,
+			SkipMissing:  info.Config.SendConfig.SkipMissing,
+			Properties:   info.Config.SendConfig.Properties,
+			Raw:          info.Config.SendConfig.Raw,
+			LargeBlocks:  info.Config.SendConfig.LargeBlocks,
+			EmbedData:    info.Config.SendConfig.EmbedData,
+			Holds:        info.Config.SendConfig.Holds,
+			BackupStream: info.Config.SendConfig.BackupStream,
+			Compressed:   info.Config.SendConfig.Compressed,
+			Verbose:      info.Config.SendConfig.Verbose,
+			Parsable:     info.Config.SendConfig.Parsable,
+			Timeout:      info.Config.SendConfig.Timeout,
+			LogLevel:     info.Config.SendConfig.LogLevel,
+			// Explicitly clear incremental settings
+			FromSnapshot: "",
+			Intermediary: false,
+			Incremental:  false,
+		},
+		ReceiveConfig: info.Config.ReceiveConfig, // Use same receive config
+	}
+	
+	// Create temporary transfer info for initial send
+	initialInfo := &TransferInfo{
+		ID:        info.ID + "-initial",
+		Operation: TransferOperationSendReceive,
+		Status:    TransferStatusRunning,
+		Config:    initialConfig,
+		Progress:  TransferProgress{LastUpdate: time.Now()},
+		CreatedAt: time.Now(),
+		LogFile:   info.LogFile, // Use same log file
+	}
+	
+	// Build and execute initial send command
+	cmd, err := tm.buildTransferCommand(initialInfo)
+	if err != nil {
+		return fmt.Errorf("failed to build initial send command: %w", err)
+	}
+	
+	// Setup output redirection to log file
+	logFile, err := os.OpenFile(info.LogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer logFile.Close()
+	
+	// Log the initial send operation
+	fmt.Fprintf(logFile, "\n=== Initial Snapshot Send: %s ===\n", fromSnapshot)
+	
+	if initialConfig.SendConfig.DryRun {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	} else {
+		cmd.Stderr = logFile // Verbose output goes to log file
+	}
+	
+	// Set up process group
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+	
+	tm.logger.Info("Starting initial snapshot send", "id", info.ID, "snapshot", fromSnapshot)
+	
+	// Execute initial send
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start initial send command: %w", err)
+	}
+	
+	// Wait for completion
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("initial send failed: %w", err)
+	}
+	
+	fmt.Fprint(logFile, "=== Initial Snapshot Send Completed ===\n\n")
+	tm.logger.Info("Initial snapshot send completed", "id", info.ID, "snapshot", fromSnapshot)
+	
+	return nil
+}
+
 // updateTransferStatusLocked updates transfer status when caller doesn't hold lock
 func (tm *TransferManager) updateTransferStatusLocked(
 	info *TransferInfo,
@@ -899,7 +1087,8 @@ func (tm *TransferManager) saveTransferConfig(info *TransferInfo) error {
 }
 
 func (tm *TransferManager) savePID(info *TransferInfo) error {
-	return os.WriteFile(info.PIDFile, []byte(fmt.Sprintf("%d", info.PID)), 0644)
+	pidData := fmt.Appendf(nil, "%d", info.PID)
+	return os.WriteFile(info.PIDFile, pidData, 0644)
 }
 
 func (tm *TransferManager) saveProgress(info *TransferInfo) error {
