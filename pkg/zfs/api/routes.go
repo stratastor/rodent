@@ -175,6 +175,10 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			transfer.POST("/:transferId/resume", h.resumeTransfer)
 			transfer.POST("/:transferId/stop", h.stopTransfer)
 			transfer.DELETE("/:transferId", h.deleteTransfer)
+			
+			// Transfer log operations
+			transfer.GET("/:transferId/log", h.getTransferLog)
+			transfer.GET("/:transferId/log/gist", h.getTransferLogGist)
 		}
 	}
 }

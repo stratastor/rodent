@@ -90,6 +90,17 @@ type TransferProgress struct {
 	PhaseDescription string    `json:"phase_description,omitempty" yaml:"phase_description,omitempty"`
 }
 
+// TransferType represents different types of transfer queries
+type TransferType string
+
+const (
+	TransferTypeAll       TransferType = "all"
+	TransferTypeActive    TransferType = "active"
+	TransferTypeCompleted TransferType = "completed"
+	TransferTypeFailed    TransferType = "failed"
+)
+
+
 // TransferManager manages enterprise-grade ZFS transfer operations
 type TransferManager struct {
 	mu              sync.RWMutex
@@ -724,63 +735,321 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 	return nil
 }
 
-// DeleteTransfer removes a transfer and its associated files
+// DeleteTransfer removes a transfer and its associated files (active or historical)
 func (tm *TransferManager) DeleteTransfer(transferID string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	info, exists := tm.activeTransfers[transferID]
-	if !exists {
-		return errors.New(errors.TransferNotFound, "Transfer not found")
-	}
+	// Check if it's an active transfer
+	if info, exists := tm.activeTransfers[transferID]; exists {
+		// Can only delete finished transfers
+		if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
+			return errors.New(errors.TransferInvalidState, "Cannot delete active transfer")
+		}
 
-	// Can only delete finished transfers
-	if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
-		return errors.New(errors.TransferInvalidState, "Cannot delete active transfer")
-	}
+		// Remove files
+		files := []string{info.LogFile, info.PIDFile, info.ConfigFile, info.ProgressFile}
+		for _, file := range files {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				tm.logger.Warn("Failed to remove transfer file", "file", file, "error", err)
+			}
+		}
 
-	// Remove files
-	files := []string{info.LogFile, info.PIDFile, info.ConfigFile, info.ProgressFile}
-	for _, file := range files {
-		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
-			tm.logger.Warn("Failed to remove transfer file", "file", file, "error", err)
+		// Remove from active transfers
+		delete(tm.activeTransfers, transferID)
+	} else {
+		// Check if it's a historical transfer
+		configFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID))
+		if _, err := os.Stat(configFile); os.IsNotExist(err) {
+			return errors.New(errors.TransferNotFound, "Transfer not found")
+		}
+
+		// Remove historical transfer files
+		files := []string{
+			filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID)),
+			filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID)),
+			filepath.Join(tm.transfersDir, fmt.Sprintf("%s.pid", transferID)),
+			filepath.Join(tm.transfersDir, fmt.Sprintf("%s.progress", transferID)),
+		}
+		for _, file := range files {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				tm.logger.Warn("Failed to remove transfer file", "file", file, "error", err)
+			}
 		}
 	}
-
-	// Remove from active transfers
-	delete(tm.activeTransfers, transferID)
 
 	tm.logger.Info("Transfer deleted", "id", transferID)
 	return nil
 }
 
-// GetTransfer returns information about a specific transfer
+// GetTransfer returns information about a specific transfer (active or historical)
 func (tm *TransferManager) GetTransfer(transferID string) (*TransferInfo, error) {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	info, exists := tm.activeTransfers[transferID]
-	if !exists {
-		return nil, errors.New(errors.TransferNotFound, "Transfer not found")
+	// First check active transfers
+	if info, exists := tm.activeTransfers[transferID]; exists {
+		infoCopy := *info
+		return &infoCopy, nil
 	}
 
-	// Return a copy
-	infoCopy := *info
-	return &infoCopy, nil
+	// Check historical transfers
+	configFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID))
+	if transfer := tm.loadTransferFromFile(configFile); transfer != nil {
+		return transfer, nil
+	}
+
+	return nil, errors.New(errors.TransferNotFound, "Transfer not found")
 }
 
 // ListTransfers returns a list of all transfers
 func (tm *TransferManager) ListTransfers() []*TransferInfo {
+	return tm.ListTransfersByType(TransferTypeActive)
+}
+
+// ListTransfersByType returns transfers filtered by type
+func (tm *TransferManager) ListTransfersByType(transferType TransferType) []*TransferInfo {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
+	switch transferType {
+	case TransferTypeActive:
+		return tm.getActiveTransfers()
+	case TransferTypeCompleted:
+		return tm.getHistoricalTransfersByStatus(TransferStatusCompleted)
+	case TransferTypeFailed:
+		return tm.getHistoricalTransfersByStatus(TransferStatusFailed)
+	case TransferTypeAll:
+		active := tm.getActiveTransfers()
+		historical := tm.getAllHistoricalTransfers()
+		return append(active, historical...)
+	default:
+		return tm.getActiveTransfers()
+	}
+}
+
+// getActiveTransfers returns currently active transfers
+func (tm *TransferManager) getActiveTransfers() []*TransferInfo {
 	transfers := make([]*TransferInfo, 0, len(tm.activeTransfers))
 	for _, info := range tm.activeTransfers {
 		infoCopy := *info
 		transfers = append(transfers, &infoCopy)
 	}
+	return transfers
+}
+
+// getHistoricalTransfersByStatus loads transfers from disk by status
+func (tm *TransferManager) getHistoricalTransfersByStatus(status TransferStatus) []*TransferInfo {
+	allHistorical := tm.getAllHistoricalTransfers()
+	filtered := make([]*TransferInfo, 0)
+	
+	for _, transfer := range allHistorical {
+		if transfer.Status == status {
+			filtered = append(filtered, transfer)
+		}
+	}
+	
+	return filtered
+}
+
+// getAllHistoricalTransfers loads all transfers from disk
+func (tm *TransferManager) getAllHistoricalTransfers() []*TransferInfo {
+	files, err := filepath.Glob(filepath.Join(tm.transfersDir, "*.yaml"))
+	if err != nil {
+		tm.logger.Warn("Failed to list transfer files", "error", err)
+		return []*TransferInfo{}
+	}
+
+	transfers := make([]*TransferInfo, 0)
+	for _, file := range files {
+		if transfer := tm.loadTransferFromFile(file); transfer != nil {
+			// Skip if it's already in active transfers
+			if _, exists := tm.activeTransfers[transfer.ID]; !exists {
+				transfers = append(transfers, transfer)
+			}
+		}
+	}
 
 	return transfers
+}
+
+// loadTransferFromFile loads a transfer from a YAML file
+func (tm *TransferManager) loadTransferFromFile(filePath string) *TransferInfo {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		tm.logger.Debug("Failed to read transfer file", "file", filePath, "error", err)
+		return nil
+	}
+
+	var transfer TransferInfo
+	if err := yaml.Unmarshal(data, &transfer); err != nil {
+		tm.logger.Debug("Failed to unmarshal transfer file", "file", filePath, "error", err)
+		return nil
+	}
+
+	return &transfer
+}
+
+// getDefaultLogConfig returns default log configuration values
+func getDefaultLogConfig() TransferLogConfig {
+	return TransferLogConfig{
+		MaxSizeBytes:     10 * 1024, // 10KB default
+		TruncateOnFinish: true,
+		RetainOnFailure:  true,
+		HeaderLines:      20,
+		FooterLines:      20,
+	}
+}
+
+// getEffectiveLogConfig returns the effective log config for a transfer
+func (tm *TransferManager) getEffectiveLogConfig(info *TransferInfo) TransferLogConfig {
+	if info.Config.LogConfig != nil {
+		// Use transfer-specific config with defaults for zero values
+		config := *info.Config.LogConfig
+		defaults := getDefaultLogConfig()
+		
+		if config.MaxSizeBytes == 0 {
+			config.MaxSizeBytes = defaults.MaxSizeBytes
+		}
+		if config.HeaderLines == 0 {
+			config.HeaderLines = defaults.HeaderLines
+		}
+		if config.FooterLines == 0 {
+			config.FooterLines = defaults.FooterLines
+		}
+		
+		return config
+	}
+	return getDefaultLogConfig()
+}
+
+// Log Management Methods
+
+// GetTransferLog returns the full log content for a transfer
+func (tm *TransferManager) GetTransferLog(transferID string) (string, error) {
+	logFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID))
+	
+	// Check if file exists
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		return "", errors.New(errors.TransferNotFound, "Transfer log not found")
+	}
+	
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		return "", errors.Wrap(err, errors.RodentMisc)
+	}
+	
+	return string(content), nil
+}
+
+// GetTransferLogGist returns a truncated version of the log (header + footer) using efficient utilities
+func (tm *TransferManager) GetTransferLogGist(transferID string) (string, error) {
+	logFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID))
+	
+	// Check if file exists and get size
+	stat, err := os.Stat(logFile)
+	if os.IsNotExist(err) {
+		return "", errors.New(errors.TransferNotFound, "Transfer log not found")
+	}
+	if err != nil {
+		return "", errors.Wrap(err, errors.RodentMisc)
+	}
+	
+	// Get transfer info to use its log configuration
+	transfer, err := tm.GetTransfer(transferID)
+	if err != nil {
+		// If we can't get transfer info, use default config
+		return tm.truncateLogContentEfficient(logFile, stat.Size(), getDefaultLogConfig())
+	}
+	
+	logConfig := tm.getEffectiveLogConfig(transfer)
+	return tm.truncateLogContentEfficient(logFile, stat.Size(), logConfig)
+}
+
+// truncateLogContentEfficient uses file size and system utilities for memory-efficient log truncation
+func (tm *TransferManager) truncateLogContentEfficient(logFile string, fileSize int64, logConfig TransferLogConfig) (string, error) {
+	const sizeLimitBytes = 100 * 1024 // 100KB
+	
+	// If file is small enough, return full content
+	if fileSize <= sizeLimitBytes {
+		content, err := os.ReadFile(logFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read small log file: %w", err)
+		}
+		return string(content), nil
+	}
+	
+	// For large files, use head and tail
+	headerLines := logConfig.HeaderLines
+	footerLines := logConfig.FooterLines
+	
+	// Get header lines using head
+	headCmd := exec.Command("head", "-n", fmt.Sprintf("%d", headerLines), logFile)
+	headerOutput, err := headCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get header lines: %w", err)
+	}
+	
+	// Get footer lines using tail
+	tailCmd := exec.Command("tail", "-n", fmt.Sprintf("%d", footerLines), logFile)
+	footerOutput, err := tailCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get footer lines: %w", err)
+	}
+	
+	// Combine with separator indicating truncation
+	result := string(headerOutput) + "\n" +
+		fmt.Sprintf("... [File truncated - original size: %d bytes] ...\n\n", fileSize) +
+		string(footerOutput)
+	
+	return result, nil
+}
+
+// processLogOnCompletion handles log processing when a transfer completes
+func (tm *TransferManager) processLogOnCompletion(info *TransferInfo) {
+	logConfig := tm.getEffectiveLogConfig(info)
+	
+	if !logConfig.TruncateOnFinish {
+		return
+	}
+	
+	// Don't truncate failed transfers if configured to retain them
+	if info.Status == TransferStatusFailed && logConfig.RetainOnFailure {
+		tm.logger.Debug("Retaining full log for failed transfer", "id", info.ID)
+		return
+	}
+	
+	// Check log file size efficiently using stat
+	logStat, err := os.Stat(info.LogFile)
+	if err != nil {
+		tm.logger.Warn("Failed to stat log file", "id", info.ID, "error", err)
+		return
+	}
+	
+	if logStat.Size() <= logConfig.MaxSizeBytes {
+		tm.logger.Debug("Log file under size limit, not truncating", 
+			"id", info.ID, "size", logStat.Size())
+		return
+	}
+	
+	// Get truncated content efficiently
+	truncatedContent, err := tm.truncateLogContentEfficient(info.LogFile, logStat.Size(), logConfig)
+	if err != nil {
+		tm.logger.Warn("Failed to truncate log efficiently", "id", info.ID, "error", err)
+		return
+	}
+	
+	// Write truncated content directly
+	err = os.WriteFile(info.LogFile, []byte(truncatedContent), 0644)
+	if err != nil {
+		tm.logger.Warn("Failed to write truncated log", "id", info.ID, "error", err)
+		return
+	}
+	
+	tm.logger.Info("Log truncated for completed transfer", 
+		"id", info.ID, 
+		"original_size", logStat.Size(), 
+		"new_size", len(truncatedContent))
 }
 
 // Helper methods
@@ -1143,6 +1412,11 @@ func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {
 	tm.mu.Lock()
 	info.pendingAction = TransferActionNone
 	tm.mu.Unlock()
+
+	// Process log truncation if transfer is completed or failed
+	if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed {
+		tm.processLogOnCompletion(info)
+	}
 
 	// Clean up PID file
 	if info.PIDFile != "" {

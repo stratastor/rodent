@@ -523,8 +523,34 @@ func (h *DatasetHandler) startManagedTransfer(c *gin.Context) {
 }
 
 func (h *DatasetHandler) listTransfers(c *gin.Context) {
-	transfers := h.transferManager.ListTransfers()
-	c.JSON(http.StatusOK, gin.H{"transfers": transfers})
+	// Get query parameter for transfer type (default to active)
+	transferType := c.Query("type")
+	if transferType == "" {
+		transferType = "active"
+	}
+
+	var transfers []*dataset.TransferInfo
+	switch dataset.TransferType(transferType) {
+	case dataset.TransferTypeAll:
+		transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeAll)
+	case dataset.TransferTypeActive:
+		transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeActive)
+	case dataset.TransferTypeCompleted:
+		transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeCompleted)
+	case dataset.TransferTypeFailed:
+		transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeFailed)
+	default:
+		APIError(c, errors.New(errors.ServerBadRequest, "Invalid transfer type. Use: all, active, completed, failed"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result": gin.H{
+			"transfers": transfers,
+			"type":      transferType,
+			"count":     len(transfers),
+		},
+	})
 }
 
 func (h *DatasetHandler) getTransfer(c *gin.Context) {
@@ -605,4 +631,50 @@ func (h *DatasetHandler) deleteTransfer(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// Transfer Log Handlers
+
+func (h *DatasetHandler) getTransferLog(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	logContent, err := h.transferManager.GetTransferLog(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result": gin.H{
+			"transfer_id": transferID,
+			"log_content": logContent,
+			"type":        "full",
+		},
+	})
+}
+
+func (h *DatasetHandler) getTransferLogGist(c *gin.Context) {
+	transferID := c.Param("transferId")
+	if transferID == "" {
+		APIError(c, errors.New(errors.ServerBadRequest, "Transfer ID is required"))
+		return
+	}
+
+	logGist, err := h.transferManager.GetTransferLogGist(transferID)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result": gin.H{
+			"transfer_id": transferID,
+			"log_content": logGist,
+			"type":        "gist",
+		},
+	})
 }

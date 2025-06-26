@@ -802,8 +802,44 @@ func handleManagedTransferStart(h *DatasetHandler) client.CommandHandler {
 // handleManagedTransferList returns a handler for listing all transfers
 func handleManagedTransferList(h *DatasetHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		transfers := h.transferManager.ListTransfers()
-		return successResponse(req.RequestId, "Transfer list retrieved", transfers)
+		var listRequest struct {
+			Type string `json:"type,omitempty"`
+		}
+		
+		// Parse optional payload for transfer type filter
+		if len(cmd.Payload) > 0 {
+			if err := parseJSONPayload(cmd, &listRequest); err != nil {
+				return nil, errors.Wrap(err, errors.ServerRequestValidation)
+			}
+		}
+		
+		// Default to active transfers if no type specified
+		transferType := listRequest.Type
+		if transferType == "" {
+			transferType = "active"
+		}
+		
+		var transfers []*dataset.TransferInfo
+		switch dataset.TransferType(transferType) {
+		case dataset.TransferTypeAll:
+			transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeAll)
+		case dataset.TransferTypeActive:
+			transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeActive)
+		case dataset.TransferTypeCompleted:
+			transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeCompleted)
+		case dataset.TransferTypeFailed:
+			transfers = h.transferManager.ListTransfersByType(dataset.TransferTypeFailed)
+		default:
+			return nil, errors.New(errors.ServerRequestValidation, "Invalid transfer type. Use: all, active, completed, failed")
+		}
+		
+		result := map[string]interface{}{
+			"transfers": transfers,
+			"type":      transferType,
+			"count":     len(transfers),
+		}
+		
+		return successResponse(req.RequestId, "Transfer list retrieved", result)
 	}
 }
 
@@ -922,5 +958,65 @@ func handleManagedTransferDelete(h *DatasetHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Transfer deleted successfully", nil)
+	}
+}
+
+// Transfer Log Handlers
+
+// handleTransferLogGet returns a handler for getting full transfer log content
+func handleTransferLogGet(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		logContent, err := h.transferManager.GetTransferLog(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		result := map[string]interface{}{
+			"transfer_id": idRequest.TransferID,
+			"log_content": logContent,
+			"type":        "full",
+		}
+
+		return successResponse(req.RequestId, "Transfer log retrieved", result)
+	}
+}
+
+// handleTransferLogGist returns a handler for getting truncated transfer log content
+func handleTransferLogGist(h *DatasetHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var idRequest struct {
+			TransferID string `json:"transfer_id"`
+		}
+		if err := parseJSONPayload(cmd, &idRequest); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if idRequest.TransferID == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "transfer_id is required")
+		}
+
+		logGist, err := h.transferManager.GetTransferLogGist(idRequest.TransferID)
+		if err != nil {
+			return nil, err
+		}
+
+		result := map[string]interface{}{
+			"transfer_id": idRequest.TransferID,
+			"log_content": logGist,
+			"type":        "gist",
+		}
+
+		return successResponse(req.RequestId, "Transfer log gist retrieved", result)
 	}
 }

@@ -36,9 +36,19 @@ var (
 	retryInterval = 5 * time.Second
 )
 
+// TransferLogConfig holds configuration for transfer-specific log management
+type TransferLogConfig struct {
+	MaxSizeBytes     int64 `json:"max_size_bytes,omitempty"     yaml:"max_size_bytes"`     // Default: 10KB
+	TruncateOnFinish bool  `json:"truncate_on_finish,omitempty" yaml:"truncate_on_finish"` // Default: true
+	RetainOnFailure  bool  `json:"retain_on_failure,omitempty"  yaml:"retain_on_failure"`  // Default: true
+	HeaderLines      int   `json:"header_lines,omitempty"       yaml:"header_lines"`       // Default: 20
+	FooterLines      int   `json:"footer_lines,omitempty"       yaml:"footer_lines"`       // Default: 20
+}
+
 type TransferConfig struct {
-	SendConfig    SendConfig    `json:"send"    binding:"required"`
-	ReceiveConfig ReceiveConfig `json:"receive" binding:"required"`
+	SendConfig    SendConfig         `json:"send"              binding:"required"`
+	ReceiveConfig ReceiveConfig      `json:"receive"           binding:"required"`
+	LogConfig     *TransferLogConfig `json:"log_config,omitempty" yaml:"log_config,omitempty"`
 }
 
 type SendConfig struct {
