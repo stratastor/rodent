@@ -875,8 +875,8 @@ func (tm *TransferManager) performInitialSend(_ context.Context, info *TransferI
 		return fmt.Errorf("failed to build initial send command: %w", err)
 	}
 	
-	// Setup output redirection to log file
-	logFile, err := os.OpenFile(info.LogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	// Setup output redirection to log file (create if doesn't exist)
+	logFile, err := os.OpenFile(info.LogFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}

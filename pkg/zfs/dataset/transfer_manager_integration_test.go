@@ -381,14 +381,14 @@ func TestTransferManager_StopTransfer(t *testing.T) {
 		},
 	}
 
+	// Clean up any remote filesystem that might have been created before stopping
+	defer cleanupRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
+
 	// Start the transfer
 	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
 	if err != nil {
 		t.Fatalf("Failed to start transfer: %v", err)
 	}
-
-	// Clean up any remote filesystem that might have been created before stopping
-	defer cleanupRemoteFilesystem(t, testConfig, transferConfig.ReceiveConfig.Target)
 
 	t.Logf("Started transfer with ID: %s", transferID)
 
@@ -636,4 +636,431 @@ func TestTransferManager_NetworkResilience(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Test automatic initial snapshot handling when initial snapshot is missing
+func TestTransferManager_AutoInitialSnapshotSend(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create two test snapshots for incremental transfer
+	initialSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, initialSnapshot)
+
+	// Wait a moment to ensure different timestamps
+	time.Sleep(1 * time.Second)
+
+	incrementalSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, incrementalSnapshot)
+
+	t.Logf("Created snapshots - Initial: %s, Incremental: %s", initialSnapshot, incrementalSnapshot)
+
+	// Target filesystem path
+	targetPath := testConfig.TargetFilesystem + "/test-auto-initial" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	// Configure incremental transfer (initial snapshot should be missing on target)
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot:     incrementalSnapshot,
+			FromSnapshot: initialSnapshot, // This should trigger auto-initial send
+			Verbose:      true,
+			Parsable:     false,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			Verbose:   true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	// Start the transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start incremental transfer: %v", err)
+	}
+
+	t.Logf("Started incremental transfer with ID: %s", transferID)
+
+	// Monitor transfer progress and verify phases
+	timeout := time.After(10 * time.Minute)
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	seenInitialSendPhase := false
+	seenIncrementalSendPhase := false
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("Transfer timed out after 10 minutes")
+
+		case <-ticker.C:
+			transfer, err := transferManager.GetTransfer(transferID)
+			if err != nil {
+				t.Fatalf("Failed to get transfer status: %v", err)
+			}
+
+			t.Logf("Transfer %s status: %s, phase: %s, description: %s, elapsed: %ds",
+				transferID, transfer.Status, transfer.Progress.Phase, 
+				transfer.Progress.PhaseDescription, transfer.Progress.ElapsedTime)
+
+			// Track which phases we've seen
+			if transfer.Progress.Phase == "initial_send" {
+				seenInitialSendPhase = true
+				t.Logf("✅ Detected initial send phase: %s", transfer.Progress.PhaseDescription)
+			}
+			if transfer.Progress.Phase == "incremental_send" {
+				seenIncrementalSendPhase = true
+				t.Logf("✅ Detected incremental send phase: %s", transfer.Progress.PhaseDescription)
+			}
+
+			switch transfer.Status {
+			case TransferStatusCompleted:
+				t.Logf("Transfer completed successfully!")
+
+				// Verify we saw both phases
+				if !seenInitialSendPhase {
+					t.Errorf("Expected to see initial_send phase but didn't")
+				}
+				if !seenIncrementalSendPhase {
+					t.Errorf("Expected to see incremental_send phase but didn't")
+				}
+
+				// Verify the filesystem was created on the remote target
+				verifyRemoteFilesystem(t, testConfig, targetPath)
+
+				return
+			case TransferStatusFailed:
+				t.Fatalf("Transfer failed: %s", transfer.ErrorMessage)
+			case TransferStatusCancelled:
+				t.Fatalf("Transfer was cancelled: %s", transfer.ErrorMessage)
+			}
+		}
+	}
+}
+
+// Test incremental transfer when initial snapshot already exists on target
+func TestTransferManager_IncrementalWithExistingInitial(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create initial snapshot
+	initialSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, initialSnapshot)
+
+	// Target filesystem path
+	targetPath := testConfig.TargetFilesystem + "/test-existing-initial" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	// First, send the initial snapshot
+	initialTransferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: initialSnapshot,
+			Verbose:  true,
+			Parsable: false,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			Verbose:   true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	initialTransferID, err := transferManager.StartTransfer(ctx, initialTransferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start initial transfer: %v", err)
+	}
+
+	t.Logf("Started initial transfer with ID: %s", initialTransferID)
+
+	// Wait for initial transfer to complete
+	waitForTransferCompletion(t, transferManager, initialTransferID, 5*time.Minute)
+
+	// Wait a moment to ensure different timestamps
+	time.Sleep(1 * time.Second)
+
+	// Create incremental snapshot
+	incrementalSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, incrementalSnapshot)
+
+	t.Logf("Created incremental snapshot: %s", incrementalSnapshot)
+
+	// Now send incremental (should skip initial send since it exists)
+	incrementalTransferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot:     incrementalSnapshot,
+			FromSnapshot: initialSnapshot, // This should NOT trigger auto-initial send
+			Verbose:      true,
+			Parsable:     false,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			Verbose:   true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	incrementalTransferID, err := transferManager.StartTransfer(ctx, incrementalTransferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start incremental transfer: %v", err)
+	}
+
+	t.Logf("Started incremental transfer with ID: %s", incrementalTransferID)
+
+	// Monitor progress - should only see incremental phase
+	timeout := time.After(5 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	seenInitialSendPhase := false
+	seenIncrementalSendPhase := false
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("Transfer timed out after 5 minutes")
+
+		case <-ticker.C:
+			transfer, err := transferManager.GetTransfer(incrementalTransferID)
+			if err != nil {
+				t.Fatalf("Failed to get transfer status: %v", err)
+			}
+
+			t.Logf("Transfer %s status: %s, phase: %s, description: %s",
+				incrementalTransferID, transfer.Status, transfer.Progress.Phase, 
+				transfer.Progress.PhaseDescription)
+
+			// Track phases
+			if transfer.Progress.Phase == "initial_send" {
+				seenInitialSendPhase = true
+			}
+			if transfer.Progress.Phase == "incremental_send" {
+				seenIncrementalSendPhase = true
+			}
+
+			switch transfer.Status {
+			case TransferStatusCompleted:
+				t.Logf("Incremental transfer completed successfully!")
+
+				// Should NOT have seen initial send phase
+				if seenInitialSendPhase {
+					t.Errorf("Should not have seen initial_send phase when initial snapshot already exists")
+				}
+				// Should have seen incremental phase
+				if !seenIncrementalSendPhase {
+					t.Errorf("Expected to see incremental_send phase")
+				}
+
+				return
+			case TransferStatusFailed:
+				t.Fatalf("Transfer failed: %s", transfer.ErrorMessage)
+			case TransferStatusCancelled:
+				t.Fatalf("Transfer was cancelled: %s", transfer.ErrorMessage)
+			}
+		}
+	}
+}
+
+// Test snapshot validation with network issues
+func TestTransferManager_SnapshotValidationNetworkFailure(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create snapshots for incremental transfer
+	initialSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, initialSnapshot)
+
+	time.Sleep(1 * time.Second)
+
+	incrementalSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, incrementalSnapshot)
+
+	// Configure transfer with invalid remote to simulate network issues during validation
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot:     incrementalSnapshot,
+			FromSnapshot: initialSnapshot,
+			Verbose:      true,
+			Parsable:     false,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target: testConfig.TargetFilesystem + "/test-validation-network" + time.Now().Format("20060102-150405"),
+			Resumable: true,
+			Force:     true,
+			Verbose:   true,
+			RemoteConfig: RemoteConfig{
+				Host:       "192.168.1.999", // Invalid IP
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	// Start transfer - should proceed despite validation failure
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	t.Logf("Started transfer with network validation failure: %s", transferID)
+
+	// Should fail due to network error in actual transfer, but should have proceeded past validation
+	timeout := time.After(1 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("Expected transfer to fail within 1 minute due to network error")
+
+		case <-ticker.C:
+			transfer, err := transferManager.GetTransfer(transferID)
+			if err != nil {
+				t.Fatalf("Failed to get transfer status: %v", err)
+			}
+
+			t.Logf("Transfer %s status: %s", transferID, transfer.Status)
+
+			if transfer.Status == TransferStatusFailed {
+				t.Logf("Transfer failed as expected due to network error: %s", transfer.ErrorMessage)
+				return
+			}
+		}
+	}
+}
+
+// Test progress tracking phases for different transfer types
+func TestTransferManager_ProgressPhases(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Test 1: Full send phase
+	fullSnapshot := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, fullSnapshot)
+
+	targetPath1 := testConfig.TargetFilesystem + "/test-phases-full" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath1)
+
+	fullTransferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: fullSnapshot,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath1,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	fullTransferID, err := transferManager.StartTransfer(ctx, fullTransferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start full transfer: %v", err)
+	}
+
+	// Check that full send shows correct phase
+	time.Sleep(1 * time.Second) // Allow time for phase to be set
+	transfer, err := transferManager.GetTransfer(fullTransferID)
+	if err != nil {
+		t.Fatalf("Failed to get transfer status: %v", err)
+	}
+
+	if transfer.Progress.Phase != "full_send" {
+		t.Errorf("Expected phase 'full_send', got '%s'", transfer.Progress.Phase)
+	}
+
+	if !contains(transfer.Progress.PhaseDescription, fullSnapshot) {
+		t.Errorf("Expected phase description to contain snapshot name '%s', got '%s'", 
+			fullSnapshot, transfer.Progress.PhaseDescription)
+	}
+
+	t.Logf("✅ Full send phase correct: %s - %s", transfer.Progress.Phase, transfer.Progress.PhaseDescription)
+
+	// Wait for completion
+	waitForTransferCompletion(t, transferManager, fullTransferID, 5*time.Minute)
+}
+
+// Helper function to wait for transfer completion
+func waitForTransferCompletion(t *testing.T, tm *TransferManager, transferID string, timeout time.Duration) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("Transfer %s timed out after %v", transferID, timeout)
+
+		case <-ticker.C:
+			transfer, err := tm.GetTransfer(transferID)
+			if err != nil {
+				t.Fatalf("Failed to get transfer %s status: %v", transferID, err)
+			}
+
+			switch transfer.Status {
+			case TransferStatusCompleted:
+				t.Logf("Transfer %s completed successfully", transferID)
+				return
+			case TransferStatusFailed:
+				t.Fatalf("Transfer %s failed: %s", transferID, transfer.ErrorMessage)
+			case TransferStatusCancelled:
+				t.Fatalf("Transfer %s was cancelled: %s", transferID, transfer.ErrorMessage)
+			}
+		}
+	}
+}
+
+// Helper function to check if string contains substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && s[len(s)-len(substr):] == substr || 
+		   len(s) >= len(substr) && s[:len(substr)] == substr ||
+		   (len(s) > len(substr) && indexOf(s, substr) >= 0)
+}
+
+// Helper function to find substring index
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
