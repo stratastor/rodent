@@ -1064,3 +1064,412 @@ func indexOf(s, substr string) int {
 	}
 	return -1
 }
+
+// Test historical transfer listing by type
+func TestTransferManager_ListTransfersByType(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create test snapshot
+	snapshotName := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, snapshotName)
+
+	// Start a transfer and let it complete
+	targetPath := testConfig.TargetFilesystem + "/test-history" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: snapshotName,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	// Start transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	// Wait for completion
+	waitForTransferCompletion(t, transferManager, transferID, 5*time.Minute)
+
+	// Test different transfer type listings
+	testCases := []struct {
+		transferType    TransferType
+		expectedCount   int
+		shouldContainID bool
+	}{
+		{TransferTypeActive, 0, false},    // Should be 0 since transfer completed
+		{TransferTypeCompleted, 1, true},  // Should contain our completed transfer
+		{TransferTypeFailed, 0, false},    // Should be 0 since transfer succeeded
+		{TransferTypeAll, 1, true},        // Should contain our transfer
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.transferType), func(t *testing.T) {
+			transfers := transferManager.ListTransfersByType(tc.transferType)
+
+			if len(transfers) < tc.expectedCount {
+				t.Errorf("Expected at least %d transfers for type %s, got %d", 
+					tc.expectedCount, tc.transferType, len(transfers))
+			}
+
+			if tc.shouldContainID {
+				found := false
+				for _, transfer := range transfers {
+					if transfer.ID == transferID {
+						found = true
+						if tc.transferType == TransferTypeCompleted && transfer.Status != TransferStatusCompleted {
+							t.Errorf("Expected completed transfer to have status 'completed', got '%s'", transfer.Status)
+						}
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected to find transfer %s in %s transfers", transferID, tc.transferType)
+				}
+			}
+		})
+	}
+}
+
+// Test transfer log functionality
+func TestTransferManager_TransferLogs(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create test snapshot
+	snapshotName := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, snapshotName)
+
+	targetPath := testConfig.TargetFilesystem + "/test-logs" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	// Configure transfer with custom log settings
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: snapshotName,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+		LogConfig: &TransferLogConfig{
+			MaxSizeBytes:     5 * 1024, // 5KB to test truncation
+			TruncateOnFinish: false,    // Don't truncate for this test
+			RetainOnFailure:  true,
+			HeaderLines:      10,
+			FooterLines:      10,
+		},
+	}
+
+	// Start transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	// Wait for completion
+	waitForTransferCompletion(t, transferManager, transferID, 5*time.Minute)
+
+	// Test GetTransferLog
+	t.Run("GetTransferLog", func(t *testing.T) {
+		logContent, err := transferManager.GetTransferLog(transferID)
+		if err != nil {
+			t.Fatalf("Failed to get transfer log: %v", err)
+		}
+
+		if logContent == "" {
+			t.Error("Expected non-empty log content")
+		}
+
+		// Should contain ZFS send output
+		if !contains(logContent, "send") && !contains(logContent, snapshotName) {
+			t.Error("Expected log to contain transfer-related content")
+		}
+
+		t.Logf("Log content length: %d bytes", len(logContent))
+	})
+
+	// Test GetTransferLogGist
+	t.Run("GetTransferLogGist", func(t *testing.T) {
+		logGist, err := transferManager.GetTransferLogGist(transferID)
+		if err != nil {
+			t.Fatalf("Failed to get transfer log gist: %v", err)
+		}
+
+		if logGist == "" {
+			t.Error("Expected non-empty log gist")
+		}
+
+		// Should be different from full log if truncation occurred
+		fullLog, _ := transferManager.GetTransferLog(transferID)
+		if len(fullLog) > 100*1024 { // 100KB limit
+			if len(logGist) >= len(fullLog) {
+				t.Error("Expected gist to be shorter than full log for large files")
+			}
+			
+			// Should contain truncation marker
+			if !contains(logGist, "File truncated") {
+				t.Error("Expected gist to contain truncation marker for large files")
+			}
+		}
+
+		t.Logf("Log gist length: %d bytes", len(logGist))
+	})
+
+	// Test log for non-existent transfer
+	t.Run("NonExistentTransfer", func(t *testing.T) {
+		_, err := transferManager.GetTransferLog("non-existent-id")
+		if err == nil {
+			t.Error("Expected error for non-existent transfer log")
+		}
+
+		_, err = transferManager.GetTransferLogGist("non-existent-id")
+		if err == nil {
+			t.Error("Expected error for non-existent transfer log gist")
+		}
+	})
+}
+
+// Test custom log configuration
+func TestTransferManager_CustomLogConfig(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create test snapshot
+	snapshotName := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, snapshotName)
+
+	targetPath := testConfig.TargetFilesystem + "/test-custom-log" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	// Test with custom log configuration
+	customLogConfig := &TransferLogConfig{
+		MaxSizeBytes:     1024, // 1KB - very small to trigger truncation
+		TruncateOnFinish: true,
+		RetainOnFailure:  false,
+		HeaderLines:      5,
+		FooterLines:      5,
+	}
+
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: snapshotName,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+		LogConfig: customLogConfig,
+	}
+
+	// Start transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	// Wait for completion
+	waitForTransferCompletion(t, transferManager, transferID, 5*time.Minute)
+
+	// Get transfer to verify log config was preserved
+	transfer, err := transferManager.GetTransfer(transferID)
+	if err != nil {
+		t.Fatalf("Failed to get transfer: %v", err)
+	}
+
+	// Verify custom config was preserved
+	if transfer.Config.LogConfig == nil {
+		t.Fatal("Expected log config to be preserved")
+	}
+
+	if transfer.Config.LogConfig.MaxSizeBytes != customLogConfig.MaxSizeBytes {
+		t.Errorf("Expected MaxSizeBytes %d, got %d", 
+			customLogConfig.MaxSizeBytes, transfer.Config.LogConfig.MaxSizeBytes)
+	}
+
+	if transfer.Config.LogConfig.HeaderLines != customLogConfig.HeaderLines {
+		t.Errorf("Expected HeaderLines %d, got %d", 
+			customLogConfig.HeaderLines, transfer.Config.LogConfig.HeaderLines)
+	}
+}
+
+// Test default log configuration behavior
+func TestTransferManager_DefaultLogConfig(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create test snapshot
+	snapshotName := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, snapshotName)
+
+	targetPath := testConfig.TargetFilesystem + "/test-default-log" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	// Transfer without explicit log config (should use defaults)
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: snapshotName,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+		// LogConfig intentionally nil to test defaults
+	}
+
+	// Start transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	// Wait for completion
+	waitForTransferCompletion(t, transferManager, transferID, 5*time.Minute)
+
+	// Verify that log operations work with default config
+	logContent, err := transferManager.GetTransferLog(transferID)
+	if err != nil {
+		t.Fatalf("Failed to get log with default config: %v", err)
+	}
+
+	if logContent == "" {
+		t.Error("Expected non-empty log content with default config")
+	}
+
+	logGist, err := transferManager.GetTransferLogGist(transferID)
+	if err != nil {
+		t.Fatalf("Failed to get log gist with default config: %v", err)
+	}
+
+	if logGist == "" {
+		t.Error("Expected non-empty log gist with default config")
+	}
+
+	t.Logf("Default config test - Log: %d bytes, Gist: %d bytes", len(logContent), len(logGist))
+}
+
+// Test historical transfer deletion
+func TestTransferManager_DeleteHistoricalTransfer(t *testing.T) {
+	testConfig := getTestConfig(t)
+	transferManager, datasetManager := setupTransferManager(t)
+
+	ctx := context.Background()
+
+	// Create test snapshot
+	snapshotName := createTestSnapshot(t, datasetManager, testConfig.SourceFilesystem)
+	defer cleanupSnapshot(t, datasetManager, snapshotName)
+
+	targetPath := testConfig.TargetFilesystem + "/test-delete-historical" + time.Now().Format("20060102-150405")
+	defer cleanupRemoteFilesystem(t, testConfig, targetPath)
+
+	transferConfig := TransferConfig{
+		SendConfig: SendConfig{
+			Snapshot: snapshotName,
+			Verbose:  true,
+		},
+		ReceiveConfig: ReceiveConfig{
+			Target:    targetPath,
+			Resumable: true,
+			Force:     true,
+			RemoteConfig: RemoteConfig{
+				Host:       testConfig.TargetIP,
+				User:       testConfig.TargetUsername,
+				PrivateKey: testConfig.SSHKeyPath,
+				Port:       22,
+			},
+		},
+	}
+
+	// Start and complete transfer
+	transferID, err := transferManager.StartTransfer(ctx, transferConfig)
+	if err != nil {
+		t.Fatalf("Failed to start transfer: %v", err)
+	}
+
+	waitForTransferCompletion(t, transferManager, transferID, 5*time.Minute)
+
+	// Verify transfer exists in completed transfers
+	completedTransfers := transferManager.ListTransfersByType(TransferTypeCompleted)
+	found := false
+	for _, transfer := range completedTransfers {
+		if transfer.ID == transferID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("Transfer should exist in completed transfers before deletion")
+	}
+
+	// Delete the historical transfer
+	err = transferManager.DeleteTransfer(transferID)
+	if err != nil {
+		t.Fatalf("Failed to delete historical transfer: %v", err)
+	}
+
+	// Verify transfer no longer exists
+	_, err = transferManager.GetTransfer(transferID)
+	if err == nil {
+		t.Error("Transfer should not exist after deletion")
+	}
+
+	// Verify it's not in completed transfers list
+	completedTransfers = transferManager.ListTransfersByType(TransferTypeCompleted)
+	for _, transfer := range completedTransfers {
+		if transfer.ID == transferID {
+			t.Error("Transfer should not appear in completed transfers after deletion")
+		}
+	}
+
+	// Verify log files are cleaned up
+	_, err = transferManager.GetTransferLog(transferID)
+	if err == nil {
+		t.Error("Transfer log should not exist after deletion")
+	}
+}

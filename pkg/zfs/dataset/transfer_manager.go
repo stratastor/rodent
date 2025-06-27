@@ -740,13 +740,14 @@ func (tm *TransferManager) DeleteTransfer(transferID string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	// Check if it's an active transfer
+	// Check if it's an active transfer (running/paused only)
 	if info, exists := tm.activeTransfers[transferID]; exists {
 		// Can only delete finished transfers
 		if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
 			return errors.New(errors.TransferInvalidState, "Cannot delete active transfer")
 		}
 
+		// This shouldn't happen with the new logic, but handle gracefully
 		// Remove files
 		files := []string{info.LogFile, info.PIDFile, info.ConfigFile, info.ProgressFile}
 		for _, file := range files {
@@ -758,7 +759,7 @@ func (tm *TransferManager) DeleteTransfer(transferID string) error {
 		// Remove from active transfers
 		delete(tm.activeTransfers, transferID)
 	} else {
-		// Check if it's a historical transfer
+		// Check if it's a historical transfer (completed/failed/cancelled transfers)
 		configFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID))
 		if _, err := os.Stat(configFile); os.IsNotExist(err) {
 			return errors.New(errors.TransferNotFound, "Transfer not found")
@@ -1411,6 +1412,11 @@ func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {
 	// Clear any pending action now that executeTransfer has completed
 	tm.mu.Lock()
 	info.pendingAction = TransferActionNone
+	
+	// Remove completed/failed transfers from active transfers so they become historical
+	if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed || info.Status == TransferStatusCancelled {
+		delete(tm.activeTransfers, info.ID)
+	}
 	tm.mu.Unlock()
 
 	// Process log truncation if transfer is completed or failed
