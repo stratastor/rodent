@@ -930,9 +930,19 @@ func (tm *TransferManager) getEffectiveLogConfig(info *TransferInfo) TransferLog
 func (tm *TransferManager) GetTransferLog(transferID string) (string, error) {
 	logFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID))
 	
-	// Check if file exists
-	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+	// Check if file exists and get size
+	fileInfo, err := os.Stat(logFile)
+	if os.IsNotExist(err) {
 		return "", errors.New(errors.TransferNotFound, "Transfer log not found")
+	}
+	if err != nil {
+		return "", errors.Wrap(err, errors.RodentMisc)
+	}
+	
+	// Cap at 90MB to prevent memory issues
+	const maxLogSize = 90 * 1024 * 1024 // 90MB
+	if fileInfo.Size() > maxLogSize {
+		return "", errors.New(errors.RodentMisc, fmt.Sprintf("Log file too large (%d bytes). Maximum allowed: %d bytes. Use GetTransferLogGist() for large files.", fileInfo.Size(), maxLogSize))
 	}
 	
 	content, err := os.ReadFile(logFile)
