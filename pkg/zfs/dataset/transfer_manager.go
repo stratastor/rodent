@@ -1404,15 +1404,36 @@ func (tm *TransferManager) loadExistingTransfers() error {
 			continue
 		}
 
-		// Check if process is still running
-		if info.PID > 0 && tm.isProcessRunning(info.PID) {
-			info.Status = TransferStatusRunning
-		} else if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
-			info.Status = TransferStatusFailed
-			info.ErrorMessage = "Process terminated unexpectedly"
+		// Only load transfers that should be in activeTransfers
+		// Completed/failed/cancelled transfers are handled as historical transfers
+		if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed || info.Status == TransferStatusCancelled {
+			continue // Skip - these are historical transfers
 		}
 
-		tm.activeTransfers[info.ID] = &info
+		// Check if process is still running for active transfers
+		if info.PID > 0 && tm.isProcessRunning(info.PID) {
+			info.Status = TransferStatusRunning
+		} else if info.Status == TransferStatusRunning {
+			// Process not running, but transfer was running
+			if info.Config.ReceiveConfig.Resumable {
+				// If resumable, mark as paused for potential resume
+				info.Status = TransferStatusPaused
+				info.ErrorMessage = ""
+			} else {
+				// If not resumable, mark as failed
+				info.Status = TransferStatusFailed
+				info.ErrorMessage = "Process terminated unexpectedly"
+			}
+		} else if info.Status == TransferStatusPaused {
+			// Transfer was paused, keep it paused regardless of process state
+			// (paused transfers don't have running processes)
+			info.ErrorMessage = ""
+		}
+
+		// Only add truly active transfers (running/paused) to activeTransfers
+		if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
+			tm.activeTransfers[info.ID] = &info
+		}
 	}
 
 	return nil
