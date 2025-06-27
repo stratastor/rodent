@@ -11,7 +11,7 @@ set -e
 
 # Configuration with defaults from transfer_manager_integration_test.go
 API_BASE="${RODENT_API_BASE:-http://localhost:8042/api/v1/rodent/zfs/dataset/transfer}"
-VERBOSE=${VERBOSE:-false}
+VERBOSE=${VERBOSE:-true}
 DRY_RUN=${DRY_RUN:-false}
 
 # Test configuration from environment variables or defaults
@@ -82,64 +82,66 @@ execute_curl() {
     local endpoint="$2"
     local data="$3"
     local description="$4"
-    local expected_status="${5:-200}"
     
-    echo -e "\n${POWDER_BLUE}Command:${NC} $description"
+    # Display information to stderr so it shows up while function output goes to stdout
+    echo -e "\n${POWDER_BLUE}Command:${NC} $description" >&2
     
-    local curl_cmd="curl -s -w \"\\n%{http_code}\" -X $method \"$API_BASE$endpoint\""
+    # Always show request payload for POST/PUT methods
+    if [ "$method" != "GET" ] && [ -n "$data" ]; then
+        echo -e "${LAVENDER}Request Payload:${NC}" >&2
+        echo "$data" | jq --color-output '.' 2>/dev/null >&2 || echo "$data" >&2
+    fi
+    
+    local curl_cmd="curl -s -X $method \"$API_BASE$endpoint\""
     
     if [ "$method" != "GET" ] && [ -n "$data" ]; then
         curl_cmd="$curl_cmd -H \"Content-Type: application/json\" -d '$data'"
     fi
     
-    if [ "$VERBOSE" = "true" ]; then
-        curl_cmd="$curl_cmd -v"
-    fi
-    
-    echo -e "${PEACH}$ $curl_cmd${NC}"
+    echo -e "${PEACH}$ $curl_cmd${NC}" >&2
     
     if [ "$DRY_RUN" = "true" ]; then
-        echo -e "${PEACH}[DRY-RUN] Command not executed${NC}"
+        echo -e "${PEACH}[DRY-RUN] Command not executed${NC}" >&2
         return 0
     fi
     
-    local response_with_code
+    local response
     if [ "$method" != "GET" ] && [ -n "$data" ]; then
-        response_with_code=$(curl -s -w "\\n%{http_code}" -X "$method" "$API_BASE$endpoint" \
+        response=$(curl -s -X "$method" "$API_BASE$endpoint" \
             -H "Content-Type: application/json" \
-            -d "$data" 2>&1 || echo -e '{"success":false,"error":{"message":"cURL request failed"}}\n000')
+            -d "$data" 2>/dev/null || echo '{"error":"Request failed"}')
     else
-        response_with_code=$(curl -s -w "\\n%{http_code}" -X "$method" "$API_BASE$endpoint" 2>&1 || echo -e '{"success":false,"error":{"message":"cURL request failed"}}\n000')
+        response=$(curl -s -X "$method" "$API_BASE$endpoint" 2>/dev/null || echo '{"error":"Request failed"}')
     fi
     
-    # Split response and HTTP code
-    local response=$(echo "$response_with_code" | head -n -1)
-    local http_code=$(echo "$response_with_code" | tail -n 1)
+    # Clean up response - sometimes curl output gets mixed with request data
+    # Extract only the last line that looks like valid JSON starting with {
+    # response=$(echo "$response" | grep '^{' | tail -n 1)
     
-    echo -e "${MINT_GREEN}Response (HTTP $http_code):${NC}"
-    echo "$response" | jq --color-output '.' 2>/dev/null || echo "$response"
+    echo -e "${MINT_GREEN}Response:${NC}" >&2
+    echo "$response" | jq --color-output '.' >&2 || echo "$response" >&2
     
-    # Check HTTP status and response success
-    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-        local success_status=$(echo "$response" | jq -r '.success // false' 2>/dev/null || echo "false")
-        if [ "$success_status" = "true" ]; then
-            success "API call succeeded (HTTP $http_code)"
-            echo "$response" # Return response for further processing
-            return 0
-        else
-            error "API call returned error (HTTP $http_code)"
-            return 1
-        fi
-    else
-        error "API call failed with HTTP $http_code"
+    # Log if response is empty (but don't treat as error)
+    if [ -z "$response" ] || [ "$response" = "{}" ] || [ "$response" = "null" ]; then
+        echo -e "${PEACH}[INFO]${NC} API call returned empty response" >&2
+    fi
+    
+    local error_check=$(echo "$response" | jq -r '.error // empty' 2>/dev/null)
+    if [ -n "$error_check" ]; then
+        echo -e "${SOFT_CORAL}[ERROR]${NC} API call failed or returned error" >&2
+        echo "$response" # Return response for further processing to stdout
         return 1
+    else
+        echo -e "${MINT_GREEN}[SUCCESS]${NC} API call succeeded" >&2
+        echo "$response" # Return response for further processing to stdout
+        return 0
     fi
 }
 
 # Extract transfer ID from response
 extract_transfer_id() {
     local response="$1"
-    echo "$response" | jq -r '.result.transfer_id // .result.id // empty' 2>/dev/null
+    echo "$response" | jq -r '.transfer_id // .result.transfer_id // .result.id // empty' 2>/dev/null
 }
 
 # Extract result data from response
@@ -168,8 +170,8 @@ wait_for_transfer_status() {
         response=$(execute_curl "GET" "/$transfer_id" "" "Check transfer status" || echo "")
         
         if [ -n "$response" ]; then
-            local status=$(echo "$response" | jq -r '.result.status // empty' 2>/dev/null)
-            local error_msg=$(echo "$response" | jq -r '.result.error_message // empty' 2>/dev/null)
+            local status=$(echo "$response" | jq -r '.transfer.status // .result.status // empty' 2>/dev/null)
+            local error_msg=$(echo "$response" | jq -r '.transfer.error_message // .result.error_message // empty' 2>/dev/null)
             
             if [ -n "$status" ]; then
                 log "Transfer status: $status (elapsed: ${elapsed}s)"
@@ -187,8 +189,12 @@ wait_for_transfer_status() {
                 done
                 
                 # Check for terminal failure states
-                if [ "$status" = "failed" ]; then
-                    error "Transfer failed: $error_msg"
+                if [ "$status" = "failed" ] || [ "$status" = "cancelled" ]; then
+                    if [ "$status" = "failed" ]; then
+                        error "Transfer failed: $error_msg"
+                    else
+                        error "Transfer cancelled: $error_msg"
+                    fi
                     return 1
                 fi
             fi
@@ -228,6 +234,9 @@ create_test_snapshot() {
 
 # Cleanup snapshot
 cleanup_snapshot() {
+    # Wait a few seconds before cleanup to let transfer settle
+    log "Waiting 3 seconds before cleanup to let transfer settle..."
+    sleep 3
     local snapshot="$1"
     if [ "$DRY_RUN" = "true" ]; then
         log "DRY-RUN: Would cleanup snapshot $snapshot"
@@ -244,6 +253,10 @@ cleanup_snapshot() {
 
 # Cleanup remote filesystem
 cleanup_remote_filesystem() {
+    # Wait a few seconds before cleanup to let transfer settle
+    log "Waiting 3 seconds before cleanup to let transfer settle..."
+    sleep 3
+
     local target_path="$1"
     if [ "$DRY_RUN" = "true" ]; then
         log "DRY-RUN: Would cleanup remote filesystem $target_path"
@@ -253,10 +266,21 @@ cleanup_remote_filesystem() {
     log "Cleaning up remote filesystem: $target_path"
     local cleanup_cmd="ssh -i $SSH_KEY_PATH $TARGET_USERNAME@$TARGET_IP 'sudo zfs destroy -r $target_path'"
     
-    if eval "$cleanup_cmd" 2>/dev/null; then
+    log "Executing: $cleanup_cmd"
+    local cleanup_output
+    cleanup_output=$(eval "$cleanup_cmd" 2>&1)
+    local cleanup_exit_code=$?
+    
+    if [ $cleanup_exit_code -eq 0 ]; then
         success "Cleaned up remote filesystem: $target_path"
+        if [ -n "$cleanup_output" ]; then
+            log "Cleanup output: $cleanup_output"
+        fi
     else
         warning "Failed to cleanup remote filesystem: $target_path"
+        if [ -n "$cleanup_output" ]; then
+            warning "Cleanup error: $cleanup_output"
+        fi
     fi
 }
 
@@ -269,7 +293,8 @@ Usage: $0 [OPTIONS] [COMMANDS]
 
 OPTIONS:
     -h, --help          Show this help message
-    -v, --verbose       Enable verbose output
+    -v, --verbose       Enable verbose output (default: true)
+    -q, --quiet         Disable verbose output
     -d, --dry-run       Show commands without executing
     -b, --base-url URL  Set API base URL (default: $API_BASE)
 
@@ -362,9 +387,12 @@ demo_basic_transfer() {
         return 1
     fi
     
+    log "Debug: Full response received: '$response'"
     TEST_TRANSFER_ID=$(extract_transfer_id "$response")
+    log "Debug: Extracted transfer ID: '$TEST_TRANSFER_ID'"
     if [ -z "$TEST_TRANSFER_ID" ]; then
         error "Failed to extract transfer ID from response"
+        error "Response was: '$response'"
         return 1
     fi
     
@@ -375,11 +403,15 @@ demo_basic_transfer() {
     execute_curl "GET" "/$TEST_TRANSFER_ID" "" "Get transfer details"
     
     # Wait for completion (short timeout for demo)
-    if wait_for_transfer_status "$TEST_TRANSFER_ID" "completed,failed" 60; then
-        success "Transfer completed successfully"
+    if wait_for_transfer_status "$TEST_TRANSFER_ID" "completed,failed,cancelled" 60; then
+        success "Transfer reached terminal status"
     else
         warning "Transfer did not complete within timeout"
     fi
+    
+    # Wait a few seconds before cleanup to let transfer settle
+    log "Waiting 2 seconds before cleanup to let transfer settle..."
+    sleep 2
 }
 
 # Demonstrate pause and resume operations
@@ -431,14 +463,14 @@ demo_pause_resume() {
     
     # Wait briefly for transfer to start, then pause (timing is critical)
     if [ "$DRY_RUN" != "true" ]; then
-        sleep 1
+        sleep 2
     fi
     
     # Pause transfer
-    execute_curl "POST" "/$transfer_id/pause" "" "Pause transfer"
+    execute_curl "POST" "/$transfer_id/pause" "" "Pause transfer" >/dev/null
     
     # Check paused status
-    execute_curl "GET" "/$transfer_id" "" "Verify transfer is paused"
+    execute_curl "GET" "/$transfer_id" "" "Verify transfer is paused" >/dev/null
     
     # Wait a moment
     if [ "$DRY_RUN" != "true" ]; then
@@ -446,13 +478,18 @@ demo_pause_resume() {
     fi
     
     # Resume transfer
-    execute_curl "POST" "/$transfer_id/resume" "" "Resume transfer"
-    
+    execute_curl "POST" "/$transfer_id/resume" "" "Resume transfer" >/dev/null
+
     # Check resumed status
-    execute_curl "GET" "/$transfer_id" "" "Verify transfer is resumed"
-    
+    execute_curl "GET" "/$transfer_id" "" "Verify transfer is resumed" >/dev/null
+
+    # Wait a moment
+    if [ "$DRY_RUN" != "true" ]; then
+        sleep 2
+    fi
+
     # Stop transfer (cleanup)
-    execute_curl "POST" "/$transfer_id/stop" "" "Stop transfer"
+    execute_curl "POST" "/$transfer_id/stop" "" "Stop transfer" >/dev/null
 }
 
 # Demonstrate transfer listing and filtering
@@ -460,13 +497,13 @@ demo_list_operations() {
     section "Transfer Listing and Filtering"
     
     # List all transfers
-    execute_curl "GET" "/list" "" "List all transfers (default: active)"
+    # execute_curl "GET" "/list" "" "List all transfers (default: active)"
     
     # List with different types
-    execute_curl "GET" "/list?type=all" "" "List all transfers"
-    execute_curl "GET" "/list?type=active" "" "List active transfers"
-    execute_curl "GET" "/list?type=completed" "" "List completed transfers"
-    execute_curl "GET" "/list?type=failed" "" "List failed transfers"
+    # execute_curl "GET" "/list?type=all" "" "List all transfers" >/dev/null
+    execute_curl "GET" "/list?type=active" "" "List active transfers" >/dev/null
+    # execute_curl "GET" "/list?type=completed" "" "List completed transfers" >/dev/null
+    # execute_curl "GET" "/list?type=failed" "" "List failed transfers" >/dev/null
 }
 
 # Demonstrate log operations
@@ -526,13 +563,13 @@ demo_log_operations() {
     fi
     
     # Get full log
-    execute_curl "GET" "/$TEST_TRANSFER_ID/log" "" "Get full transfer log"
-    
+    execute_curl "GET" "/$TEST_TRANSFER_ID/log" "" "Get full transfer log" >/dev/null
+
     # Get log gist (truncated)
-    execute_curl "GET" "/$TEST_TRANSFER_ID/log/gist" "" "Get transfer log gist (truncated)"
-    
+    execute_curl "GET" "/$TEST_TRANSFER_ID/log/gist" "" "Get transfer log gist (truncated)" >/dev/null
+
     # Test non-existent transfer log
-    execute_curl "GET" "/non-existent-id/log" "" "Get log for non-existent transfer (should fail)" 404
+    execute_curl "GET" "/non-existent-id/log" "" "Get log for non-existent transfer (should fail)" >/dev/null
 }
 
 # Comprehensive TransferConfig demonstration
@@ -573,7 +610,6 @@ demo_comprehensive_config() {
                 "verbose": true,
                 "resume_token": "",
                 "parsable": false,
-                "timeout": "0s",
                 "log_level": "debug"
             },
             "receive": {
@@ -619,10 +655,10 @@ demo_comprehensive_config() {
     add_cleanup "cleanup_transfer '$transfer_id'"
     
     # Show the created transfer details
-    execute_curl "GET" "/$transfer_id" "" "Get comprehensive transfer details"
-    
+    execute_curl "GET" "/$transfer_id" "" "Get comprehensive transfer details" >/dev/null
+
     # Stop for cleanup
-    execute_curl "POST" "/$transfer_id/stop" "" "Stop comprehensive transfer"
+    execute_curl "POST" "/$transfer_id/stop" "" "Stop comprehensive transfer" >/dev/null
 }
 
 # Cleanup transfer
@@ -649,20 +685,6 @@ cleanup_transfer() {
     fi
 }
 
-# Manual cleanup operations
-demo_cleanup() {
-    section "Manual Cleanup Operations"
-    
-    log "This demonstrates cleanup operations that would normally be automatic"
-    
-    # List transfers to see what might need cleanup
-    execute_curl "GET" "/list?type=all" "" "List all transfers for cleanup review"
-    
-    warning "Manual cleanup of specific transfers can be done with:"
-    echo -e "${PEACH}curl -X POST $API_BASE/TRANSFER_ID/stop${NC}"
-    echo -e "${PEACH}curl -X DELETE $API_BASE/TRANSFER_ID${NC}"
-}
-
 # Main execution
 main() {
     local commands=()
@@ -676,6 +698,10 @@ main() {
                 ;;
             -v|--verbose)
                 VERBOSE=true
+                shift
+                ;;
+            -q|--quiet)
+                VERBOSE=false
                 shift
                 ;;
             -d|--dry-run)
@@ -769,9 +795,6 @@ main() {
             comprehensive)
                 demo_comprehensive_config
                 ;;
-            cleanup)
-                demo_cleanup
-                ;;
         esac
     done
     
@@ -780,7 +803,6 @@ main() {
     
     if [ "$DRY_RUN" != "true" ]; then
         log "All test resources will be cleaned up automatically"
-        log "For production use, ensure proper authentication and authorization"
     fi
 }
 

@@ -39,6 +39,10 @@ func UUID7() string {
 // Helper to add errors to context
 func APIError(c *gin.Context, err error) {
 	if rodentErr, ok := err.(*errors.RodentError); ok {
+		// Initialize Metadata map if it's nil
+		if rodentErr.Metadata == nil {
+			rodentErr.Metadata = make(map[string]string)
+		}
 		// Do not include command in the error response
 		rodentErr.Metadata["command"] = ""
 		if rodentErr.Metadata["output"] != "" {
