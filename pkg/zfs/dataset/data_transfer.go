@@ -46,9 +46,9 @@ type TransferLogConfig struct {
 }
 
 type TransferConfig struct {
-	SendConfig    SendConfig         `json:"send"              binding:"required"`
-	ReceiveConfig ReceiveConfig      `json:"receive"           binding:"required"`
-	LogConfig     *TransferLogConfig `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	SendConfig    SendConfig         `json:"send"                 binding:"required"`
+	ReceiveConfig ReceiveConfig      `json:"receive"              binding:"required"`
+	LogConfig     *TransferLogConfig `json:"log_config,omitempty"                    yaml:"log_config,omitempty"`
 }
 
 type SendConfig struct {
@@ -202,6 +202,7 @@ func (m *Manager) GetResumeToken(ctx context.Context, cfg NameConfig) (string, e
 	return token, nil
 }
 
+// DEPRECATED: SendReceive is deprecated, use TransferManager.StartTransfer() instead
 // SendReceive handles data transfer on the same machine
 func (m *Manager) SendReceive(
 	ctx context.Context,

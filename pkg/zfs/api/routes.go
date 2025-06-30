@@ -160,13 +160,6 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 		// Data transfer operations
 		transfer := dataset.Group("/transfer")
 		{
-			transfer.POST("/send",
-				h.sendDataset)
-
-			transfer.POST("/resume-token/fetch",
-				ValidateZFSEntityName(common.TypeFilesystem),
-				h.getResumeToken)
-
 			// Managed transfer operations
 			transfer.POST("/start", h.startManagedTransfer)
 			transfer.GET("/list", h.listTransfers)
@@ -175,10 +168,20 @@ func (h *DatasetHandler) RegisterRoutes(router *gin.RouterGroup) {
 			transfer.POST("/:transferId/resume", h.resumeTransfer)
 			transfer.POST("/:transferId/stop", h.stopTransfer)
 			transfer.DELETE("/:transferId", h.deleteTransfer)
-			
+
 			// Transfer log operations
 			transfer.GET("/:transferId/log", h.getTransferLog)
 			transfer.GET("/:transferId/log/gist", h.getTransferLogGist)
+
+			// Misc.
+			// DEPRECATED: /send is deprecated, use /start instead
+			transfer.POST("/send",
+				h.sendDataset)
+
+			transfer.POST("/resume-token/fetch",
+				ValidateZFSEntityName(common.TypeFilesystem),
+				h.getResumeToken)
+
 		}
 	}
 }
