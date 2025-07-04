@@ -31,7 +31,7 @@ import (
 type TransferStatus string
 
 const (
-	TransferStatusPending   TransferStatus = "pending"
+	TransferStatusStarting  TransferStatus = "starting"
 	TransferStatusRunning   TransferStatus = "running"
 	TransferStatusPaused    TransferStatus = "paused"
 	TransferStatusCompleted TransferStatus = "completed"
@@ -80,13 +80,13 @@ type TransferInfo struct {
 
 // TransferProgress tracks the progress of a transfer operation
 type TransferProgress struct {
-	BytesTransferred int64     `json:"bytes_transferred"       yaml:"bytes_transferred"`
-	TotalBytes       int64     `json:"total_bytes,omitempty"   yaml:"total_bytes,omitempty"`
-	TransferRate     int64     `json:"transfer_rate"           yaml:"transfer_rate"`
-	ElapsedTime      int64     `json:"elapsed_time"            yaml:"elapsed_time"`
-	LastUpdate       time.Time `json:"last_update"             yaml:"last_update"`
-	EstimatedETA     int64     `json:"estimated_eta,omitempty" yaml:"estimated_eta,omitempty"`
-	Phase            string    `json:"phase,omitempty"         yaml:"phase,omitempty"`
+	BytesTransferred int64     `json:"bytes_transferred"           yaml:"bytes_transferred"`
+	TotalBytes       int64     `json:"total_bytes,omitempty"       yaml:"total_bytes,omitempty"`
+	TransferRate     int64     `json:"transfer_rate"               yaml:"transfer_rate"`
+	ElapsedTime      int64     `json:"elapsed_time"                yaml:"elapsed_time"`
+	LastUpdate       time.Time `json:"last_update"                 yaml:"last_update"`
+	EstimatedETA     int64     `json:"estimated_eta,omitempty"     yaml:"estimated_eta,omitempty"`
+	Phase            string    `json:"phase,omitempty"             yaml:"phase,omitempty"`
 	PhaseDescription string    `json:"phase_description,omitempty" yaml:"phase_description,omitempty"`
 }
 
@@ -99,7 +99,6 @@ const (
 	TransferTypeCompleted TransferType = "completed"
 	TransferTypeFailed    TransferType = "failed"
 )
-
 
 // TransferManager manages enterprise-grade ZFS transfer operations
 type TransferManager struct {
@@ -137,7 +136,7 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig
 	transferInfo := &TransferInfo{
 		ID:           transferID,
 		Operation:    TransferOperationSendReceive,
-		Status:       TransferStatusPending,
+		Status:       TransferStatusStarting,
 		Config:       cfg,
 		Progress:     TransferProgress{LastUpdate: time.Now()},
 		CreatedAt:    time.Now(),
@@ -196,22 +195,34 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 	// Pre-transfer validation: Check for initial snapshot requirement
 	sendCfg := info.Config.SendConfig
 	recvCfg := info.Config.ReceiveConfig
-	
+
 	if sendCfg.FromSnapshot != "" && sendCfg.ResumeToken == "" {
-		tm.logger.Info("Validating incremental transfer requirements", "id", info.ID, "from_snapshot", sendCfg.FromSnapshot)
-		
+		tm.logger.Info(
+			"Validating incremental transfer requirements",
+			"id",
+			info.ID,
+			"from_snapshot",
+			sendCfg.FromSnapshot,
+		)
+
 		exists, err := tm.snapshotExistsOnTarget(sendCfg.FromSnapshot, recvCfg)
 		if err != nil {
-			tm.logger.Warn("Could not verify initial snapshot on target, proceeding anyway", "id", info.ID, "error", err)
+			tm.logger.Warn(
+				"Could not verify initial snapshot on target, proceeding anyway",
+				"id",
+				info.ID,
+				"error",
+				err,
+			)
 		} else if !exists {
 			tm.logger.Info("Initial snapshot missing on target, performing automatic initial send", "id", info.ID, "snapshot", sendCfg.FromSnapshot)
-			
+
 			// Update progress to show initial send phase
 			info.Progress.Phase = "initial_send"
 			info.Progress.PhaseDescription = fmt.Sprintf("Sending initial snapshot: %s", sendCfg.FromSnapshot)
 			info.Progress.LastUpdate = time.Now()
 			tm.saveProgress(info)
-			
+
 			if err := tm.performInitialSend(ctx, info, sendCfg.FromSnapshot); err != nil {
 				tm.updateTransferStatusLocked(
 					info,
@@ -220,17 +231,17 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 				)
 				return
 			}
-			
+
 			// Update progress to show incremental phase
 			info.Progress.Phase = "incremental_send"
 			info.Progress.PhaseDescription = fmt.Sprintf("Sending incremental changes from %s to %s", sendCfg.FromSnapshot, sendCfg.Snapshot)
 			info.Progress.LastUpdate = time.Now()
 			tm.saveProgress(info)
-			
+
 			tm.logger.Info("Initial snapshot sent successfully, proceeding with incremental transfer", "id", info.ID)
 		} else {
 			tm.logger.Debug("Initial snapshot exists on target, proceeding with incremental transfer", "id", info.ID)
-			
+
 			// Update progress to show incremental phase
 			info.Progress.Phase = "incremental_send"
 			info.Progress.PhaseDescription = fmt.Sprintf("Sending incremental changes from %s to %s", sendCfg.FromSnapshot, sendCfg.Snapshot)
@@ -843,13 +854,13 @@ func (tm *TransferManager) getActiveTransfers() []*TransferInfo {
 func (tm *TransferManager) getHistoricalTransfersByStatus(status TransferStatus) []*TransferInfo {
 	allHistorical := tm.getAllHistoricalTransfers()
 	filtered := make([]*TransferInfo, 0)
-	
+
 	for _, transfer := range allHistorical {
 		if transfer.Status == status {
 			filtered = append(filtered, transfer)
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -908,7 +919,7 @@ func (tm *TransferManager) getEffectiveLogConfig(info *TransferInfo) TransferLog
 		// Use transfer-specific config with defaults for zero values
 		config := *info.Config.LogConfig
 		defaults := getDefaultLogConfig()
-		
+
 		if config.MaxSizeBytes == 0 {
 			config.MaxSizeBytes = defaults.MaxSizeBytes
 		}
@@ -918,7 +929,7 @@ func (tm *TransferManager) getEffectiveLogConfig(info *TransferInfo) TransferLog
 		if config.FooterLines == 0 {
 			config.FooterLines = defaults.FooterLines
 		}
-		
+
 		return config
 	}
 	return getDefaultLogConfig()
@@ -929,7 +940,7 @@ func (tm *TransferManager) getEffectiveLogConfig(info *TransferInfo) TransferLog
 // GetTransferLog returns the full log content for a transfer
 func (tm *TransferManager) GetTransferLog(transferID string) (string, error) {
 	logFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID))
-	
+
 	// Check if file exists and get size
 	fileInfo, err := os.Stat(logFile)
 	if os.IsNotExist(err) {
@@ -938,25 +949,32 @@ func (tm *TransferManager) GetTransferLog(transferID string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, errors.RodentMisc)
 	}
-	
+
 	// Cap at 90MB to prevent memory issues
 	const maxLogSize = 90 * 1024 * 1024 // 90MB
 	if fileInfo.Size() > maxLogSize {
-		return "", errors.New(errors.RodentMisc, fmt.Sprintf("Log file too large (%d bytes). Maximum allowed: %d bytes. Use GetTransferLogGist() for large files.", fileInfo.Size(), maxLogSize))
+		return "", errors.New(
+			errors.RodentMisc,
+			fmt.Sprintf(
+				"Log file too large (%d bytes). Maximum allowed: %d bytes. Use GetTransferLogGist() for large files.",
+				fileInfo.Size(),
+				maxLogSize,
+			),
+		)
 	}
-	
+
 	content, err := os.ReadFile(logFile)
 	if err != nil {
 		return "", errors.Wrap(err, errors.RodentMisc)
 	}
-	
+
 	return string(content), nil
 }
 
 // GetTransferLogGist returns a truncated version of the log (header + footer) using efficient utilities
 func (tm *TransferManager) GetTransferLogGist(transferID string) (string, error) {
 	logFile := filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID))
-	
+
 	// Check if file exists and get size
 	stat, err := os.Stat(logFile)
 	if os.IsNotExist(err) {
@@ -965,22 +983,26 @@ func (tm *TransferManager) GetTransferLogGist(transferID string) (string, error)
 	if err != nil {
 		return "", errors.Wrap(err, errors.RodentMisc)
 	}
-	
+
 	// Get transfer info to use its log configuration
 	transfer, err := tm.GetTransfer(transferID)
 	if err != nil {
 		// If we can't get transfer info, use default config
 		return tm.truncateLogContentEfficient(logFile, stat.Size(), getDefaultLogConfig())
 	}
-	
+
 	logConfig := tm.getEffectiveLogConfig(transfer)
 	return tm.truncateLogContentEfficient(logFile, stat.Size(), logConfig)
 }
 
 // truncateLogContentEfficient uses file size and system utilities for memory-efficient log truncation
-func (tm *TransferManager) truncateLogContentEfficient(logFile string, fileSize int64, logConfig TransferLogConfig) (string, error) {
+func (tm *TransferManager) truncateLogContentEfficient(
+	logFile string,
+	fileSize int64,
+	logConfig TransferLogConfig,
+) (string, error) {
 	const sizeLimitBytes = 100 * 1024 // 100KB
-	
+
 	// If file is small enough, return full content
 	if fileSize <= sizeLimitBytes {
 		content, err := os.ReadFile(logFile)
@@ -989,102 +1011,105 @@ func (tm *TransferManager) truncateLogContentEfficient(logFile string, fileSize 
 		}
 		return string(content), nil
 	}
-	
+
 	// For large files, use head and tail
 	headerLines := logConfig.HeaderLines
 	footerLines := logConfig.FooterLines
-	
+
 	// Get header lines using head
 	headCmd := exec.Command("head", "-n", fmt.Sprintf("%d", headerLines), logFile)
 	headerOutput, err := headCmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get header lines: %w", err)
 	}
-	
+
 	// Get footer lines using tail
 	tailCmd := exec.Command("tail", "-n", fmt.Sprintf("%d", footerLines), logFile)
 	footerOutput, err := tailCmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get footer lines: %w", err)
 	}
-	
+
 	// Combine with separator indicating truncation
 	result := string(headerOutput) + "\n" +
 		fmt.Sprintf("... [File truncated - original size: %d bytes] ...\n\n", fileSize) +
 		string(footerOutput)
-	
+
 	return result, nil
 }
 
 // processLogOnCompletion handles log processing when a transfer completes
 func (tm *TransferManager) processLogOnCompletion(info *TransferInfo) {
 	logConfig := tm.getEffectiveLogConfig(info)
-	
+
 	if !logConfig.TruncateOnFinish {
 		return
 	}
-	
+
 	// Don't truncate failed transfers if configured to retain them
 	if info.Status == TransferStatusFailed && logConfig.RetainOnFailure {
 		tm.logger.Debug("Retaining full log for failed transfer", "id", info.ID)
 		return
 	}
-	
+
 	// Check log file size efficiently using stat
 	logStat, err := os.Stat(info.LogFile)
 	if err != nil {
 		tm.logger.Warn("Failed to stat log file", "id", info.ID, "error", err)
 		return
 	}
-	
+
 	if logStat.Size() <= logConfig.MaxSizeBytes {
-		tm.logger.Debug("Log file under size limit, not truncating", 
+		tm.logger.Debug("Log file under size limit, not truncating",
 			"id", info.ID, "size", logStat.Size())
 		return
 	}
-	
+
 	// Get truncated content efficiently
 	truncatedContent, err := tm.truncateLogContentEfficient(info.LogFile, logStat.Size(), logConfig)
 	if err != nil {
 		tm.logger.Warn("Failed to truncate log efficiently", "id", info.ID, "error", err)
 		return
 	}
-	
+
 	// Write truncated content directly
 	err = os.WriteFile(info.LogFile, []byte(truncatedContent), 0644)
 	if err != nil {
 		tm.logger.Warn("Failed to write truncated log", "id", info.ID, "error", err)
 		return
 	}
-	
-	tm.logger.Info("Log truncated for completed transfer", 
-		"id", info.ID, 
-		"original_size", logStat.Size(), 
+
+	tm.logger.Info("Log truncated for completed transfer",
+		"id", info.ID,
+		"original_size", logStat.Size(),
 		"new_size", len(truncatedContent))
 }
 
 // Helper methods
 
 // snapshotExistsOnTarget checks if a snapshot exists on the target filesystem
-func (tm *TransferManager) snapshotExistsOnTarget(snapshot string, recvCfg ReceiveConfig) (bool, error) {
+func (tm *TransferManager) snapshotExistsOnTarget(
+	snapshot string,
+	recvCfg ReceiveConfig,
+) (bool, error) {
 	// Extract dataset name from snapshot (format: dataset@snapshot)
 	parts := strings.Split(snapshot, "@")
 	if len(parts) != 2 {
 		return false, fmt.Errorf("invalid snapshot format: %s", snapshot)
 	}
-	
+
 	// Build target snapshot name using receive target
 	targetSnapshot := fmt.Sprintf("%s@%s", recvCfg.Target, parts[1])
-	
+
 	var cmd *exec.Cmd
-	
+
 	if recvCfg.RemoteConfig.Host != "" {
 		// Remote target - use SSH
 		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
 		if err != nil {
 			return false, fmt.Errorf("failed to build SSH command: %w", err)
 		}
-		
+
 		cmdStr := fmt.Sprintf("%s sudo zfs list -H -t snapshot %s",
 			shellquote.Join(sshPart...), shellquote.Join(targetSnapshot))
 		tm.logger.Debug("Checking remote snapshot existence", "command", cmdStr)
@@ -1094,7 +1119,7 @@ func (tm *TransferManager) snapshotExistsOnTarget(snapshot string, recvCfg Recei
 		tm.logger.Debug("Checking local snapshot existence", "snapshot", targetSnapshot)
 		cmd = exec.Command("sudo", "zfs", "list", "-H", "-t", "snapshot", targetSnapshot)
 	}
-	
+
 	err := cmd.Run()
 	if err != nil {
 		// Exit code 1 typically means snapshot doesn't exist
@@ -1104,18 +1129,22 @@ func (tm *TransferManager) snapshotExistsOnTarget(snapshot string, recvCfg Recei
 		// Other errors (network, permissions, etc.)
 		return false, fmt.Errorf("failed to check snapshot existence: %w", err)
 	}
-	
+
 	return true, nil
 }
 
 // performInitialSend executes a full send of the initial snapshot to the target
-func (tm *TransferManager) performInitialSend(_ context.Context, info *TransferInfo, fromSnapshot string) error {
+func (tm *TransferManager) performInitialSend(
+	_ context.Context,
+	info *TransferInfo,
+	fromSnapshot string,
+) error {
 	tm.logger.Info("Performing initial snapshot send", "id", info.ID, "snapshot", fromSnapshot)
-	
+
 	// Create a temporary config for the initial send (full send, not incremental)
 	initialConfig := TransferConfig{
 		SendConfig: SendConfig{
-			Snapshot:    fromSnapshot,
+			Snapshot: fromSnapshot,
 			// Copy relevant flags from original config but remove incremental settings
 			Replicate:    info.Config.SendConfig.Replicate,
 			SkipMissing:  info.Config.SendConfig.SkipMissing,
@@ -1137,7 +1166,7 @@ func (tm *TransferManager) performInitialSend(_ context.Context, info *TransferI
 		},
 		ReceiveConfig: info.Config.ReceiveConfig, // Use same receive config
 	}
-	
+
 	// Create temporary transfer info for initial send
 	initialInfo := &TransferInfo{
 		ID:        info.ID + "-initial",
@@ -1148,50 +1177,50 @@ func (tm *TransferManager) performInitialSend(_ context.Context, info *TransferI
 		CreatedAt: time.Now(),
 		LogFile:   info.LogFile, // Use same log file
 	}
-	
+
 	// Build and execute initial send command
 	cmd, err := tm.buildTransferCommand(initialInfo)
 	if err != nil {
 		return fmt.Errorf("failed to build initial send command: %w", err)
 	}
-	
+
 	// Setup output redirection to log file (create if doesn't exist)
 	logFile, err := os.OpenFile(info.LogFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 	defer logFile.Close()
-	
+
 	// Log the initial send operation
 	fmt.Fprintf(logFile, "\n=== Initial Snapshot Send: %s ===\n", fromSnapshot)
-	
+
 	if initialConfig.SendConfig.DryRun {
 		cmd.Stdout = logFile
 		cmd.Stderr = logFile
 	} else {
 		cmd.Stderr = logFile // Verbose output goes to log file
 	}
-	
+
 	// Set up process group
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-	
+
 	tm.logger.Info("Starting initial snapshot send", "id", info.ID, "snapshot", fromSnapshot)
-	
+
 	// Execute initial send
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start initial send command: %w", err)
 	}
-	
+
 	// Wait for completion
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("initial send failed: %w", err)
 	}
-	
+
 	fmt.Fprint(logFile, "=== Initial Snapshot Send Completed ===\n\n")
 	tm.logger.Info("Initial snapshot send completed", "id", info.ID, "snapshot", fromSnapshot)
-	
+
 	return nil
 }
 
@@ -1406,7 +1435,8 @@ func (tm *TransferManager) loadExistingTransfers() error {
 
 		// Only load transfers that should be in activeTransfers
 		// Completed/failed/cancelled transfers are handled as historical transfers
-		if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed || info.Status == TransferStatusCancelled {
+		if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed ||
+			info.Status == TransferStatusCancelled {
 			continue // Skip - these are historical transfers
 		}
 
@@ -1443,9 +1473,10 @@ func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {
 	// Clear any pending action now that executeTransfer has completed
 	tm.mu.Lock()
 	info.pendingAction = TransferActionNone
-	
+
 	// Remove completed/failed transfers from active transfers so they become historical
-	if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed || info.Status == TransferStatusCancelled {
+	if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed ||
+		info.Status == TransferStatusCancelled {
 		delete(tm.activeTransfers, info.ID)
 	}
 	tm.mu.Unlock()
