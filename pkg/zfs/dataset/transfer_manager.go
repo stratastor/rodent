@@ -725,8 +725,12 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 					"error",
 					err,
 				)
-				info.pendingAction = TransferActionNone // Reset on error
-				return errors.Wrap(err, errors.TransferStopFailed)
+				// If the process is paused already, the current PID will not be active anymore.
+				// Do not return error if the process is already paused.
+				if info.Status != TransferStatusPaused {
+					info.pendingAction = TransferActionNone // Reset on error
+					return errors.Wrap(err, errors.TransferStopFailed)
+				}
 			}
 		}
 	}
