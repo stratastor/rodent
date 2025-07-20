@@ -166,11 +166,54 @@ func New() (*ADClient, error) {
 	}
 
 	tlsConfig := &tls.Config{
-		// TODO: For testing only. In production, properly verify the server certificate.
+		// TODO: For testing only. Properly verify the server certificate.
 		InsecureSkipVerify: true,
 	}
 
-	conn, err := ldap.DialURL(ldapURL, ldap.DialWithTLSConfig(tlsConfig))
+	// Try LDAPS first, then fallback to LDAP if TLS fails
+	var conn *ldap.Conn
+	var err error
+	maxRetries := 3
+
+	// First, try LDAPS connection with retry
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			// Exponential backoff: 500ms, 1s, 2s, 4s
+			delay := time.Duration(500*(1<<attempt)) * time.Millisecond
+			time.Sleep(delay)
+		}
+
+		conn, err = ldap.DialURL(ldapURL, ldap.DialWithTLSConfig(tlsConfig))
+		if err == nil {
+			break // Connection successful
+		}
+
+		// Check if it's a connection error that might resolve with retry
+		if isConnectionError(err) && attempt < maxRetries-1 {
+			continue
+		}
+
+		// If it's a TLS/certificate error, try fallback to LDAP
+		if strings.Contains(err.Error(), "tls:") || strings.Contains(err.Error(), "x509:") {
+			// Convert LDAPS URL to LDAP URL (port 636 -> 389)
+			fallbackURL := strings.Replace(ldapURL, "ldaps://", "ldap://", 1)
+			fallbackURL = strings.Replace(fallbackURL, ":636", ":389", 1)
+
+			fallbackConn, fallbackErr := ldap.DialURL(fallbackURL)
+			if fallbackErr == nil {
+				// Update ldapURL for potential reconnections
+				ldapURL = fallbackURL
+				conn = fallbackConn
+				err = nil // Clear the error since fallback succeeded
+				break
+			}
+		}
+
+		// Not a retryable error or max attempts reached
+		return nil, errors.Wrap(err, errors.ADConnectFailed)
+	}
+
+	// If we still have an error after all attempts, return it
 	if err != nil {
 		return nil, errors.Wrap(err, errors.ADConnectFailed)
 	}
@@ -283,7 +326,13 @@ func (c *ADClient) Reconnect() error {
 	}
 
 	// Re-establish connection
-	conn, err := ldap.DialURL(c.ldapURL, ldap.DialWithTLSConfig(c.tlsConfig))
+	var conn *ldap.Conn
+	var err error
+	if strings.HasPrefix(c.ldapURL, "ldaps://") {
+		conn, err = ldap.DialURL(c.ldapURL, ldap.DialWithTLSConfig(c.tlsConfig))
+	} else {
+		conn, err = ldap.DialURL(c.ldapURL)
+	}
 	if err != nil {
 		return errors.Wrap(err, errors.ADConnectFailed)
 	}
