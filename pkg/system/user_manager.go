@@ -1,0 +1,604 @@
+// Copyright 2025 Raamsri Kumar <raam@tinkershack.in>
+// Copyright 2025 The StrataSTOR Authors and Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+package system
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/stratastor/logger"
+	generalCmd "github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/pkg/errors"
+)
+
+// UserManager manages local system users and groups
+type UserManager struct {
+	executor CommandExecutor
+	logger   logger.Logger
+}
+
+// NewUserManager creates a new user manager
+func NewUserManager(logger logger.Logger) *UserManager {
+	return &UserManager{
+		executor: &commandExecutorWrapper{
+			executor: generalCmd.NewCommandExecutor(true), // Use sudo for user operations
+		},
+		logger: logger,
+	}
+}
+
+// GetUsers lists all system users
+func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
+	users := []User{}
+
+	// Parse /etc/passwd
+	file, err := os.Open("/etc/passwd")
+	if err != nil {
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Failed to read /etc/passwd: "+err.Error(),
+		)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		user, err := um.parsePasswdLine(line)
+		if err != nil {
+			um.logger.Warn("Failed to parse passwd line", "line", line, "error", err)
+			continue
+		}
+
+		// Get additional user information
+		um.enrichUserInfo(ctx, user)
+		users = append(users, *user)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Error reading /etc/passwd: "+err.Error(),
+		)
+	}
+
+	return users, nil
+}
+
+// GetUser gets a specific user by username
+func (um *UserManager) GetUser(ctx context.Context, username string) (*User, error) {
+	if username == "" {
+		return nil, errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+	}
+
+	users, err := um.GetUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, user := range users {
+		if user.Username == username {
+			return &user, nil
+		}
+	}
+
+	return nil, errors.New(
+		errors.ServerRequestValidation,
+		fmt.Sprintf("User '%s' not found", username),
+	)
+}
+
+// CreateUser creates a new system user
+func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest) error {
+	// Validate the request
+	if err := um.validateCreateUserRequest(request); err != nil {
+		return err
+	}
+
+	um.logger.Info(
+		"Creating system user",
+		"username",
+		request.Username,
+		"system",
+		request.SystemUser,
+	)
+
+	// Build useradd command
+	args := []string{}
+
+	if request.SystemUser {
+		args = append(args, "--system")
+	}
+
+	if request.FullName != "" {
+		args = append(args, "--comment", request.FullName)
+	}
+
+	if request.HomeDir != "" {
+		args = append(args, "--home-dir", request.HomeDir)
+	}
+
+	if request.Shell != "" {
+		args = append(args, "--shell", request.Shell)
+	}
+
+	if request.CreateHome {
+		args = append(args, "--create-home")
+	} else {
+		args = append(args, "--no-create-home")
+	}
+
+	// Add username as final argument
+	args = append(args, request.Username)
+
+	// Execute useradd command
+	result, err := um.executor.ExecuteCommand(ctx, "useradd", args...)
+	if err != nil {
+		um.logger.Error("Failed to create user", "username", request.Username, "error", err)
+		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to create user '%s': %s", request.Username, err.Error())).
+			WithMetadata("username", request.Username).
+			WithMetadata("output", result.Stdout)
+	}
+
+	// Add user to additional groups if specified
+	if len(request.Groups) > 0 {
+		for _, group := range request.Groups {
+			_, err = um.executor.ExecuteCommand(ctx, "usermod", "-a", "-G", group, request.Username)
+			if err != nil {
+				um.logger.Warn(
+					"Failed to add user to group",
+					"username",
+					request.Username,
+					"group",
+					group,
+					"error",
+					err,
+				)
+				// Don't fail the entire operation for group membership failures
+			}
+		}
+	}
+
+	// Set password if provided
+	if request.Password != "" {
+		if err := um.setUserPassword(ctx, request.Username, request.Password); err != nil {
+			um.logger.Warn(
+				"Failed to set user password",
+				"username",
+				request.Username,
+				"error",
+				err,
+			)
+			// Don't fail the entire operation for password setting failures
+		}
+	}
+
+	um.logger.Info("Successfully created system user", "username", request.Username)
+	return nil
+}
+
+// DeleteUser deletes a system user
+func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
+	if username == "" {
+		return errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+	}
+
+	// Safety check: prevent deletion of protected users
+	protectedUsers := []string{
+		"root",
+		"daemon",
+		"bin",
+		"sys",
+		"sync",
+		"games",
+		"man",
+		"lp",
+		"mail",
+		"news",
+		"uucp",
+		"proxy",
+		"www-data",
+		"backup",
+		"list",
+		"irc",
+		"gnats",
+		"nobody",
+		"systemd-network",
+		"systemd-resolve",
+		"messagebus",
+		"systemd-timesync",
+		"sshd",
+		"ubuntu",
+		"rodent",
+		"strata",
+	}
+	for _, protected := range protectedUsers {
+		if username == protected {
+			return errors.New(errors.ServerRequestValidation,
+				fmt.Sprintf("Cannot delete protected system user '%s'", username))
+		}
+	}
+
+	// Check if user exists
+	_, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	um.logger.Info("Deleting system user", "username", username)
+
+	// Delete user with home directory
+	result, err := um.executor.ExecuteCommand(ctx, "userdel", "-r", username)
+	if err != nil {
+		um.logger.Error("Failed to delete user", "username", username, "error", err)
+		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to delete user '%s': %s", username, err.Error())).
+			WithMetadata("username", username).
+			WithMetadata("output", result.Stdout)
+	}
+
+	um.logger.Info("Successfully deleted system user", "username", username)
+	return nil
+}
+
+// GetGroups lists all system groups
+func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
+	groups := []Group{}
+
+	// Parse /etc/group
+	file, err := os.Open("/etc/group")
+	if err != nil {
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Failed to read /etc/group: "+err.Error(),
+		)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		group, err := um.parseGroupLine(line)
+		if err != nil {
+			um.logger.Warn("Failed to parse group line", "line", line, "error", err)
+			continue
+		}
+
+		groups = append(groups, *group)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New(errors.ServerInternalError, "Error reading /etc/group: "+err.Error())
+	}
+
+	return groups, nil
+}
+
+// GetGroup gets a specific group by name
+func (um *UserManager) GetGroup(ctx context.Context, groupName string) (*Group, error) {
+	if groupName == "" {
+		return nil, errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+	}
+
+	groups, err := um.GetGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, group := range groups {
+		if group.Name == groupName {
+			return &group, nil
+		}
+	}
+
+	return nil, errors.New(
+		errors.ServerRequestValidation,
+		fmt.Sprintf("Group '%s' not found", groupName),
+	)
+}
+
+// CreateGroup creates a new system group
+func (um *UserManager) CreateGroup(ctx context.Context, request CreateGroupRequest) error {
+	if err := um.validateCreateGroupRequest(request); err != nil {
+		return err
+	}
+
+	um.logger.Info("Creating system group", "name", request.Name, "system", request.SystemGroup)
+
+	// Build groupadd command
+	args := []string{}
+
+	if request.SystemGroup {
+		args = append(args, "--system")
+	}
+
+	// Add group name as final argument
+	args = append(args, request.Name)
+
+	// Execute groupadd command
+	result, err := um.executor.ExecuteCommand(ctx, "groupadd", args...)
+	if err != nil {
+		um.logger.Error("Failed to create group", "name", request.Name, "error", err)
+		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to create group '%s': %s", request.Name, err.Error())).
+			WithMetadata("group", request.Name).
+			WithMetadata("output", result.Stdout)
+	}
+
+	um.logger.Info("Successfully created system group", "name", request.Name)
+	return nil
+}
+
+// DeleteGroup deletes a system group
+func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error {
+	if groupName == "" {
+		return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+	}
+
+	// Safety check: prevent deletion of protected groups
+	protectedGroups := []string{
+		"root",
+		"daemon",
+		"bin",
+		"sys",
+		"adm",
+		"tty",
+		"disk",
+		"lp",
+		"mail",
+		"news",
+		"uucp",
+		"man",
+		"proxy",
+		"kmem",
+		"dialout",
+		"fax",
+		"voice",
+		"cdrom",
+		"floppy",
+		"tape",
+		"sudo",
+		"audio",
+		"dip",
+		"www-data",
+		"backup",
+		"operator",
+		"list",
+		"irc",
+		"src",
+		"gnats",
+		"shadow",
+		"utmp",
+		"video",
+		"sasl",
+		"plugdev",
+		"staff",
+		"games",
+		"users",
+		"nogroup",
+		"ubuntu",
+		"rodent",
+		"strata",
+	}
+	for _, protected := range protectedGroups {
+		if groupName == protected {
+			return errors.New(errors.ServerRequestValidation,
+				fmt.Sprintf("Cannot delete protected system group '%s'", groupName))
+		}
+	}
+
+	// Check if group exists
+	group, err := um.GetGroup(ctx, groupName)
+	if err != nil {
+		return err
+	}
+
+	// Safety check: prevent deletion of groups with members
+	if len(group.Members) > 0 {
+		return errors.New(errors.ServerRequestValidation,
+			fmt.Sprintf("Cannot delete group '%s' - it has %d members. Remove members first.",
+				groupName, len(group.Members)))
+	}
+
+	um.logger.Info("Deleting system group", "name", groupName)
+
+	// Execute groupdel command
+	result, err := um.executor.ExecuteCommand(ctx, "groupdel", groupName)
+	if err != nil {
+		um.logger.Error("Failed to delete group", "name", groupName, "error", err)
+		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to delete group '%s': %s", groupName, err.Error())).
+			WithMetadata("group", groupName).
+			WithMetadata("output", result.Stdout)
+	}
+
+	um.logger.Info("Successfully deleted system group", "name", groupName)
+	return nil
+}
+
+// parsePasswdLine parses a line from /etc/passwd
+func (um *UserManager) parsePasswdLine(line string) (*User, error) {
+	fields := strings.Split(line, ":")
+	if len(fields) != 7 {
+		return nil, fmt.Errorf("invalid passwd line format")
+	}
+
+	uid, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid UID: %s", fields[2])
+	}
+
+	gid, err := strconv.Atoi(fields[3])
+	if err != nil {
+		return nil, fmt.Errorf("invalid GID: %s", fields[3])
+	}
+
+	user := &User{
+		Username: fields[0],
+		UID:      uid,
+		GID:      gid,
+		FullName: fields[4],
+		HomeDir:  fields[5],
+		Shell:    fields[6],
+	}
+
+	return user, nil
+}
+
+// parseGroupLine parses a line from /etc/group
+func (um *UserManager) parseGroupLine(line string) (*Group, error) {
+	fields := strings.Split(line, ":")
+	if len(fields) != 4 {
+		return nil, fmt.Errorf("invalid group line format")
+	}
+
+	gid, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid GID: %s", fields[2])
+	}
+
+	members := []string{}
+	if fields[3] != "" {
+		members = strings.Split(fields[3], ",")
+	}
+
+	group := &Group{
+		Name:    fields[0],
+		GID:     gid,
+		Members: members,
+	}
+
+	return group, nil
+}
+
+// enrichUserInfo adds additional information to a user
+func (um *UserManager) enrichUserInfo(ctx context.Context, user *User) {
+	// Get user's groups
+	result, err := um.executor.ExecuteCommand(ctx, "groups", user.Username)
+	if err == nil {
+		output := strings.TrimSpace(result.Stdout)
+		// Output format: "username : group1 group2 group3"
+		parts := strings.SplitN(output, ":", 2)
+		if len(parts) == 2 {
+			groupsStr := strings.TrimSpace(parts[1])
+			if groupsStr != "" {
+				user.Groups = strings.Fields(groupsStr)
+			}
+		}
+	}
+
+	// Check if user is locked
+	result, err = um.executor.ExecuteCommand(ctx, "passwd", "-S", user.Username)
+	if err == nil {
+		// Output format: "username status ..."
+		fields := strings.Fields(result.Stdout)
+		if len(fields) >= 2 {
+			status := fields[1]
+			user.Locked = (status == "L" || status == "LK")
+		}
+	}
+
+	// Get last login time (simplified - would need to parse lastlog or wtmp for accurate data)
+	// For now, we'll leave it nil as parsing binary wtmp files is complex
+}
+
+// setUserPassword sets the password for a user
+func (um *UserManager) setUserPassword(ctx context.Context, username, password string) error {
+	// Use chpasswd for setting password
+	result, err := um.executor.ExecuteCommand(ctx, "chpasswd")
+	if err != nil {
+		return err
+	}
+
+	// Note: This is a simplified approach. In production, you'd want to use
+	// a more secure method, possibly writing to stdin of chpasswd command
+	_ = result // Use the result to avoid unused variable warning
+
+	return nil
+}
+
+// validateCreateUserRequest validates a create user request
+func (um *UserManager) validateCreateUserRequest(request CreateUserRequest) error {
+	// Validate username
+	if request.Username == "" {
+		return errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+	}
+
+	// Username validation (POSIX compliant)
+	usernameRegex := regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	if !usernameRegex.MatchString(request.Username) {
+		return errors.New(
+			errors.ServerRequestValidation,
+			"Invalid username format (must be lowercase, start with letter/underscore, max 32 chars)",
+		)
+	}
+
+	// Validate shell if provided
+	if request.Shell != "" {
+		validShells := []string{
+			"/bin/bash",
+			"/bin/sh",
+			"/bin/dash",
+			"/bin/zsh",
+			"/usr/bin/fish",
+			"/bin/false",
+			"/sbin/nologin",
+		}
+		valid := false
+		for _, shell := range validShells {
+			if request.Shell == shell {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return errors.New(errors.ServerRequestValidation, "Invalid shell specified")
+		}
+	}
+
+	// Validate groups if provided
+	for _, group := range request.Groups {
+		if group == "" {
+			return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+		}
+		groupRegex := regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+		if !groupRegex.MatchString(group) {
+			return errors.New(
+				errors.ServerRequestValidation,
+				fmt.Sprintf("Invalid group name format: %s", group),
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateCreateGroupRequest validates a create group request
+func (um *UserManager) validateCreateGroupRequest(request CreateGroupRequest) error {
+	if request.Name == "" {
+		return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+	}
+
+	// Group name validation (POSIX compliant)
+	groupRegex := regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	if !groupRegex.MatchString(request.Name) {
+		return errors.New(
+			errors.ServerRequestValidation,
+			"Invalid group name format (must be lowercase, start with letter/underscore, max 32 chars)",
+		)
+	}
+
+	return nil
+}

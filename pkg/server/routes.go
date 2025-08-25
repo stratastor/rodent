@@ -25,6 +25,8 @@ import (
 	"github.com/stratastor/rodent/pkg/netmage/types"
 	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
 	"github.com/stratastor/rodent/pkg/shares/smb"
+	"github.com/stratastor/rodent/pkg/system"
+	systemAPI "github.com/stratastor/rodent/pkg/system/api"
 	"github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
@@ -258,4 +260,34 @@ func registerNetworkRoutes(engine *gin.Engine) (*netmageAPI.NetworkHandler, erro
 	netmageAPI.RegisterNetworkGRPCHandlers(networkHandler)
 
 	return networkHandler, nil
+}
+
+// registerSystemRoutes registers system management API routes
+func registerSystemRoutes(engine *gin.Engine) (*systemAPI.SystemHandler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "system")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create system manager
+	systemManager := system.NewManager(l)
+
+	// Create system handler
+	systemHandler := systemAPI.NewSystemHandler(systemManager, l)
+
+	// API group with version
+	v1 := engine.Group(constants.APISystem)
+	{
+		// Register system routes
+		systemHandler.RegisterRoutes(v1)
+	}
+
+	// Register gRPC handlers
+	systemAPI.RegisterSystemGRPCHandlers(systemHandler)
+
+	return systemHandler, nil
 }

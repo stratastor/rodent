@@ -123,7 +123,7 @@ func parseJSONPayload(cmd *proto.CommandRequest, out interface{}) error {
 func successResponse(
 	requestID string,
 	message string,
-	data interface{},
+	data any,
 ) (*proto.CommandResponse, error) {
 	response := APIResponse{
 		Success: true,

@@ -157,6 +157,18 @@ func Start(ctx context.Context, port int) error {
 		_ = networkHandler // Handler doesn't implement Close() method
 	}
 
+	// Register system management routes with graceful error handling
+	systemHandler, err := registerSystemRoutes(engine)
+	if err != nil {
+		l.Error(
+			"Failed to register system routes, continuing without system management functionality",
+			"error",
+			err,
+		)
+	} else {
+		_ = systemHandler // Handler doesn't implement Close() method
+	}
+
 	toggle.StartRegistrationProcess(ctx, l)
 
 	srv = &http.Server{

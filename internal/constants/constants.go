@@ -35,6 +35,9 @@ const (
 	// APINetwork is the base path for network management API endpoints
 	APINetwork = APIBase + "/network"
 
+	// APISystem is the base path for system management API endpoints
+	APISystem = APIBase + "/system"
+
 	// Template paths - relative paths
 	TemplatesBasePath = "internal/templates"
 )
