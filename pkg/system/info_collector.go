@@ -36,7 +36,11 @@ type commandExecutorWrapper struct {
 }
 
 // ExecuteCommand implements the CommandExecutor interface
-func (w *commandExecutorWrapper) ExecuteCommand(ctx context.Context, command string, args ...string) (*CommandResult, error) {
+func (w *commandExecutorWrapper) ExecuteCommand(
+	ctx context.Context,
+	command string,
+	args ...string,
+) (*CommandResult, error) {
 	output, err := w.executor.ExecuteWithCombinedOutput(ctx, command, args...)
 	return &CommandResult{
 		Stdout: string(output),
@@ -119,12 +123,18 @@ func (ic *InfoCollector) getOSInfo(ctx context.Context) (*OSInfo, error) {
 
 	// Read /etc/os-release
 	if err := ic.parseOSRelease(info); err != nil {
-		return nil, errors.New(errors.ServerInternalError, "Failed to parse OS release information: "+err.Error())
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Failed to parse OS release information: "+err.Error(),
+		)
 	}
 
 	// Get kernel information
 	if err := ic.getKernelInfo(ctx, info); err != nil {
-		return nil, errors.New(errors.ServerInternalError, "Failed to get kernel information: "+err.Error())
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Failed to get kernel information: "+err.Error(),
+		)
 	}
 
 	// Get machine and boot ID
@@ -242,7 +252,7 @@ func (ic *InfoCollector) getHardwareInfo(ctx context.Context) (*HardwareInfo, er
 }
 
 // getCPUInfo parses /proc/cpuinfo
-func (ic *InfoCollector) getCPUInfo(ctx context.Context) (*CPUInfo, error) {
+func (ic *InfoCollector) getCPUInfo(_ context.Context) (*CPUInfo, error) {
 	file, err := os.Open("/proc/cpuinfo")
 	if err != nil {
 		return nil, err
@@ -339,7 +349,7 @@ func (ic *InfoCollector) getCPUInfo(ctx context.Context) (*CPUInfo, error) {
 	if info.Sockets == 0 {
 		info.Sockets = 1
 	}
-	
+
 	if info.CPUCores > 0 {
 		info.CoresPerSocket = info.CPUCores
 		if info.Siblings > 0 {
@@ -351,7 +361,7 @@ func (ic *InfoCollector) getCPUInfo(ctx context.Context) (*CPUInfo, error) {
 }
 
 // getMemoryInfo parses /proc/meminfo
-func (ic *InfoCollector) getMemoryInfo(ctx context.Context) (*MemoryInfo, error) {
+func (ic *InfoCollector) getMemoryInfo(_ context.Context) (*MemoryInfo, error) {
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
 		return nil, err
@@ -360,7 +370,7 @@ func (ic *InfoCollector) getMemoryInfo(ctx context.Context) (*MemoryInfo, error)
 
 	info := &MemoryInfo{}
 	scanner := bufio.NewScanner(file)
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		fields := strings.Fields(line)
@@ -370,7 +380,7 @@ func (ic *InfoCollector) getMemoryInfo(ctx context.Context) (*MemoryInfo, error)
 
 		key := strings.TrimSuffix(fields[0], ":")
 		valueStr := fields[1]
-		
+
 		// Convert to bytes (values in /proc/meminfo are in kB)
 		value, err := strconv.ParseUint(valueStr, 10, 64)
 		if err != nil {
@@ -486,13 +496,13 @@ func (ic *InfoCollector) getSystemDMIInfo(ctx context.Context) (*SystemHWInfo, e
 	info := &SystemHWInfo{}
 
 	dmiFields := map[string]*string{
-		"system-manufacturer":   &info.Manufacturer,
-		"system-product-name":   &info.ProductName,
-		"system-version":        &info.Version,
-		"system-serial-number":  &info.SerialNumber,
-		"system-uuid":           &info.UUID,
-		"system-sku-number":     &info.SKUNumber,
-		"system-family":         &info.Family,
+		"system-manufacturer":  &info.Manufacturer,
+		"system-product-name":  &info.ProductName,
+		"system-version":       &info.Version,
+		"system-serial-number": &info.SerialNumber,
+		"system-uuid":          &info.UUID,
+		"system-sku-number":    &info.SKUNumber,
+		"system-family":        &info.Family,
 	}
 
 	for dmiKey, field := range dmiFields {
@@ -513,10 +523,10 @@ func (ic *InfoCollector) getBaseboardInfo(ctx context.Context) (*BaseboardInfo, 
 	info := &BaseboardInfo{}
 
 	dmiFields := map[string]*string{
-		"baseboard-manufacturer":   &info.Manufacturer,
-		"baseboard-product-name":   &info.ProductName,
-		"baseboard-version":        &info.Version,
-		"baseboard-serial-number":  &info.SerialNumber,
+		"baseboard-manufacturer":  &info.Manufacturer,
+		"baseboard-product-name":  &info.ProductName,
+		"baseboard-version":       &info.Version,
+		"baseboard-serial-number": &info.SerialNumber,
 	}
 
 	for dmiKey, field := range dmiFields {
@@ -537,7 +547,7 @@ func (ic *InfoCollector) getChassisInfo(ctx context.Context) (*ChassisInfo, erro
 	info := &ChassisInfo{}
 
 	dmiFields := map[string]*string{
-		"chassis-manufacturer":   &info.Manufacturer,
+		"chassis-manufacturer":  &info.Manufacturer,
 		"chassis-type":          &info.Type,
 		"chassis-version":       &info.Version,
 		"chassis-serial-number": &info.SerialNumber,
@@ -589,7 +599,7 @@ func (ic *InfoCollector) isValidDMIValue(value string) bool {
 		"Unknown",
 		"",
 	}
-	
+
 	for _, invalid := range invalidValues {
 		if value == invalid {
 			return false
@@ -658,7 +668,7 @@ func (ic *InfoCollector) getLoadAverage() (*LoadAverage, error) {
 }
 
 // getCPUUsage gets CPU usage from /proc/stat
-func (ic *InfoCollector) getCPUUsage(ctx context.Context) (*CPUUsage, error) {
+func (ic *InfoCollector) getCPUUsage(_ context.Context) (*CPUUsage, error) {
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
 		return nil, err
@@ -712,7 +722,7 @@ func (ic *InfoCollector) getCPUUsage(ctx context.Context) (*CPUUsage, error) {
 		usage.IOWait = float64(times[4]) / float64(total) * 100
 		usage.IRQ = float64(times[5]) / float64(total) * 100
 		usage.SoftIRQ = float64(times[6]) / float64(total) * 100
-		
+
 		if len(times) >= 8 {
 			usage.Steal = float64(times[7]) / float64(total) * 100
 		}
@@ -735,7 +745,7 @@ func (ic *InfoCollector) getProcessCount() (*ProcessCount, error) {
 
 	count := &ProcessCount{}
 	lines := strings.Split(string(data), "\n")
-	
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "processes ") {
 			// This is total processes created since boot, not current count
@@ -808,7 +818,13 @@ func (ic *InfoCollector) getCurrentHostname(ctx context.Context) (string, error)
 
 // getTimezone gets the current timezone
 func (ic *InfoCollector) getTimezone(ctx context.Context) string {
-	result, err := ic.executor.ExecuteCommand(ctx, "timedatectl", "show", "--property=Timezone", "--value")
+	result, err := ic.executor.ExecuteCommand(
+		ctx,
+		"timedatectl",
+		"show",
+		"--property=Timezone",
+		"--value",
+	)
 	if err == nil && result.Stdout != "" {
 		return strings.TrimSpace(result.Stdout)
 	}
@@ -845,7 +861,7 @@ func (ic *InfoCollector) getLocale(ctx context.Context) string {
 }
 
 // getUptime gets system uptime as duration
-func (ic *InfoCollector) getUptime(ctx context.Context) (time.Duration, error) {
+func (ic *InfoCollector) getUptime(_ context.Context) (time.Duration, error) {
 	uptime, _, err := ic.getUptimeAndBootTime()
 	if err != nil {
 		return 0, err

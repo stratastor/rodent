@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stratastor/logger"
 	generalCmd "github.com/stratastor/rodent/internal/command"
@@ -510,18 +511,26 @@ func (um *UserManager) enrichUserInfo(ctx context.Context, user *User) {
 		}
 	}
 
-	// Get last login time (simplified - would need to parse lastlog or wtmp for accurate data)
-	// For now, we'll leave it nil as parsing binary wtmp files is complex
+	// Get last login time using 'last' command
+	um.setLastLoginTime(ctx, user)
 }
 
-// setUserPassword sets the password for a user
+// setUserPassword sets the password for a user using a more secure approach
 func (um *UserManager) setUserPassword(ctx context.Context, username, password string) error {
-	// Use chpasswd with echo to pipe the password securely
+	// Validate inputs to prevent injection
+	if strings.Contains(username, ":") || strings.Contains(username, "\n") {
+		return errors.New(errors.ServerRequestValidation, "Invalid characters in username")
+	}
+	if strings.Contains(password, "\n") {
+		return errors.New(errors.ServerRequestValidation, "Invalid characters in password")
+	}
+	
+	// Use chpasswd with printf to avoid shell escaping issues
 	// Format: "username:password"
 	passwordInput := fmt.Sprintf("%s:%s", username, password)
 	
-	// Use echo piped to chpasswd for secure password setting
-	result, err := um.executor.ExecuteCommand(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | chpasswd", passwordInput))
+	// Use printf piped to chpasswd for more secure password setting
+	result, err := um.executor.ExecuteCommand(ctx, "bash", "-c", "printf '%s' | chpasswd", passwordInput)
 	if err != nil {
 		um.logger.Error("Failed to set user password", "username", username, "error", err)
 		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to set password for user '%s': %s", username, err.Error())).
@@ -531,6 +540,73 @@ func (um *UserManager) setUserPassword(ctx context.Context, username, password s
 	
 	um.logger.Info("Password set successfully for user", "username", username)
 	return nil
+}
+
+// setLastLoginTime sets the last login time for a user using 'last' command
+func (um *UserManager) setLastLoginTime(ctx context.Context, user *User) {
+	// Use 'last' command with full time format and no hostname for consistent parsing
+	result, err := um.executor.ExecuteCommand(ctx, "last", "--time-format", "full", "-R", "-n", "1", user.Username)
+	if err != nil {
+		// Don't fail if we can't get last login time, just log and continue
+		um.logger.Debug("Failed to get last login time", "username", user.Username, "error", err)
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
+	if len(lines) == 0 {
+		return
+	}
+
+	// Find the first line that doesn't contain "wtmp begins"
+	var loginLine string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.Contains(line, "wtmp begins") {
+			loginLine = line
+			break
+		}
+	}
+
+	if loginLine == "" {
+		return
+	}
+
+	// Parse the last command output with --time-format full -R flags
+	// Format examples:
+	// "ubuntu   pts/0        Mon Aug 25 16:33:26 2025   still logged in"
+	// "ubuntu   pts/1        Tue Aug  5 16:56:00 2025 - 17:55:00  (00:59)"
+	um.parseLastLoginLine(loginLine, user)
+}
+
+// parseLastLoginLine parses a single line from 'last --time-format full -R' command output
+func (um *UserManager) parseLastLoginLine(line string, user *User) {
+	// Split by multiple spaces to separate fields
+	fields := strings.Fields(line)
+	if len(fields) < 6 {
+		return
+	}
+
+	// Skip username (fields[0]) and tty (fields[1])
+	// Date/time starts from fields[2] and includes year
+	// Format: "Mon Aug 25 16:33:26 2025"
+	
+	if len(fields) >= 6 {
+		// Extract date/time components: weekday month day time year
+		dateStr := strings.Join(fields[2:7], " ") // "Mon Aug 25 16:33:26 2025"
+		
+		if t, err := time.Parse("Mon Jan 2 15:04:05 2006", dateStr); err == nil {
+			user.LastLogin = &t
+			return
+		}
+		
+		// Handle potential format variations (e.g., single digit day)
+		if t, err := time.Parse("Mon Jan _2 15:04:05 2006", dateStr); err == nil {
+			user.LastLogin = &t
+			return
+		}
+	}
+	
+	um.logger.Debug("Failed to parse last login time", "username", user.Username, "line", line)
 }
 
 // validateCreateUserRequest validates a create user request
