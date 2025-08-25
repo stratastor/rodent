@@ -516,16 +516,20 @@ func (um *UserManager) enrichUserInfo(ctx context.Context, user *User) {
 
 // setUserPassword sets the password for a user
 func (um *UserManager) setUserPassword(ctx context.Context, username, password string) error {
-	// Use chpasswd for setting password
-	result, err := um.executor.ExecuteCommand(ctx, "chpasswd")
+	// Use chpasswd with echo to pipe the password securely
+	// Format: "username:password"
+	passwordInput := fmt.Sprintf("%s:%s", username, password)
+	
+	// Use echo piped to chpasswd for secure password setting
+	result, err := um.executor.ExecuteCommand(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | chpasswd", passwordInput))
 	if err != nil {
-		return err
+		um.logger.Error("Failed to set user password", "username", username, "error", err)
+		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to set password for user '%s': %s", username, err.Error())).
+			WithMetadata("username", username).
+			WithMetadata("output", result.Stdout)
 	}
-
-	// Note: This is a simplified approach. In production, you'd want to use
-	// a more secure method, possibly writing to stdin of chpasswd command
-	_ = result // Use the result to avoid unused variable warning
-
+	
+	um.logger.Info("Password set successfully for user", "username", username)
 	return nil
 }
 
