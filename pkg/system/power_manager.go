@@ -218,6 +218,9 @@ func (pm *PowerManager) Reboot(ctx context.Context, request PowerOperationReques
 // GetPowerStatus gets current power management status
 func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interface{}, error) {
 	status := make(map[string]interface{})
+	
+	// Set basic status
+	status["status"] = "ok"
 
 	// Check if systemctl is available and get power-related status
 	result, err := pm.executor.ExecuteCommand(ctx, "systemctl", "is-system-running")
@@ -252,7 +255,7 @@ func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interfac
 	// Get scheduled shutdown info
 	scheduledInfo, err := pm.GetScheduledShutdown(ctx)
 	if err == nil {
-		status["scheduled_shutdown"] = scheduledInfo
+		status["scheduled_shutdown"] = *scheduledInfo
 	}
 
 	return status, nil
