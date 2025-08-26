@@ -140,6 +140,20 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 		args = append(args, "--no-create-home")
 	}
 
+	// Add encrypted password if provided
+	if request.Password != "" {
+		encryptedPassword, err := um.encryptPassword(ctx, request.Password)
+		if err != nil {
+			um.logger.Error("Failed to encrypt password", "username", request.Username, "error", err)
+			return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to encrypt password for user '%s': %s", request.Username, err.Error())).
+				WithMetadata("username", request.Username)
+		}
+		// Note: ExecuteCommand passes args directly without shell interpretation,
+		// so $ characters in the encrypted password should be preserved correctly
+		args = append(args, "--password", encryptedPassword)
+		um.logger.Debug("Setting encrypted password for user", "username", request.Username, "hash_length", len(encryptedPassword))
+	}
+
 	// Add username as final argument
 	args = append(args, request.Username)
 
@@ -171,19 +185,8 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 		}
 	}
 
-	// Set password if provided
-	if request.Password != "" {
-		if err := um.setUserPassword(ctx, request.Username, request.Password); err != nil {
-			um.logger.Warn(
-				"Failed to set user password",
-				"username",
-				request.Username,
-				"error",
-				err,
-			)
-			// Don't fail the entire operation for password setting failures
-		}
-	}
+	// Password is now set during user creation using useradd --password
+	// No need for separate password setting step
 
 	um.logger.Info("Successfully created system user", "username", request.Username)
 	return nil
@@ -515,31 +518,22 @@ func (um *UserManager) enrichUserInfo(ctx context.Context, user *User) {
 	um.setLastLoginTime(ctx, user)
 }
 
-// setUserPassword sets the password for a user using a more secure approach
-func (um *UserManager) setUserPassword(ctx context.Context, username, password string) error {
-	// Validate inputs to prevent injection
-	if strings.Contains(username, ":") || strings.Contains(username, "\n") {
-		return errors.New(errors.ServerRequestValidation, "Invalid characters in username")
-	}
-	if strings.Contains(password, "\n") {
-		return errors.New(errors.ServerRequestValidation, "Invalid characters in password")
-	}
-	
-	// Use chpasswd with printf to avoid shell escaping issues
-	// Format: "username:password"
-	passwordInput := fmt.Sprintf("%s:%s", username, password)
-	
-	// Use printf piped to chpasswd for more secure password setting
-	result, err := um.executor.ExecuteCommand(ctx, "bash", "-c", "printf '%s' | chpasswd", passwordInput)
+// encryptPassword encrypts a password using openssl for use with useradd -p
+func (um *UserManager) encryptPassword(ctx context.Context, password string) (string, error) {
+	// Use openssl passwd to generate a secure encrypted password
+	// -6 uses SHA-512 which is the modern standard
+	result, err := um.executor.ExecuteCommand(ctx, "openssl", "passwd", "-6", password)
 	if err != nil {
-		um.logger.Error("Failed to set user password", "username", username, "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to set password for user '%s': %s", username, err.Error())).
-			WithMetadata("username", username).
-			WithMetadata("output", result.Stdout)
+		return "", fmt.Errorf("failed to encrypt password: %w", err)
 	}
 	
-	um.logger.Info("Password set successfully for user", "username", username)
-	return nil
+	// Return the encrypted password (trim whitespace)
+	encryptedPassword := strings.TrimSpace(result.Stdout)
+	if encryptedPassword == "" {
+		return "", fmt.Errorf("openssl returned empty encrypted password")
+	}
+	
+	return encryptedPassword, nil
 }
 
 // setLastLoginTime sets the last login time for a user using 'last' command

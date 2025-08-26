@@ -34,7 +34,8 @@ Cmnd_Alias SMB_COMMANDS = \
     /usr/bin/systemctl status nmbd*, \
     /usr/bin/systemctl enable nmbd*, \
     /usr/bin/systemctl disable nmbd*, \
-    /usr/bin/systemctl is-enabled nmbd*
+    /usr/bin/systemctl is-enabled nmbd*, \
+    /usr/bin/systemctl is-system-running 
 
 Cmnd_Alias DOCKER_COMMANDS = \
     /usr/bin/docker *, \
@@ -70,7 +71,20 @@ Cmnd_Alias SYSTEM_COMMANDS = \
     /usr/bin/systemctl list-*, \
     /usr/bin/networkctl *, \
     /usr/bin/resolvectl *, \
-    /usr/bin/journalctl *
+    /usr/bin/journalctl *, \
+    /usr/sbin/netplan *, \                                                                                                        
+    /usr/bin/last *, \                                                                                                            
+    /usr/bin/uptime *, \                                                                                                          
+    /usr/bin/groups *, \                                                                                                          
+    /usr/bin/passwd *, \                                                                                                          
+    /usr/sbin/reboot *, \                                                                                                         
+    /usr/sbin/shutdown *, \                                                                                                       
+    /usr/sbin/useradd *, \                                                                                                        
+    /usr/sbin/chpasswd *, \                                                                                                       
+    /usr/sbin/usermod *, \                                                                                                        
+    /usr/sbin/userdel *, \                                                                                                        
+    /usr/sbin/groupadd *, \                                                                                                       
+    /usr/sbin/groupdel *
 
 # Command aliases for privileged file operations
 Cmnd_Alias FILE_OPERATIONS = \
