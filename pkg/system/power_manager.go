@@ -163,7 +163,7 @@ func (pm *PowerManager) Shutdown(ctx context.Context, request PowerOperationRequ
 	result, err := pm.executor.ExecuteCommand(ctx, "shutdown", args...)
 	if err != nil {
 		pm.logger.Error("Failed to execute shutdown", "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to shutdown system: %s", err.Error())).
+		return errors.Wrap(err, errors.SystemPowerShutdownFailed).
 			WithMetadata("operation", "shutdown").
 			WithMetadata("output", result.Stdout)
 	}
@@ -206,7 +206,7 @@ func (pm *PowerManager) Reboot(ctx context.Context, request PowerOperationReques
 	result, err := pm.executor.ExecuteCommand(ctx, "shutdown", rebootArgs...)
 	if err != nil {
 		pm.logger.Error("Failed to execute reboot", "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to reboot system: %s", err.Error())).
+		return errors.Wrap(err, errors.SystemPowerRebootFailed).
 			WithMetadata("operation", "reboot").
 			WithMetadata("output", result.Stdout)
 	}
@@ -264,7 +264,7 @@ func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interfac
 // ScheduleShutdown schedules a shutdown at a specific time
 func (pm *PowerManager) ScheduleShutdown(ctx context.Context, delay time.Duration, message string) error {
 	if delay < time.Minute {
-		return errors.New(errors.ServerRequestValidation, "Minimum shutdown delay is 1 minute")
+		return errors.New(errors.SystemPowerInvalidDelay, "Minimum shutdown delay is 1 minute")
 	}
 
 	// Convert delay to minutes for shutdown command
@@ -283,7 +283,7 @@ func (pm *PowerManager) ScheduleShutdown(ctx context.Context, delay time.Duratio
 	result, err := pm.executor.ExecuteCommand(ctx, "shutdown", args...)
 	if err != nil {
 		pm.logger.Error("Failed to schedule shutdown", "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to schedule shutdown: %s", err.Error())).
+		return errors.Wrap(err, errors.SystemPowerScheduleFailed).
 			WithMetadata("operation", "schedule_shutdown").
 			WithMetadata("delay_minutes", fmt.Sprintf("%d", minutes)).
 			WithMetadata("output", result.Stdout)
@@ -300,7 +300,7 @@ func (pm *PowerManager) CancelScheduledShutdown(ctx context.Context) error {
 	result, err := pm.executor.ExecuteCommand(ctx, "shutdown", "-c")
 	if err != nil {
 		pm.logger.Error("Failed to cancel scheduled shutdown", "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to cancel shutdown: %s", err.Error())).
+		return errors.Wrap(err, errors.SystemPowerCancelFailed).
 			WithMetadata("operation", "cancel_shutdown").
 			WithMetadata("output", result.Stdout)
 	}
@@ -322,12 +322,12 @@ func (pm *PowerManager) ValidatePowerOperation(operation string, request PowerOp
 	}
 	
 	if !valid {
-		return errors.New(errors.ServerRequestValidation, fmt.Sprintf("Invalid power operation: %s", operation))
+		return errors.New(errors.SystemPowerOperationDenied, fmt.Sprintf("Invalid power operation: %s", operation))
 	}
 
 	// Validate message length if provided
 	if len(request.Message) > 200 {
-		return errors.New(errors.ServerRequestValidation, "Power operation message too long (max 200 characters)")
+		return errors.New(errors.SystemPowerInvalidMessage, "Power operation message too long (max 200 characters)")
 	}
 
 	return nil

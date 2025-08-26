@@ -242,7 +242,7 @@ func (h *SystemHandler) GetUsers(c *gin.Context) {
 func (h *SystemHandler) GetUser(c *gin.Context) {
 	username := c.Param("username")
 	if username == "" {
-		h.sendError(c, errors.New(errors.ServerRequestValidation, "Username parameter is required"))
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
 		return
 	}
 
@@ -276,7 +276,7 @@ func (h *SystemHandler) CreateUser(c *gin.Context) {
 func (h *SystemHandler) DeleteUser(c *gin.Context) {
 	username := c.Param("username")
 	if username == "" {
-		h.sendError(c, errors.New(errors.ServerRequestValidation, "Username parameter is required"))
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
 		return
 	}
 
@@ -309,7 +309,7 @@ func (h *SystemHandler) GetGroups(c *gin.Context) {
 func (h *SystemHandler) GetGroup(c *gin.Context) {
 	groupName := c.Param("groupname")
 	if groupName == "" {
-		h.sendError(c, errors.New(errors.ServerRequestValidation, "Group name parameter is required"))
+		h.sendError(c, errors.New(errors.SystemGroupInvalidName, "Group name parameter is required"))
 		return
 	}
 
@@ -343,7 +343,7 @@ func (h *SystemHandler) CreateGroup(c *gin.Context) {
 func (h *SystemHandler) DeleteGroup(c *gin.Context) {
 	groupName := c.Param("groupname")
 	if groupName == "" {
-		h.sendError(c, errors.New(errors.ServerRequestValidation, "Group name parameter is required"))
+		h.sendError(c, errors.New(errors.SystemGroupInvalidName, "Group name parameter is required"))
 		return
 	}
 

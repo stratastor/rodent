@@ -215,7 +215,7 @@ func (m *Manager) SetTimezone(ctx context.Context, request SetTimezoneRequest) e
 	result, err := wrapper.ExecuteCommand(ctx, "timedatectl", "set-timezone", request.Timezone)
 	if err != nil {
 		m.logger.Error("Failed to set timezone", "timezone", request.Timezone, "error", err)
-		return errors.New(errors.ServerInternalError, "Failed to set timezone: "+err.Error()).
+		return errors.Wrap(err, errors.SystemTimezoneSetFailed).
 			WithMetadata("timezone", request.Timezone).
 			WithMetadata("output", result.Stdout)
 	}
@@ -245,7 +245,7 @@ func (m *Manager) SetLocale(ctx context.Context, request SetLocaleRequest) error
 	result, err := wrapper.ExecuteCommand(ctx, "localectl", "set-locale", "LANG="+request.Locale)
 	if err != nil {
 		m.logger.Error("Failed to set locale", "locale", request.Locale, "error", err)
-		return errors.New(errors.ServerInternalError, "Failed to set locale: "+err.Error()).
+		return errors.Wrap(err, errors.SystemLocaleSetFailed).
 			WithMetadata("locale", request.Locale).
 			WithMetadata("output", result.Stdout)
 	}
@@ -265,7 +265,7 @@ func (m *Manager) ValidateSystemOperation(operation string, params map[string]in
 	case "set_hostname":
 		hostname, ok := params["hostname"].(string)
 		if !ok || hostname == "" {
-			return errors.New(errors.ServerRequestValidation, "Invalid hostname parameter")
+			return errors.New(errors.SystemHostnameInvalid, "Invalid hostname parameter")
 		}
 		return m.hostnameManager.validateHostname(hostname)
 	case "create_user":
@@ -275,7 +275,7 @@ func (m *Manager) ValidateSystemOperation(operation string, params map[string]in
 		// Group creation validation is handled by user manager
 		return nil
 	default:
-		return errors.New(errors.ServerRequestValidation, "Unknown system operation: "+operation)
+		return errors.New(errors.SystemOperationNotSupported, "Unknown system operation: "+operation)
 	}
 }
 

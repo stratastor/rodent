@@ -70,46 +70,60 @@ func (ic *InfoCollector) GetSystemInfo(ctx context.Context) (*SystemInfo, error)
 		Timestamp: time.Now(),
 	}
 
-	// Collect OS information
+	// Collect OS information (CRITICAL - fail fast)
 	osInfo, err := ic.getOSInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get OS info", "error", err)
-	} else {
-		info.OS = *osInfo
+		ic.logger.Error("Failed to get critical OS info", "error", err)
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
 	}
+	info.OS = *osInfo
 
-	// Collect hardware information
+	// Get current hostname (CRITICAL - fail fast)
+	hostname, err := ic.getCurrentHostname(ctx)
+	if err != nil {
+		ic.logger.Error("Failed to get hostname", "error", err)
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
+	}
+	info.Hostname = hostname
+
+	// Collect hardware information (NON-CRITICAL - warn and continue)
 	hwInfo, err := ic.getHardwareInfo(ctx)
 	if err != nil {
 		ic.logger.Warn("Failed to get hardware info", "error", err)
+		// Set minimal hardware info to indicate failure
+		info.Hardware = HardwareInfo{
+			CPU:    CPUInfo{ModelName: "unknown", ProcessorCount: 0},
+			Memory: MemoryInfo{Total: 0, Available: 0},
+			System: SystemHW{},
+		}
 	} else {
 		info.Hardware = *hwInfo
 	}
 
-	// Collect performance information
+	// Collect performance information (NON-CRITICAL - warn and continue)  
 	perfInfo, err := ic.getPerformanceInfo(ctx)
 	if err != nil {
 		ic.logger.Warn("Failed to get performance info", "error", err)
+		// Set minimal performance info to indicate failure
+		info.Performance = PerformanceInfo{
+			LoadAverage:   LoadAverage{Load1: 0, Load5: 0, Load15: 0},
+			CPUUsage:      CPUUsage{},
+			ProcessCount:  ProcessCount{},
+			UptimeSeconds: 0,
+		}
 	} else {
 		info.Performance = *perfInfo
 	}
 
-	// Get current hostname
-	hostname, err := ic.getCurrentHostname(ctx)
-	if err != nil {
-		ic.logger.Warn("Failed to get hostname", "error", err)
-	} else {
-		info.Hostname = hostname
-	}
-
-	// Get timezone and locale
+	// Get timezone and locale (NON-CRITICAL - these methods don't return errors)
 	info.Timezone = ic.getTimezone(ctx)
 	info.Locale = ic.getLocale(ctx)
 
-	// Get uptime
+	// Get uptime (NON-CRITICAL - warn and continue)
 	uptime, err := ic.getUptime(ctx)
 	if err != nil {
 		ic.logger.Warn("Failed to get uptime", "error", err)
+		info.Uptime = 0 // Set to 0 to indicate failure
 	} else {
 		info.Uptime = uptime
 	}
@@ -123,18 +137,12 @@ func (ic *InfoCollector) getOSInfo(ctx context.Context) (*OSInfo, error) {
 
 	// Read /etc/os-release
 	if err := ic.parseOSRelease(info); err != nil {
-		return nil, errors.New(
-			errors.ServerInternalError,
-			"Failed to parse OS release information: "+err.Error(),
-		)
+		return nil, errors.Wrap(err, errors.SystemInfoParseError)
 	}
 
 	// Get kernel information
 	if err := ic.getKernelInfo(ctx, info); err != nil {
-		return nil, errors.New(
-			errors.ServerInternalError,
-			"Failed to get kernel information: "+err.Error(),
-		)
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
 	}
 
 	// Get machine and boot ID

@@ -42,10 +42,7 @@ func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
 	// Parse /etc/passwd
 	file, err := os.Open("/etc/passwd")
 	if err != nil {
-		return nil, errors.New(
-			errors.ServerInternalError,
-			"Failed to read /etc/passwd: "+err.Error(),
-		)
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
 	}
 	defer file.Close()
 
@@ -80,7 +77,7 @@ func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
 // GetUser gets a specific user by username
 func (um *UserManager) GetUser(ctx context.Context, username string) (*User, error) {
 	if username == "" {
-		return nil, errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+		return nil, errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
 	}
 
 	users, err := um.GetUsers(ctx)
@@ -145,7 +142,7 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 		encryptedPassword, err := um.encryptPassword(ctx, request.Password)
 		if err != nil {
 			um.logger.Error("Failed to encrypt password", "username", request.Username, "error", err)
-			return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to encrypt password for user '%s': %s", request.Username, err.Error())).
+			return errors.Wrap(err, errors.SystemUserPasswordEncryptFailed).
 				WithMetadata("username", request.Username)
 		}
 		// Note: ExecuteCommand passes args directly without shell interpretation,
@@ -161,7 +158,7 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 	result, err := um.executor.ExecuteCommand(ctx, "useradd", args...)
 	if err != nil {
 		um.logger.Error("Failed to create user", "username", request.Username, "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to create user '%s': %s", request.Username, err.Error())).
+		return errors.Wrap(err, errors.SystemUserCreateFailed).
 			WithMetadata("username", request.Username).
 			WithMetadata("output", result.Stdout)
 	}
@@ -195,7 +192,7 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 // DeleteUser deletes a system user
 func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	if username == "" {
-		return errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
 	}
 
 	// Safety check: prevent deletion of protected users
@@ -229,7 +226,7 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	}
 	for _, protected := range protectedUsers {
 		if username == protected {
-			return errors.New(errors.ServerRequestValidation,
+			return errors.New(errors.SystemUserProtected,
 				fmt.Sprintf("Cannot delete protected system user '%s'", username))
 		}
 	}
@@ -246,7 +243,7 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	result, err := um.executor.ExecuteCommand(ctx, "userdel", "-r", username)
 	if err != nil {
 		um.logger.Error("Failed to delete user", "username", username, "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to delete user '%s': %s", username, err.Error())).
+		return errors.Wrap(err, errors.SystemUserDeleteFailed).
 			WithMetadata("username", username).
 			WithMetadata("output", result.Stdout)
 	}
@@ -286,7 +283,7 @@ func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, errors.New(errors.ServerInternalError, "Error reading /etc/group: "+err.Error())
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
 	}
 
 	return groups, nil
@@ -295,7 +292,7 @@ func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
 // GetGroup gets a specific group by name
 func (um *UserManager) GetGroup(ctx context.Context, groupName string) (*Group, error) {
 	if groupName == "" {
-		return nil, errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+		return nil, errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
 	}
 
 	groups, err := um.GetGroups(ctx)
@@ -337,7 +334,7 @@ func (um *UserManager) CreateGroup(ctx context.Context, request CreateGroupReque
 	result, err := um.executor.ExecuteCommand(ctx, "groupadd", args...)
 	if err != nil {
 		um.logger.Error("Failed to create group", "name", request.Name, "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to create group '%s': %s", request.Name, err.Error())).
+		return errors.Wrap(err, errors.SystemGroupCreateFailed).
 			WithMetadata("group", request.Name).
 			WithMetadata("output", result.Stdout)
 	}
@@ -349,7 +346,7 @@ func (um *UserManager) CreateGroup(ctx context.Context, request CreateGroupReque
 // DeleteGroup deletes a system group
 func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error {
 	if groupName == "" {
-		return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+		return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
 	}
 
 	// Safety check: prevent deletion of protected groups
@@ -399,7 +396,7 @@ func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error 
 	}
 	for _, protected := range protectedGroups {
 		if groupName == protected {
-			return errors.New(errors.ServerRequestValidation,
+			return errors.New(errors.SystemGroupProtected,
 				fmt.Sprintf("Cannot delete protected system group '%s'", groupName))
 		}
 	}
@@ -412,7 +409,7 @@ func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error 
 
 	// Safety check: prevent deletion of groups with members
 	if len(group.Members) > 0 {
-		return errors.New(errors.ServerRequestValidation,
+		return errors.New(errors.SystemGroupMembershipFailed,
 			fmt.Sprintf("Cannot delete group '%s' - it has %d members. Remove members first.",
 				groupName, len(group.Members)))
 	}
@@ -423,7 +420,7 @@ func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error 
 	result, err := um.executor.ExecuteCommand(ctx, "groupdel", groupName)
 	if err != nil {
 		um.logger.Error("Failed to delete group", "name", groupName, "error", err)
-		return errors.New(errors.ServerInternalError, fmt.Sprintf("Failed to delete group '%s': %s", groupName, err.Error())).
+		return errors.Wrap(err, errors.SystemGroupDeleteFailed).
 			WithMetadata("group", groupName).
 			WithMetadata("output", result.Stdout)
 	}
@@ -607,7 +604,7 @@ func (um *UserManager) parseLastLoginLine(line string, user *User) {
 func (um *UserManager) validateCreateUserRequest(request CreateUserRequest) error {
 	// Validate username
 	if request.Username == "" {
-		return errors.New(errors.ServerRequestValidation, "Username cannot be empty")
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
 	}
 
 	// Username validation (POSIX compliant)
@@ -638,14 +635,14 @@ func (um *UserManager) validateCreateUserRequest(request CreateUserRequest) erro
 			}
 		}
 		if !valid {
-			return errors.New(errors.ServerRequestValidation, "Invalid shell specified")
+			return errors.New(errors.SystemUserInvalidShell, "Invalid shell specified")
 		}
 	}
 
 	// Validate groups if provided
 	for _, group := range request.Groups {
 		if group == "" {
-			return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+			return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
 		}
 		groupRegex := regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 		if !groupRegex.MatchString(group) {
@@ -662,7 +659,7 @@ func (um *UserManager) validateCreateUserRequest(request CreateUserRequest) erro
 // validateCreateGroupRequest validates a create group request
 func (um *UserManager) validateCreateGroupRequest(request CreateGroupRequest) error {
 	if request.Name == "" {
-		return errors.New(errors.ServerRequestValidation, "Group name cannot be empty")
+		return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
 	}
 
 	// Group name validation (POSIX compliant)
