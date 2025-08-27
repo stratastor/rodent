@@ -19,6 +19,13 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
+const (
+	// MinUserUID is the minimum UID for regular users (system users have UID < 1000)
+	MinUserUID = 1000
+	// MinGroupGID is the minimum GID for regular groups (system groups have GID < 1000)
+	MinGroupGID = 1000
+)
+
 // UserManager manages local system users and groups
 type UserManager struct {
 	executor CommandExecutor
@@ -35,7 +42,7 @@ func NewUserManager(logger logger.Logger) *UserManager {
 	}
 }
 
-// GetUsers lists all system users
+// GetUsers lists regular system users (UID >= 1000, excludes system users)
 func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
 	users := []User{}
 
@@ -59,7 +66,12 @@ func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
 			continue
 		}
 
-		// Get additional user information
+		// Skip system users (UID < 1000) to improve performance
+		if user.UID < MinUserUID {
+			continue
+		}
+
+		// Get additional user information only for regular users
 		um.enrichUserInfo(ctx, user)
 		users = append(users, *user)
 	}
@@ -74,20 +86,39 @@ func (um *UserManager) GetUsers(ctx context.Context) ([]User, error) {
 	return users, nil
 }
 
-// GetUser gets a specific user by username
+// GetUser gets a specific user by username (optimized to avoid full user list scan)
 func (um *UserManager) GetUser(ctx context.Context, username string) (*User, error) {
 	if username == "" {
 		return nil, errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
 	}
 
-	users, err := um.GetUsers(ctx)
+	// Direct lookup from /etc/passwd instead of scanning all users
+	file, err := os.Open("/etc/passwd")
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, errors.SystemInfoCollectionFailed)
 	}
+	defer file.Close()
 
-	for _, user := range users {
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		user, err := um.parsePasswdLine(line)
+		if err != nil {
+			continue
+		}
+
+		// Found the user
 		if user.Username == username {
-			return &user, nil
+			// Only enrich user info if it's a regular user (UID >= 1000)
+			// System users don't need enrichment and this improves performance
+			if user.UID >= MinUserUID {
+				um.enrichUserInfo(ctx, user)
+			}
+			return user, nil
 		}
 	}
 
@@ -252,7 +283,7 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	return nil
 }
 
-// GetGroups lists all system groups
+// GetGroups lists regular system groups (GID >= 1000, excludes system groups)
 func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
 	groups := []Group{}
 
@@ -279,6 +310,11 @@ func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
 			continue
 		}
 
+		// Skip system groups (GID < 1000) to improve performance
+		if group.GID < MinGroupGID {
+			continue
+		}
+
 		groups = append(groups, *group)
 	}
 
@@ -289,20 +325,37 @@ func (um *UserManager) GetGroups(ctx context.Context) ([]Group, error) {
 	return groups, nil
 }
 
-// GetGroup gets a specific group by name
+// GetGroup gets a specific group by name (optimized to avoid full group list scan)
 func (um *UserManager) GetGroup(ctx context.Context, groupName string) (*Group, error) {
 	if groupName == "" {
 		return nil, errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
 	}
 
-	groups, err := um.GetGroups(ctx)
+	// Direct lookup from /etc/group instead of scanning all groups
+	file, err := os.Open("/etc/group")
 	if err != nil {
-		return nil, err
+		return nil, errors.New(
+			errors.ServerInternalError,
+			"Failed to read /etc/group: "+err.Error(),
+		)
 	}
+	defer file.Close()
 
-	for _, group := range groups {
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		group, err := um.parseGroupLine(line)
+		if err != nil {
+			continue
+		}
+
+		// Found the group
 		if group.Name == groupName {
-			return &group, nil
+			return group, nil
 		}
 	}
 

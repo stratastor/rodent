@@ -58,7 +58,7 @@ type InfoCollector struct {
 func NewInfoCollector(logger logger.Logger) *InfoCollector {
 	return &InfoCollector{
 		executor: &commandExecutorWrapper{
-			executor: generalCmd.NewCommandExecutor(false),
+			executor: generalCmd.NewCommandExecutor(true),
 		},
 		logger: logger,
 	}
@@ -100,7 +100,7 @@ func (ic *InfoCollector) GetSystemInfo(ctx context.Context) (*SystemInfo, error)
 		info.Hardware = *hwInfo
 	}
 
-	// Collect performance information (NON-CRITICAL - warn and continue)  
+	// Collect performance information (NON-CRITICAL - warn and continue)
 	perfInfo, err := ic.getPerformanceInfo(ctx)
 	if err != nil {
 		ic.logger.Warn("Failed to get performance info", "error", err)
@@ -817,7 +817,7 @@ func (ic *InfoCollector) getUptimeAndBootTime() (uint64, time.Time, error) {
 
 // getCurrentHostname gets the current hostname
 func (ic *InfoCollector) getCurrentHostname(ctx context.Context) (string, error) {
-	result, err := ic.executor.ExecuteCommand(ctx, "hostname")
+	result, err := ic.executor.ExecuteCommand(ctx, "hostnamectl", "hostname")
 	if err != nil {
 		return "", err
 	}

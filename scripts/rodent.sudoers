@@ -72,6 +72,9 @@ Cmnd_Alias SYSTEM_COMMANDS = \
     /usr/bin/networkctl *, \
     /usr/bin/resolvectl *, \
     /usr/bin/journalctl *, \
+    /usr/bin/hostnamectl *, \
+    /usr/bin/timedatectl *, \
+    /usr/bin/localectl *, \
     /usr/sbin/netplan *, \                                                                                                        
     /usr/bin/last *, \                                                                                                            
     /usr/bin/uptime *, \                                                                                                          

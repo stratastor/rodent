@@ -10,6 +10,7 @@ import (
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/errors"
+	generalCmd "github.com/stratastor/rodent/internal/command"
 )
 
 // Manager is the main system management interface
@@ -207,9 +208,9 @@ func (m *Manager) GetTimezone(ctx context.Context) (string, error) {
 func (m *Manager) SetTimezone(ctx context.Context, request SetTimezoneRequest) error {
 	m.logger.Info("Setting system timezone", "timezone", request.Timezone)
 	
-	// Use timedatectl to set timezone
+	// Use timedatectl to set timezone with sudo
 	wrapper := &commandExecutorWrapper{
-		executor: m.infoCollector.executor.(*commandExecutorWrapper).executor,
+		executor: generalCmd.NewCommandExecutor(true),
 	}
 	
 	result, err := wrapper.ExecuteCommand(ctx, "timedatectl", "set-timezone", request.Timezone)
@@ -237,9 +238,9 @@ func (m *Manager) GetLocale(ctx context.Context) (string, error) {
 func (m *Manager) SetLocale(ctx context.Context, request SetLocaleRequest) error {
 	m.logger.Info("Setting system locale", "locale", request.Locale)
 	
-	// Use localectl to set locale
+	// Use localectl to set locale with sudo
 	wrapper := &commandExecutorWrapper{
-		executor: m.infoCollector.executor.(*commandExecutorWrapper).executor,
+		executor: generalCmd.NewCommandExecutor(true),
 	}
 	
 	result, err := wrapper.ExecuteCommand(ctx, "localectl", "set-locale", "LANG="+request.Locale)
