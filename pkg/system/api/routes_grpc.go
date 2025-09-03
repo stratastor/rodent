@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/stratastor/rodent/internal/toggle/client"
 	"github.com/stratastor/rodent/pkg/errors"
@@ -22,6 +23,7 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 	client.RegisterCommandHandler(proto.CmdSystemInfoMemoryGet, handleSystemInfoMemory(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemInfoOSGet, handleSystemInfoOS(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemInfoPerformanceGet, handleSystemInfoPerformance(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemHealthGet, handleSystemHealthGet(systemHandler))
 
 	// Hostname management operations
 	client.RegisterCommandHandler(proto.CmdSystemHostnameGet, handleHostnameGet(systemHandler))
@@ -35,12 +37,17 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 
 	// Group management operations
 	client.RegisterCommandHandler(proto.CmdSystemGroupsList, handleGroupsList(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemGroupsGet, handleGroupsGet(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemGroupsCreate, handleGroupsCreate(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemGroupsDelete, handleGroupsDelete(systemHandler))
 
 	// Power management operations
+	client.RegisterCommandHandler(proto.CmdSystemPowerStatusGet, handlePowerStatusGet(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemPowerScheduledGet, handlePowerScheduledGet(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemPowerShutdown, handlePowerShutdown(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemPowerReboot, handlePowerReboot(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemPowerScheduleShutdown, handlePowerScheduleShutdown(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemPowerScheduledDelete, handlePowerScheduledDelete(systemHandler))
 
 	// System configuration operations
 	client.RegisterCommandHandler(proto.CmdSystemTimezoneGet, handleTimezoneGet(systemHandler))
@@ -495,5 +502,123 @@ func handleLocaleSet(h *SystemHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Locale set", result)
+	}
+}
+
+// handleSystemHealthGet returns a handler for getting system health
+func handleSystemHealthGet(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		ctx := context.Background()
+
+		health, err := h.manager.GetSystemHealth(ctx)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "System health retrieved", health)
+	}
+}
+
+// handleGroupsGet returns a handler for getting a specific group
+func handleGroupsGet(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			Name string `json:"name"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.Name == "" {
+			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Group name cannot be empty"))
+		}
+
+		ctx := context.Background()
+		group, err := h.manager.GetGroup(ctx, payload.Name)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Group information retrieved", group)
+	}
+}
+
+// handlePowerStatusGet returns a handler for getting power status
+func handlePowerStatusGet(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		ctx := context.Background()
+
+		status, err := h.manager.GetPowerStatus(ctx)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Power status retrieved", status)
+	}
+}
+
+// handlePowerScheduledGet returns a handler for getting scheduled shutdown info
+func handlePowerScheduledGet(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		ctx := context.Background()
+
+		info, err := h.manager.GetScheduledShutdown(ctx)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		return successResponse(req.RequestId, "Scheduled shutdown info retrieved", info)
+	}
+}
+
+// handlePowerScheduleShutdown returns a handler for scheduling shutdown
+func handlePowerScheduleShutdown(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			DelayMinutes int    `json:"delay_minutes" binding:"required,min=1"`
+			Message      string `json:"message"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.DelayMinutes <= 0 {
+			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "DelayMinutes must be greater than 0"))
+		}
+
+		delay := time.Duration(payload.DelayMinutes) * time.Minute
+
+		h.logger.Warn("Scheduled shutdown requested via gRPC", "delay_minutes", payload.DelayMinutes, "request_id", req.RequestId)
+
+		ctx := context.Background()
+		if err := h.manager.ScheduleShutdown(ctx, delay, payload.Message); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":          "System shutdown scheduled",
+			"delay_minutes":    payload.DelayMinutes,
+			"schedule_message": payload.Message,
+		}
+
+		return successResponse(req.RequestId, "Shutdown scheduled", result)
+	}
+}
+
+// handlePowerScheduledDelete returns a handler for cancelling scheduled shutdown
+func handlePowerScheduledDelete(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		h.logger.Info("Cancelling scheduled shutdown via gRPC", "request_id", req.RequestId)
+
+		ctx := context.Background()
+		if err := h.manager.CancelScheduledShutdown(ctx); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message": "Scheduled shutdown cancelled",
+		}
+
+		return successResponse(req.RequestId, "Scheduled shutdown cancelled", result)
 	}
 }
