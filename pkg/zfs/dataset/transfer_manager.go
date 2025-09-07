@@ -23,6 +23,7 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/common"
+	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 )
@@ -180,6 +181,20 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig
 	go tm.executeTransfer(ctx, transferInfo)
 
 	tm.logger.Info("Transfer initiated", "id", transferID, "operation", transferInfo.Operation)
+	
+	// Emit transfer started event
+	events.EmitStorageEvent("storage.transfer.started", events.LevelInfo, "zfs-transfer-manager",
+		map[string]interface{}{
+			"transfer_id": transferID,
+			"operation":   string(transferInfo.Operation),
+			"snapshot":    cfg.SendConfig.Snapshot,
+			"target":      cfg.ReceiveConfig.RemoteConfig.Host,
+		},
+		map[string]string{
+			"component": "zfs-transfer",
+			"action":    "start",
+		})
+	
 	return transferID, nil
 }
 
@@ -1251,6 +1266,9 @@ func (tm *TransferManager) updateTransferStatusUnlocked(
 		status == TransferStatusCancelled {
 		completedTime := time.Now()
 		info.CompletedAt = &completedTime
+		
+		// Emit transfer completion events
+		tm.emitTransferCompletionEvent(info, status, errorMsg)
 	}
 
 	// Save updated config
@@ -1471,6 +1489,52 @@ func (tm *TransferManager) loadExistingTransfers() error {
 	}
 
 	return nil
+}
+
+// emitTransferCompletionEvent emits events for transfer completion/failure/cancellation
+func (tm *TransferManager) emitTransferCompletionEvent(info *TransferInfo, status TransferStatus, errorMsg string) {
+	var eventType string
+	var level events.EventLevel
+	var action string
+
+	switch status {
+	case TransferStatusCompleted:
+		eventType = "storage.transfer.completed"
+		level = events.LevelInfo
+		action = "completed"
+	case TransferStatusFailed:
+		eventType = "storage.transfer.failed"
+		level = events.LevelError
+		action = "failed"
+	case TransferStatusCancelled:
+		eventType = "storage.transfer.cancelled"
+		level = events.LevelWarn
+		action = "cancelled"
+	default:
+		return // Don't emit events for other status changes
+	}
+
+	payload := map[string]interface{}{
+		"transfer_id": info.ID,
+		"operation":   string(info.Operation),
+		"snapshot":    info.Config.SendConfig.Snapshot,
+		"target":      info.Config.ReceiveConfig.RemoteConfig.Host,
+		"status":      string(status),
+	}
+
+	if errorMsg != "" {
+		payload["error"] = errorMsg
+	}
+
+	if info.CompletedAt != nil {
+		payload["duration_seconds"] = info.CompletedAt.Sub(info.CreatedAt).Seconds()
+	}
+
+	events.EmitStorageEvent(eventType, level, "zfs-transfer-manager", payload,
+		map[string]string{
+			"component": "zfs-transfer",
+			"action":    action,
+		})
 }
 
 func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {

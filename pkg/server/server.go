@@ -35,6 +35,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/toggle"
 )
 
@@ -204,5 +205,16 @@ func Shutdown(ctx context.Context) error {
 	if srv == nil {
 		return nil
 	}
+	
+	// Emit server shutdown event
+	events.EmitServiceEvent("service.server.shutdown", events.LevelInfo, "rodent-server",
+		map[string]interface{}{
+			"message": "Rodent server shutting down gracefully",
+		},
+		map[string]string{
+			"component": "server",
+			"action":    "shutdown",
+		})
+	
 	return srv.Shutdown(ctx)
 }

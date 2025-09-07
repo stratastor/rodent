@@ -16,6 +16,7 @@ var (
 	keysDir      string // Directory for keys
 	sshDir       string // Directory for SSH configurations
 	transfersDir string // Directory for managing ZFS dataset transfers
+	eventsDir    string // Directory for event logs
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
 	keysDir = filepath.Join(configDir, "keys")
 	sshDir = filepath.Join(keysDir, "ssh")
 	transfersDir = filepath.Join(configDir, "transfers")
+	eventsDir = filepath.Join(configDir, "events")
 
 	// Ensure the directories exist
 	if err := EnsureDirectories(); err != nil {
@@ -68,6 +70,11 @@ func GetTransfersDir() string {
 	return transfersDir
 }
 
+// GetEventsDir returns the directory for event logs
+func GetEventsDir() string {
+	return eventsDir
+}
+
 // EnsureDirectories creates necessary directories if they do not exist
 func EnsureDirectories() error {
 	dirs := []string{
@@ -76,6 +83,7 @@ func EnsureDirectories() error {
 		keysDir,
 		sshDir,
 		transfersDir,
+		eventsDir,
 	}
 
 	for _, dir := range dirs {

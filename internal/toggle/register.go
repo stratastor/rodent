@@ -11,6 +11,7 @@ import (
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services/traefik"
 	"github.com/stratastor/rodent/internal/toggle/client"
 )
@@ -154,7 +155,23 @@ func runRegistrationProcess(
 	for {
 		err := RegisterNode(ctx, toggleClient, l)
 		if err == nil {
-			// Registration successful
+			// Registration successful, initialize event system
+			if err := events.InitializeWithClient(ctx, toggleClient, l); err != nil {
+				if l != nil {
+					l.Warn("Failed to initialize event system", "error", err)
+				}
+				// Continue anyway - events are not critical for core functionality
+			} else {
+				// Emit system startup event
+				events.EmitSystemEvent("system.startup", events.LevelInfo, 
+					map[string]interface{}{
+						"message": "Rodent service started and registered with Toggle",
+						"registration_successful": true,
+					}, 
+					map[string]string{
+						"component": "toggle-registration",
+					})
+			}
 			return
 		}
 

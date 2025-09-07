@@ -244,6 +244,7 @@ mkdir -p /home/rodent/.rodent/services
 mkdir -p /home/rodent/.rodent/templates/traefik
 mkdir -p /home/rodent/.rodent/state
 mkdir -p /home/rodent/.rodent/shares/smb
+mkdir -p /home/rodent/.rodent/etc/rodent
 
 # Create log directory in user's home as well for easier permissions
 mkdir -p /home/rodent/.rodent/logs
@@ -292,7 +293,7 @@ fi
 # Copy existing configuration from /etc/rodent if it exists
 if [ -d "/etc/rodent" ]; then
   echo "Copying existing configuration from /etc/rodent..."
-  cp -r /etc/rodent/* /home/rodent/.rodent/ 2>/dev/null || echo "No files to copy from /etc/rodent"
+  cp -r /etc/rodent/* /home/rodent/.rodent/etc/rodent/ 2>/dev/null || echo "No files to copy from /etc/rodent"
   chown -R rodent:rodent /home/rodent/.rodent
 fi
 

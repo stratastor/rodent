@@ -97,6 +97,11 @@ func (c *GRPCClient) Close() error {
 	return nil
 }
 
+// GetProtoClient returns the underlying proto client for events
+func (c *GRPCClient) GetProtoClient() proto.RodentServiceClient {
+	return c.client
+}
+
 // GetOrgID extracts the organization ID (sub claim) from the JWT
 func (c *GRPCClient) GetOrgID() (string, error) {
 	return ExtractSubFromJWT(c.jwt)

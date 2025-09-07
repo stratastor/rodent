@@ -16,6 +16,7 @@ import (
 
 	"github.com/stratastor/logger"
 	generalCmd "github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
@@ -217,6 +218,23 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 	// No need for separate password setting step
 
 	um.logger.Info("Successfully created system user", "username", request.Username)
+	
+	// Emit user creation event
+	events.EmitSecurityEvent("security.user.created", events.LevelInfo, "system-user-manager",
+		map[string]interface{}{
+			"username":     request.Username,
+			"full_name":    request.FullName,
+			"groups":       request.Groups,
+			"shell":        request.Shell,
+			"home_dir":     request.HomeDir,
+			"create_home":  request.CreateHome,
+			"system_user":  request.SystemUser,
+		},
+		map[string]string{
+			"component": "user-management",
+			"action":    "create",
+		})
+	
 	return nil
 }
 
@@ -280,6 +298,17 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	}
 
 	um.logger.Info("Successfully deleted system user", "username", username)
+	
+	// Emit user deletion event
+	events.EmitSecurityEvent("security.user.deleted", events.LevelWarn, "system-user-manager",
+		map[string]interface{}{
+			"username": username,
+		},
+		map[string]string{
+			"component": "user-management",
+			"action":    "delete",
+		})
+	
 	return nil
 }
 
