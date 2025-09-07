@@ -53,7 +53,9 @@ func Initialize(ctx context.Context, toggleClient client.ToggleClient, l logger.
 		return fmt.Errorf("failed to start event bus: %w", err)
 	}
 
-	// Register shutdown hook (lifecycle expects func(), not func() error)
+	// Register shutdown hook
+	// TODO: Improve lifecycle package to support context-aware shutdown hooks
+	// See detailed explanation in init.go - same limitation applies here
 	lifecycle.RegisterShutdownHook(func() {
 		if err := Shutdown(ctx); err != nil {
 			l.Error("Failed to shutdown event system", "error", err)

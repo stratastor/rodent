@@ -77,8 +77,20 @@ func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServ
 	}
 
 	// Register shutdown hook
-	// Note: We capture the current context here, but in a real shutdown scenario,
-	// the server should provide a proper shutdown context with timeout
+	// TODO: Improve lifecycle package to support context-aware shutdown hooks
+	// 
+	// Current limitation: The lifecycle.RegisterShutdownHook() only accepts func(),
+	// not func(context.Context), which means shutdown hooks cannot receive a proper
+	// shutdown context with timeout. This forces us to use context.Background().
+	//
+	// Proposed improvement for lifecycle package:
+	// 1. Change RegisterShutdownHook to accept func(context.Context) error
+	// 2. Modify shutdown() to create context.WithTimeout(context.Background(), 30*time.Second)
+	// 3. Pass this context to all shutdown hooks and handle errors appropriately
+	// 4. This would allow proper graceful shutdown with timeouts across all components
+	//
+	// For now, we use background context which means no timeout enforcement,
+	// but the event bus has internal timeout handling in its Shutdown method.
 	lifecycle.RegisterShutdownHook(func() {
 		shutdownCtx := context.Background() // Use background context for shutdown
 		if err := globalEventBus.Shutdown(shutdownCtx); err != nil {

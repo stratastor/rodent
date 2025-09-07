@@ -143,6 +143,9 @@ func (eb *EventBus) processBatches(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Time-based batch sending - force send even if < BatchSize events
+			eb.logger.Debug("Batch timeout ticker fired, sending batch", 
+				"timeout", eb.config.BatchTimeout,
+				"buffer_size", eb.buffer.Size())
 			eb.sendBatchIfReady(ctx, true)
 		}
 	}
@@ -215,12 +218,16 @@ func (eb *EventBus) Shutdown(ctx context.Context) error {
 
 processingDone:
 	// Send all remaining events in buffer
+	eb.logger.Debug("Shutdown: processing remaining events in buffer", 
+		"buffer_size", eb.buffer.Size())
 	for {
 		events, hasMore := eb.buffer.GetBatch(eb.config.BatchSize)
 		if len(events) == 0 {
 			break
 		}
 
+		eb.logger.Debug("Shutdown: sending batch", 
+			"batch_size", len(events), "has_more", hasMore)
 		if err := eb.client.SendBatch(ctx, events); err != nil {
 			eb.logger.Error("Failed to send events during shutdown",
 				"batch_size", len(events), "error", err)
