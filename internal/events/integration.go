@@ -46,7 +46,7 @@ func Initialize(ctx context.Context, toggleClient client.ToggleClient, l logger.
 		return fmt.Errorf("failed to get proto client from gRPC client")
 	}
 
-	globalEventBus = NewEventBus(protoClient, config, l)
+	globalEventBus = NewEventBus(protoClient, grpcClient.GetJWT(), config, l)
 
 	// Start the event bus
 	if err := globalEventBus.Start(ctx); err != nil {

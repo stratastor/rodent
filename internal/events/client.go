@@ -12,19 +12,22 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/toggle-rodent-proto/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 // EventClient handles sending event batches to Toggle via gRPC
 type EventClient struct {
 	grpcClient proto.RodentServiceClient
+	jwt        string // JWT token for authentication
 	config     *EventConfig
 	logger     logger.Logger
 }
 
 // NewEventClient creates a new event client
-func NewEventClient(grpcClient proto.RodentServiceClient, cfg *EventConfig, l logger.Logger) *EventClient {
+func NewEventClient(grpcClient proto.RodentServiceClient, jwt string, cfg *EventConfig, l logger.Logger) *EventClient {
 	return &EventClient{
 		grpcClient: grpcClient,
+		jwt:        jwt,
 		config:     cfg,
 		logger:     l,
 	}
@@ -60,6 +63,12 @@ func (ec *EventClient) sendWithRetry(ctx context.Context, batch *proto.EventBatc
 	for attempt := 0; attempt < ec.config.MaxRetryAttempts; attempt++ {
 		// Create timeout context for each attempt
 		attemptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		
+		// Add JWT authentication metadata
+		if ec.jwt != "" {
+			md := metadata.Pairs("authorization", "Bearer "+ec.jwt)
+			attemptCtx = metadata.NewOutgoingContext(attemptCtx, md)
+		}
 		
 		// Try to send
 		resp, err := ec.grpcClient.SendEvents(attemptCtx, batch)

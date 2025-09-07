@@ -33,10 +33,10 @@ type EventBus struct {
 }
 
 // NewEventBus creates a new event bus
-func NewEventBus(grpcClient proto.RodentServiceClient, cfg *EventConfig, l logger.Logger) *EventBus {
+func NewEventBus(grpcClient proto.RodentServiceClient, jwt string, cfg *EventConfig, l logger.Logger) *EventBus {
 	return &EventBus{
 		buffer:       NewEventBuffer(cfg, l),
-		client:       NewEventClient(grpcClient, cfg, l),
+		client:       NewEventClient(grpcClient, jwt, cfg, l),
 		config:       cfg,
 		logger:       l,
 		eventChan:    make(chan *Event, 1000), // Buffer for async event processing

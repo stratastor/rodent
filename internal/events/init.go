@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/toggle/client"
 	"github.com/stratastor/rodent/pkg/lifecycle"
 	"github.com/stratastor/toggle-rodent-proto/proto"
@@ -15,6 +16,23 @@ import (
 
 // InitializeWithClient initializes the event system with a Toggle client
 func InitializeWithClient(ctx context.Context, toggleClient client.ToggleClient, l logger.Logger) error {
+	cfg := config.GetConfig()
+
+	if !cfg.StrataSecure {
+		if l != nil {
+			l.Info("StrataSecure is disabled, skipping event system initialization")
+		}
+		return nil
+	}
+
+	// Skip if JWT is not configured
+	if cfg.Toggle.JWT == "" {
+		if l != nil {
+			l.Info("Toggle JWT not configured, skipping event system initialization")
+		}
+		return nil
+	}
+
 	if toggleClient == nil {
 		l.Info("Toggle client not available, events will be disabled")
 		return nil
@@ -36,12 +54,12 @@ func InitializeWithClient(ctx context.Context, toggleClient client.ToggleClient,
 		return nil
 	}
 
-	// Initialize the event system
-	return initializeWithProtoClient(ctx, protoClient, l)
+	// Initialize the event system with JWT from config
+	return initializeWithProtoClient(ctx, protoClient, cfg.Toggle.JWT, l)
 }
 
 // initializeWithProtoClient initializes with a proto client directly
-func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServiceClient, l logger.Logger) error {
+func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServiceClient, jwt string, l logger.Logger) error {
 	globalMu.Lock()
 	defer globalMu.Unlock()
 
@@ -51,7 +69,7 @@ func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServ
 
 	// Create event bus with default config
 	config := DefaultEventConfig()
-	globalEventBus = NewEventBus(protoClient, config, l)
+	globalEventBus = NewEventBus(protoClient, jwt, config, l)
 
 	// Start the event bus
 	if err := globalEventBus.Start(ctx); err != nil {

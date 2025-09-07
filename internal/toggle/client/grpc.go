@@ -102,6 +102,11 @@ func (c *GRPCClient) GetProtoClient() proto.RodentServiceClient {
 	return c.client
 }
 
+// GetJWT returns the JWT token for authentication
+func (c *GRPCClient) GetJWT() string {
+	return c.jwt
+}
+
 // GetOrgID extracts the organization ID (sub claim) from the JWT
 func (c *GRPCClient) GetOrgID() (string, error) {
 	return ExtractSubFromJWT(c.jwt)
