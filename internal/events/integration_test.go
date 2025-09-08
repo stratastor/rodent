@@ -6,9 +6,12 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -200,6 +203,11 @@ func TestEventsGRPC_Integration(t *testing.T) {
 	// Test event system initialization and emission
 	t.Run("EventSystemInitialization", func(t *testing.T) {
 		testEventSystemInitialization(t, mockServer, gClient, ctx, l)
+	})
+
+	// Test disk flush functionality
+	t.Run("DiskFlushFunctionality", func(t *testing.T) {
+		testDiskFlushFunctionality(t, mockServer, gClient, ctx, l)
 	})
 }
 
@@ -434,5 +442,300 @@ func TestEventsGRPC_BasicValidation(t *testing.T) {
 	require.NoError(t, err, "Failed to receive expected batch")
 
 	t.Log("Basic events gRPC validation completed successfully")
+}
+
+// testDiskFlushFunctionality comprehensively tests disk flush behavior
+func testDiskFlushFunctionality(t *testing.T, mockServer *MockToggleServer, gClient *client.GRPCClient, ctx context.Context, l logger.Logger) {
+	// Clean up any existing test events directory
+	tempEventsDir := filepath.Join(os.TempDir(), "rodent-test-events")
+	defer os.RemoveAll(tempEventsDir)
+	
+	// Create a custom config for testing with low flush threshold
+	testConfig := DefaultEventConfig()
+	testConfig.FlushThreshold = 5  // Flush after 5 events instead of 18k
+	testConfig.BufferSize = 10     // Small buffer for testing
+	
+	// Create event buffer with test config
+	buffer := NewEventBuffer(testConfig, l)
+	
+	// Override the events directory to our temp directory
+	buffer.eventsDir = tempEventsDir
+	
+	// Test 1: Directory creation functionality
+	t.Run("DirectoryCreation", func(t *testing.T) {
+		// Ensure directory doesn't exist initially
+		os.RemoveAll(tempEventsDir)
+		
+		// Add events to trigger a flush (flush happens when we try to add the 6th event)
+		for i := 0; i <= testConfig.FlushThreshold; i++ { // <= to add 6 events (0,1,2,3,4,5)
+			event := &Event{
+				ID:        fmt.Sprintf("test-dir-creation-%d", i),
+				Type:      "test.directory.creation",
+				Level:     LevelInfo,
+				Category:  CategorySystem,
+				Source:    "test",
+				Timestamp: time.Now(),
+				Payload:   []byte(`{"test": "directory creation"}`),
+				Metadata:  map[string]string{"purpose": "directory-test"},
+			}
+			
+			err := buffer.Add(event)
+			assert.NoError(t, err)
+		}
+		
+		// Directory should exist after flush (created by flushToDiskLocked)
+		_, err := os.Stat(tempEventsDir)
+		assert.NoError(t, err, "Events directory should be created during flush")
+		
+		// Verify a file was created
+		files, err := os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 1, "Should have one flush file")
+	})
+	
+	// Test 2: Bulk flush when buffer reaches FlushThreshold
+	t.Run("BulkFlushAtThreshold", func(t *testing.T) {
+		// Clear any existing files
+		os.RemoveAll(tempEventsDir)
+		os.MkdirAll(tempEventsDir, 0755)
+		
+		// Add exactly FlushThreshold events to trigger flush
+		for i := 0; i < testConfig.FlushThreshold; i++ {
+			event := &Event{
+				ID:        fmt.Sprintf("bulk-test-%d", i),
+				Type:      "test.bulk.flush",
+				Level:     LevelInfo,
+				Category:  CategoryStorage,
+				Source:    "bulk-test",
+				Timestamp: time.Now(),
+				Payload:   []byte(fmt.Sprintf(`{"event_number": %d, "test": "bulk flush"}`, i)),
+				Metadata:  map[string]string{"batch": "bulk-flush", "index": fmt.Sprintf("%d", i)},
+			}
+			
+			err := buffer.Add(event)
+			assert.NoError(t, err)
+		}
+		
+		// Buffer should have 1 event after flush (5 events flushed, 5th event added to fresh buffer)
+		assert.Equal(t, 1, buffer.Size(), "Buffer should have 1 event after flush (correct behavior)")
+		
+		// Check that a file was created
+		files, err := os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 1, "Exactly one flush file should be created")
+		
+		// Verify the file is a JSON file
+		filename := files[0].Name()
+		assert.True(t, strings.HasSuffix(filename, ".json"), "Flush file should be JSON")
+		
+		// Print file content for posterity
+		filePath := filepath.Join(tempEventsDir, filename)
+		if fileContent, err := os.ReadFile(filePath); err == nil {
+			t.Logf("Bulk flush file content (%s):\n%s", filename, string(fileContent))
+		}
+		
+		t.Logf("Bulk flush test created file: %s", filename)
+	})
+	
+	// Test 3: UUID7 filename format validation
+	t.Run("UUID7FilenameFormat", func(t *testing.T) {
+		// Clear existing files
+		os.RemoveAll(tempEventsDir)
+		os.MkdirAll(tempEventsDir, 0755)
+		
+		// Trigger a flush
+		for i := 0; i < testConfig.FlushThreshold; i++ {
+			event := &Event{
+				ID:        fmt.Sprintf("uuid7-test-%d", i),
+				Type:      "test.uuid7.filename",
+				Level:     LevelWarn,
+				Category:  CategoryNetwork,
+				Source:    "uuid7-test",
+				Timestamp: time.Now(),
+				Payload:   []byte(`{"test": "uuid7 filename"}`),
+				Metadata:  map[string]string{"purpose": "uuid7-validation"},
+			}
+			buffer.Add(event)
+		}
+		
+		// Get the created file
+		files, err := os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 1)
+		
+		filename := files[0].Name()
+		// Remove .json extension for UUID validation
+		uuidPart := strings.TrimSuffix(filename, ".json")
+		
+		// UUID7 should be 36 characters with specific format: 8-4-4-4-12
+		assert.Len(t, uuidPart, 36, "UUID7 should be 36 characters")
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, uuidPart, "Should be valid UUID7 format")
+		
+		t.Logf("UUID7 filename validation passed: %s", filename)
+	})
+	
+	// Test 4: JSON file content schema validation  
+	t.Run("JSONFileContentSchema", func(t *testing.T) {
+		// Clear existing files and create fresh buffer
+		os.RemoveAll(tempEventsDir)
+		os.MkdirAll(tempEventsDir, 0755)
+		
+		// Create a fresh buffer for this test to avoid interference
+		freshBuffer := NewEventBuffer(testConfig, l)
+		freshBuffer.eventsDir = tempEventsDir
+		
+		// Create events with varied data for schema testing
+		testEvents := []*Event{
+			{
+				ID:        "schema-test-1",
+				Type:      "test.schema.info",
+				Level:     LevelInfo,
+				Category:  CategorySystem,
+				Source:    "schema-validator",
+				Timestamp: time.Now(),
+				Payload:   []byte(`{"operation": "create", "resource": "dataset1"}`),
+				Metadata:  map[string]string{"component": "zfs", "action": "create"},
+			},
+			{
+				ID:        "schema-test-2", 
+				Type:      "test.schema.error",
+				Level:     LevelError,
+				Category:  CategorySecurity,
+				Source:    "auth-service",
+				Timestamp: time.Now(),
+				Payload:   []byte(`{"error": "authentication failed", "user": "testuser"}`),
+				Metadata:  map[string]string{"ip": "192.168.1.100", "reason": "invalid_credentials"},
+			},
+		}
+		
+		// Add events to trigger flush
+		for _, event := range testEvents {
+			freshBuffer.Add(event)
+		}
+		
+		// Add more events to trigger flush (need to exceed threshold)
+		for i := len(testEvents); i <= testConfig.FlushThreshold; i++ { // <= to trigger flush
+			event := &Event{
+				ID:        fmt.Sprintf("filler-event-%d", i),
+				Type:      "test.filler",
+				Level:     LevelInfo,
+				Category:  CategoryService,
+				Source:    "filler",
+				Timestamp: time.Now(),
+				Payload:   []byte(`{"filler": true}`),
+				Metadata:  map[string]string{"type": "filler"},
+			}
+			freshBuffer.Add(event)
+		}
+		
+		// Read and validate the JSON file
+		files, err := os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 1)
+		
+		filePath := filepath.Join(tempEventsDir, files[0].Name())
+		fileContent, err := os.ReadFile(filePath)
+		assert.NoError(t, err)
+		
+		// Print file content for posterity
+		t.Logf("JSON file content (%s):\n%s", files[0].Name(), string(fileContent))
+		
+		// Parse as proto events array
+		var protoEvents []*proto.Event
+		err = json.Unmarshal(fileContent, &protoEvents)
+		assert.NoError(t, err, "File should contain valid JSON array of proto events")
+		
+		// Validate we have the expected number of events
+		assert.Len(t, protoEvents, testConfig.FlushThreshold, "Should have all flushed events")
+		
+		// Validate first test event schema
+		firstEvent := protoEvents[0]
+		assert.Equal(t, "schema-test-1", firstEvent.EventId)
+		assert.Equal(t, "test.schema.info", firstEvent.EventType)
+		assert.Equal(t, proto.EventLevel_EVENT_LEVEL_INFO, firstEvent.Level)
+		assert.Equal(t, proto.EventCategory_EVENT_CATEGORY_SYSTEM, firstEvent.Category)
+		assert.Equal(t, "schema-validator", firstEvent.Source)
+		assert.Contains(t, string(firstEvent.Payload), "dataset1")
+		assert.Equal(t, "zfs", firstEvent.Metadata["component"])
+		
+		t.Logf("JSON schema validation passed, file contains %d events", len(protoEvents))
+	})
+	
+	// Test 5: Multiple flush files with different UUID7s
+	t.Run("MultipleDifferentFlushFiles", func(t *testing.T) {
+		// Clear existing files
+		os.RemoveAll(tempEventsDir)
+		os.MkdirAll(tempEventsDir, 0755)
+		
+		// Trigger first flush
+		for i := 0; i < testConfig.FlushThreshold; i++ {
+			event := &Event{
+				ID:        fmt.Sprintf("multi-flush-1-%d", i),
+				Type:      "test.multi.flush.first",
+				Level:     LevelInfo,
+				Category:  CategoryStorage,
+				Source:    "multi-test",
+				Timestamp: time.Now(),
+				Payload:   []byte(fmt.Sprintf(`{"batch": 1, "event": %d}`, i)),
+				Metadata:  map[string]string{"batch": "1"},
+			}
+			buffer.Add(event)
+		}
+		
+		// Check first file exists
+		files, err := os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 1, "First flush should create one file")
+		firstFilename := files[0].Name()
+		
+		// Small delay to ensure different timestamp in UUID7
+		time.Sleep(10 * time.Millisecond)
+		
+		// Trigger second flush
+		for i := 0; i < testConfig.FlushThreshold; i++ {
+			event := &Event{
+				ID:        fmt.Sprintf("multi-flush-2-%d", i),
+				Type:      "test.multi.flush.second",
+				Level:     LevelWarn,
+				Category:  CategoryNetwork,
+				Source:    "multi-test",
+				Timestamp: time.Now(),
+				Payload:   []byte(fmt.Sprintf(`{"batch": 2, "event": %d}`, i)),
+				Metadata:  map[string]string{"batch": "2"},
+			}
+			buffer.Add(event)
+		}
+		
+		// Check we now have two files
+		files, err = os.ReadDir(tempEventsDir)
+		assert.NoError(t, err)
+		assert.Len(t, files, 2, "Second flush should create another file")
+		
+		// Validate filenames are different UUID7s
+		var filenames []string
+		for _, file := range files {
+			filenames = append(filenames, file.Name())
+		}
+		
+		assert.NotEqual(t, filenames[0], filenames[1], "Flush files should have different UUID7 names")
+		assert.True(t, filenames[0] != firstFilename || filenames[1] != firstFilename, "Second file should be different from first")
+		
+		// Validate both are UUID7 format
+		for _, filename := range filenames {
+			uuidPart := strings.TrimSuffix(filename, ".json")
+			assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, uuidPart, "All files should be UUID7 format")
+		}
+		
+		// Validate file contents are different
+		content1, err := os.ReadFile(filepath.Join(tempEventsDir, filenames[0]))
+		assert.NoError(t, err)
+		content2, err := os.ReadFile(filepath.Join(tempEventsDir, filenames[1]))
+		assert.NoError(t, err)
+		assert.NotEqual(t, string(content1), string(content2), "File contents should be different")
+		
+		t.Logf("Multiple flush files test passed: %s, %s", filenames[0], filenames[1])
+	})
+	
+	t.Logf("Disk flush functionality tests completed successfully")
 }
 
