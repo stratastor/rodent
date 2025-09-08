@@ -37,8 +37,8 @@ func Initialize(ctx context.Context, toggleClient client.ToggleClient, l logger.
 		return fmt.Errorf("events require gRPC client, got %T", toggleClient)
 	}
 
-	// Create event bus with default config
-	config := DefaultEventConfig()
+	// Create event bus with config from main configuration
+	config := GetEventConfig()
 	
 	// Get the underlying proto client
 	protoClient := grpcClient.GetProtoClient()

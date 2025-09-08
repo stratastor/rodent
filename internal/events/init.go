@@ -67,8 +67,8 @@ func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServ
 		return nil
 	}
 
-	// Create event bus with default config
-	config := DefaultEventConfig()
+	// Create event bus with config from main configuration
+	config := GetEventConfig()
 	globalEventBus = NewEventBus(protoClient, jwt, config, l)
 
 	// Start the event bus

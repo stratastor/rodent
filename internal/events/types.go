@@ -7,6 +7,7 @@ package events
 import (
 	"time"
 
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
@@ -92,5 +93,51 @@ func DefaultEventConfig() *EventConfig {
 		MaxRetryAttempts:  3,
 		RetryBackoffBase:  1 * time.Second,
 	}
+}
+
+// GetEventConfig creates EventConfig from main config with defaults and profiles
+func GetEventConfig() *EventConfig {
+	cfg := config.GetConfig()
+	eventConfig := DefaultEventConfig()
+	
+	// Apply profile presets first
+	switch cfg.Events.Profile {
+	case "default", "":
+		// Keep the DefaultEventConfig() values - no changes needed
+	case "high-throughput":
+		eventConfig.BufferSize = 50000
+		eventConfig.FlushThreshold = 45000
+		eventConfig.BatchSize = 500
+		eventConfig.BatchTimeout = 60 * time.Second
+	case "low-latency":
+		eventConfig.BufferSize = 5000
+		eventConfig.FlushThreshold = 4000
+		eventConfig.BatchSize = 50
+		eventConfig.BatchTimeout = 5 * time.Second
+	case "minimal":
+		eventConfig.BufferSize = 2000
+		eventConfig.FlushThreshold = 1800
+		eventConfig.BatchSize = 25
+		eventConfig.EnabledLevels = []EventLevel{LevelError, LevelCritical}
+	}
+	
+	// Apply specific overrides after profile
+	if cfg.Events.BufferSize != nil && *cfg.Events.BufferSize > 0 {
+		eventConfig.BufferSize = *cfg.Events.BufferSize
+	}
+	if cfg.Events.FlushThreshold != nil && *cfg.Events.FlushThreshold > 0 {
+		eventConfig.FlushThreshold = *cfg.Events.FlushThreshold
+	}
+	if cfg.Events.BatchSize != nil && *cfg.Events.BatchSize > 0 {
+		eventConfig.BatchSize = *cfg.Events.BatchSize
+	}
+	if cfg.Events.BatchTimeout != nil && *cfg.Events.BatchTimeout > 0 {
+		eventConfig.BatchTimeout = time.Duration(*cfg.Events.BatchTimeout) * time.Second
+	}
+	if cfg.Events.MaxFileSize != nil && *cfg.Events.MaxFileSize > 0 {
+		eventConfig.MaxFileSize = *cfg.Events.MaxFileSize
+	}
+	
+	return eventConfig
 }
 

@@ -98,6 +98,15 @@ type Config struct {
 		Enabled bool `mapstructure:"enabled"`
 	} `mapstructure:"development"`
 
+	Events struct {
+		Profile        string `mapstructure:"profile"`        // Event system profile: "default", "high-throughput", "low-latency", "minimal"
+		BufferSize     *int   `mapstructure:"bufferSize"`     // Max events held in memory before dropping (default: 20000)
+		FlushThreshold *int   `mapstructure:"flushThreshold"` // Event count that triggers disk flush when Toggle unavailable (default: 18000)
+		BatchSize      *int   `mapstructure:"batchSize"`      // Max events sent per gRPC batch to Toggle (default: 100)
+		BatchTimeout   *int   `mapstructure:"batchTimeout"`   // Max seconds to wait before sending partial batch (default: 30)
+		MaxFileSize    *int64 `mapstructure:"maxFileSize"`    // Max size in bytes per event log file (default: 10MB)
+	} `mapstructure:"events"`
+
 	Environment string `mapstructure:"environment"`
 }
 
@@ -198,6 +207,14 @@ func LoadConfig(configFilePath string) *Config {
 		// Set defaults for StrataSecure
 		viper.SetDefault("strataSecure", true)
 		viper.SetDefault("development.enabled", false)
+
+		// Set defaults for Events configuration
+		viper.SetDefault("events.profile", "default")
+		viper.SetDefault("events.bufferSize", nil)     // Use profile defaults
+		viper.SetDefault("events.flushThreshold", nil) // Use profile defaults
+		viper.SetDefault("events.batchSize", nil)      // Use profile defaults
+		viper.SetDefault("events.batchTimeout", nil)   // Use profile defaults
+		viper.SetDefault("events.maxFileSize", nil)    // Use profile defaults
 
 		// Bind environment variables
 		viper.AutomaticEnv()
