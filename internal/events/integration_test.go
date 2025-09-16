@@ -2,6 +2,29 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// integration_test.go - Structured Event System Integration Tests
+//
+// This file contains integration tests for the new structured event system that uses:
+// - Predefined event type constants (eventsconstants.StorageTransferStarted, etc.)
+// - Strongly-typed protobuf payloads (eventspb.StorageTransferPayload, etc.)
+// - Structured emission functions (EmitStorageTransfer, EmitIdentityUser, etc.)
+// - Schema-driven event definitions from toggle-rodent-proto repository
+//
+// These tests validate the new event architecture that provides:
+// - Type safety and schema validation
+// - Centralized event definitions preventing Rodent/Toggle dissonance
+// - All 8 event categories (SYSTEM, STORAGE, NETWORK, SECURITY, SERVICE, IDENTITY, ACCESS, SHARING)
+// - Structured metadata using standardized keys (eventsconstants.MetaComponent, etc.)
+//
+// Key differences from legacy events (integration_legacy_test.go):
+// - Uses protobuf-defined payload structures instead of map[string]interface{}
+// - Event types are constants defined in toggle-rodent-proto
+// - Metadata follows standardized schema
+// - Supports new categories (IDENTITY, ACCESS, SHARING)
+// - Prevents double JSON marshaling through emitTypedEvent()
+//
+// This represents the target architecture for all future event implementations.
+
 package events
 
 import (
@@ -11,18 +34,18 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/toggle/client"
+	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
 	"github.com/stratastor/toggle-rodent-proto/proto"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -32,20 +55,20 @@ func init() {
 	os.Setenv("RODENT_CONFIG", "/home/rodent/.rodent/rodent.yml.dev")
 }
 
-const testEventsGRPCPort = 50101 // Use a different high port from other tests
+const testEventsGRPCPortUpdated = 50103 // Use a different high port from other tests
 
-// MockToggleServer is a mock implementation of the Toggle server for events testing
-type MockToggleServer struct {
+// MockToggleServerUpdated is a mock implementation of the Toggle server for updated events testing
+type MockToggleServerUpdated struct {
 	proto.UnimplementedRodentServiceServer
-	t             *testing.T
+	t               *testing.T
 	receivedBatches []*proto.EventBatch
 	batchesLock     sync.Mutex
 	batchWaitGroup  *sync.WaitGroup
 }
 
-// NewMockToggleServer creates a new mock Toggle server for testing
-func NewMockToggleServer(t *testing.T) *MockToggleServer {
-	return &MockToggleServer{
+// NewMockToggleServerUpdated creates a new mock Toggle server for testing
+func NewMockToggleServerUpdated(t *testing.T) *MockToggleServerUpdated {
+	return &MockToggleServerUpdated{
 		t:               t,
 		receivedBatches: make([]*proto.EventBatch, 0),
 		batchWaitGroup:  &sync.WaitGroup{},
@@ -53,7 +76,7 @@ func NewMockToggleServer(t *testing.T) *MockToggleServer {
 }
 
 // Register is a simple implementation that just returns success
-func (s *MockToggleServer) Register(
+func (s *MockToggleServerUpdated) Register(
 	ctx context.Context,
 	req *proto.RegisterRequest,
 ) (*proto.RegisterResponse, error) {
@@ -64,7 +87,7 @@ func (s *MockToggleServer) Register(
 }
 
 // SendEvents implements the SendEvents RPC for testing
-func (s *MockToggleServer) SendEvents(
+func (s *MockToggleServerUpdated) SendEvents(
 	ctx context.Context,
 	batch *proto.EventBatch,
 ) (*proto.EventBatchResponse, error) {
@@ -76,7 +99,7 @@ func (s *MockToggleServer) SendEvents(
 			Message: "No metadata found",
 		}, nil
 	}
-	
+
 	auth := md["authorization"]
 	if len(auth) == 0 || len(auth[0]) < 7 || auth[0][:7] != "Bearer " {
 		return &proto.EventBatchResponse{
@@ -85,7 +108,7 @@ func (s *MockToggleServer) SendEvents(
 		}, nil
 	}
 
-	s.t.Logf("Received event batch with %d events, batch ID: %s", 
+	s.t.Logf("Received updated event batch with %d events, batch ID: %s",
 		len(batch.Events), batch.BatchId)
 
 	// Store the batch for verification
@@ -95,8 +118,21 @@ func (s *MockToggleServer) SendEvents(
 
 	// Log details of each event
 	for i, event := range batch.Events {
-		s.t.Logf("Event %d: Type=%s, Level=%s, Category=%s, Source=%s", 
+		s.t.Logf("Event %d: Type=%s, Level=%s, Category=%s, Source=%s",
 			i, event.EventType, event.Level.String(), event.Category.String(), event.Source)
+
+		// Log structured payload if available
+		if len(event.Payload) > 0 {
+			var payload map[string]interface{}
+			if err := json.Unmarshal(event.Payload, &payload); err == nil {
+				s.t.Logf("  Structured Payload: %+v", payload)
+			}
+		}
+
+		// Log metadata
+		if len(event.Metadata) > 0 {
+			s.t.Logf("  Metadata: %+v", event.Metadata)
+		}
 	}
 
 	// Signal that we received a batch
@@ -109,10 +145,10 @@ func (s *MockToggleServer) SendEvents(
 }
 
 // GetReceivedBatches returns all received event batches
-func (s *MockToggleServer) GetReceivedBatches() []*proto.EventBatch {
+func (s *MockToggleServerUpdated) GetReceivedBatches() []*proto.EventBatch {
 	s.batchesLock.Lock()
 	defer s.batchesLock.Unlock()
-	
+
 	// Return a copy to avoid race conditions
 	batches := make([]*proto.EventBatch, len(s.receivedBatches))
 	copy(batches, s.receivedBatches)
@@ -120,12 +156,12 @@ func (s *MockToggleServer) GetReceivedBatches() []*proto.EventBatch {
 }
 
 // ExpectBatches sets up expectation for a certain number of batches
-func (s *MockToggleServer) ExpectBatches(count int) {
+func (s *MockToggleServerUpdated) ExpectBatches(count int) {
 	s.batchWaitGroup.Add(count)
 }
 
 // WaitForBatches waits for expected batches with timeout
-func (s *MockToggleServer) WaitForBatches(timeout time.Duration) error {
+func (s *MockToggleServerUpdated) WaitForBatches(timeout time.Duration) error {
 	done := make(chan struct{})
 	go func() {
 		s.batchWaitGroup.Wait()
@@ -140,18 +176,20 @@ func (s *MockToggleServer) WaitForBatches(timeout time.Duration) error {
 	}
 }
 
-// setupEventsGRPCTest creates a test environment for events gRPC testing
-func setupEventsGRPCTest(t *testing.T) (*MockToggleServer, func()) {
+// setupEventsGRPCTestUpdated creates a test environment for updated events gRPC testing
+func setupEventsGRPCTestUpdated(t *testing.T) (*MockToggleServerUpdated, func()) {
 	// Skip if not integration test
 	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
-		t.Skip("Skipping events gRPC integration test; set RUN_INTEGRATION_TESTS=true to run")
+		t.Skip(
+			"Skipping updated events gRPC integration test; set RUN_INTEGRATION_TESTS=true to run",
+		)
 	}
 
 	// Create mock server
-	mockServer := NewMockToggleServer(t)
+	mockServer := NewMockToggleServerUpdated(t)
 
 	// Start gRPC server
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", testEventsGRPCPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", testEventsGRPCPortUpdated))
 	require.NoError(t, err, "Failed to listen on port")
 
 	grpcServer := grpc.NewServer()
@@ -173,10 +211,10 @@ func setupEventsGRPCTest(t *testing.T) (*MockToggleServer, func()) {
 	return mockServer, cleanup
 }
 
-// TestEventsGRPC_Integration runs the full events gRPC integration test
-func TestEventsGRPC_Integration(t *testing.T) {
+// TestEventsGRPCUpdated_Integration runs the full updated events gRPC integration test
+func TestEventsGRPCUpdated_Integration(t *testing.T) {
 	// Setup mock Toggle server and test environment
-	mockServer, cleanup := setupEventsGRPCTest(t)
+	mockServer, cleanup := setupEventsGRPCTestUpdated(t)
 	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -186,65 +224,99 @@ func TestEventsGRPC_Integration(t *testing.T) {
 	testJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LW9yZyIsInBydiI6dHJ1ZX0.dTdm2rfiSvx6rZ5JyIQvXg4gCYjmKTCcRKWsJo63Oh4"
 
 	// Create a logger for the client
-	l, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "test-events")
+	l, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "test-events-updated")
 	require.NoError(t, err)
 
 	// Initialize the gRPC client
-	serverAddr := fmt.Sprintf("localhost:%d", testEventsGRPCPort)
+	serverAddr := fmt.Sprintf("localhost:%d", testEventsGRPCPortUpdated)
 	gClient, err := client.NewGRPCClient(l, testJWT, serverAddr)
 	require.NoError(t, err)
 	defer gClient.Close()
 
 	// Test direct event client functionality first
-	t.Run("DirectEventClient", func(t *testing.T) {
-		testDirectEventClient(t, mockServer, gClient, ctx)
+	t.Run("DirectEventClientUpdated", func(t *testing.T) {
+		testDirectEventClientUpdated(t, mockServer, gClient, ctx)
 	})
 
-	// Test event system initialization and emission
-	t.Run("EventSystemInitialization", func(t *testing.T) {
-		testEventSystemInitialization(t, mockServer, gClient, ctx, l)
+	// Test updated event system initialization and emission
+	t.Run("EventSystemInitializationUpdated", func(t *testing.T) {
+		testEventSystemInitializationUpdated(t, mockServer, gClient, ctx, l)
 	})
 
 	// Test disk flush functionality
-	t.Run("DiskFlushFunctionality", func(t *testing.T) {
-		testDiskFlushFunctionality(t, mockServer, gClient, ctx, l)
+	t.Run("DiskFlushFunctionalityUpdated", func(t *testing.T) {
+		testDiskFlushFunctionalityUpdated(t, l)
 	})
 }
 
-// testDirectEventClient tests the event client directly
-func testDirectEventClient(t *testing.T, mockServer *MockToggleServer, gClient *client.GRPCClient, ctx context.Context) {
+// testDirectEventClientUpdated tests the event client directly with structured events
+func testDirectEventClientUpdated(
+	t *testing.T,
+	mockServer *MockToggleServerUpdated,
+	gClient *client.GRPCClient,
+	ctx context.Context,
+) {
 	// Create event client with test config
 	config := DefaultEventConfig()
-	config.BatchSize = 2          // Small batch size for quick testing
+	config.BatchSize = 2 // Small batch size for quick testing
 	config.BatchTimeout = 1 * time.Second
 
 	// Create a logger for the event client
-	eventLogger, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "test-event-client")
+	eventLogger, err := logger.NewTag(logger.Config{LogLevel: "debug"}, "test-event-client-updated")
 	require.NoError(t, err)
 
 	eventClient := NewEventClient(gClient.GetProtoClient(), gClient.GetJWT(), config, eventLogger)
 
-	// Create test events
+	// Create test events with structured payloads
+	event1Payload := &eventspb.StorageTransferPayload{
+		TransferId:     "test-transfer-1",
+		Operation:      "send",
+		SourceSnapshot: "tank/test@snap1",
+		TargetDataset:  "backup/test",
+		Status:         "started",
+		RemoteHost:     "backup-server",
+	}
+	event1PayloadBytes, _ := json.Marshal(event1Payload)
+
+	event2Payload := &eventspb.SecurityKeyPayload{
+		KeyId:       "test-key-1",
+		KeyType:     "ed25519",
+		Algorithm:   "Ed25519",
+		KeySize:     256,
+		Fingerprint: "SHA256:testfingerprint",
+		CreatedBy:   "integration-test",
+		Purpose:     "ssh",
+	}
+	event2PayloadBytes, _ := json.Marshal(event2Payload)
+
 	events := []*Event{
 		{
-			ID:        "test-event-1",
-			Type:      "test.event.one",
+			ID:        "test-event-updated-1",
+			Type:      eventsconstants.StorageTransferStarted,
 			Level:     LevelInfo,
-			Category:  CategorySystem,
+			Category:  CategoryStorage,
 			Source:    "integration-test",
 			Timestamp: time.Now(),
-			Payload:   []byte(`{"key": "value1"}`),
-			Metadata:  map[string]string{"test": "metadata1"},
+			Payload:   event1PayloadBytes,
+			Metadata: map[string]string{
+				eventsconstants.MetaComponent:  "zfs-transfer",
+				eventsconstants.MetaAction:     "start",
+				eventsconstants.MetaTransferID: "test-transfer-1",
+			},
 		},
 		{
-			ID:        "test-event-2", 
-			Type:      "test.event.two",
-			Level:     LevelWarn,
+			ID:        "test-event-updated-2",
+			Type:      eventsconstants.SecurityKeyGenerated,
+			Level:     LevelInfo,
 			Category:  CategorySecurity,
 			Source:    "integration-test",
 			Timestamp: time.Now(),
-			Payload:   []byte(`{"key": "value2"}`),
-			Metadata:  map[string]string{"test": "metadata2"},
+			Payload:   event2PayloadBytes,
+			Metadata: map[string]string{
+				eventsconstants.MetaComponent: "ssh-key-manager",
+				eventsconstants.MetaAction:    "generate",
+				eventsconstants.MetaUser:      "integration-test",
+			},
 		},
 	}
 
@@ -253,11 +325,11 @@ func testDirectEventClient(t *testing.T, mockServer *MockToggleServer, gClient *
 
 	// Send batch
 	err = eventClient.SendBatch(ctx, events)
-	require.NoError(t, err, "Failed to send event batch")
+	require.NoError(t, err, "Failed to send updated event batch")
 
 	// Wait for batch to be received
 	err = mockServer.WaitForBatches(5 * time.Second)
-	require.NoError(t, err, "Failed to receive event batch")
+	require.NoError(t, err, "Failed to receive updated event batch")
 
 	// Verify received events
 	batches := mockServer.GetReceivedBatches()
@@ -266,35 +338,57 @@ func testDirectEventClient(t *testing.T, mockServer *MockToggleServer, gClient *
 	batch := batches[0]
 	require.Len(t, batch.Events, 2, "Batch should contain 2 events")
 
-	// Verify first event
+	// Verify first event (Storage Transfer)
 	event1 := batch.Events[0]
-	assert.Equal(t, "test.event.one", event1.EventType)
+	assert.Equal(t, eventsconstants.StorageTransferStarted, event1.EventType)
 	assert.Equal(t, proto.EventLevel_EVENT_LEVEL_INFO, event1.Level)
-	assert.Equal(t, proto.EventCategory_EVENT_CATEGORY_SYSTEM, event1.Category)
+	assert.Equal(t, proto.EventCategory_EVENT_CATEGORY_STORAGE, event1.Category)
 	assert.Equal(t, "integration-test", event1.Source)
-	assert.Equal(t, "test-event-1", event1.EventId)
-	assert.Equal(t, `{"key": "value1"}`, string(event1.Payload))
+	assert.Equal(t, "test-event-updated-1", event1.EventId)
 
-	// Verify second event
+	// Verify structured payload can be unmarshaled
+	var receivedPayload1 eventspb.StorageTransferPayload
+	err = json.Unmarshal(event1.Payload, &receivedPayload1)
+	require.NoError(t, err, "Should be able to unmarshal storage transfer payload")
+	assert.Equal(t, "test-transfer-1", receivedPayload1.TransferId)
+	assert.Equal(t, "send", receivedPayload1.Operation)
+
+	// Verify metadata
+	assert.Equal(t, "zfs-transfer", event1.Metadata[eventsconstants.MetaComponent])
+	assert.Equal(t, "test-transfer-1", event1.Metadata[eventsconstants.MetaTransferID])
+
+	// Verify second event (Security Key)
 	event2 := batch.Events[1]
-	assert.Equal(t, "test.event.two", event2.EventType)
-	assert.Equal(t, proto.EventLevel_EVENT_LEVEL_WARN, event2.Level)
+	assert.Equal(t, eventsconstants.SecurityKeyGenerated, event2.EventType)
+	assert.Equal(t, proto.EventLevel_EVENT_LEVEL_INFO, event2.Level)
 	assert.Equal(t, proto.EventCategory_EVENT_CATEGORY_SECURITY, event2.Category)
 	assert.Equal(t, "integration-test", event2.Source)
-	assert.Equal(t, "test-event-2", event2.EventId)
-	assert.Equal(t, `{"key": "value2"}`, string(event2.Payload))
+	assert.Equal(t, "test-event-updated-2", event2.EventId)
 
-	t.Log("Direct event client test completed successfully")
+	// Verify structured payload
+	var receivedPayload2 eventspb.SecurityKeyPayload
+	err = json.Unmarshal(event2.Payload, &receivedPayload2)
+	require.NoError(t, err, "Should be able to unmarshal security key payload")
+	assert.Equal(t, "test-key-1", receivedPayload2.KeyId)
+	assert.Equal(t, "ed25519", receivedPayload2.KeyType)
+
+	t.Log("Direct event client updated test completed successfully")
 }
 
-// testEventSystemInitialization tests full event system initialization and emission
-func testEventSystemInitialization(t *testing.T, mockServer *MockToggleServer, gClient *client.GRPCClient, ctx context.Context, l logger.Logger) {
+// testEventSystemInitializationUpdated tests full event system initialization and emission with structured events
+func testEventSystemInitializationUpdated(
+	t *testing.T,
+	mockServer *MockToggleServerUpdated,
+	gClient *client.GRPCClient,
+	ctx context.Context,
+	l logger.Logger,
+) {
 	// Initialize event system with the gRPC client
 	err := InitializeWithClient(ctx, gClient, l)
-	require.NoError(t, err, "Failed to initialize event system")
+	require.NoError(t, err, "Failed to initialize updated event system")
 
 	// Verify system is initialized
-	assert.True(t, IsInitialized(), "Event system should be initialized")
+	assert.True(t, IsInitialized(), "Updated event system should be initialized")
 
 	// Get stats to verify initialization
 	stats := GetStats()
@@ -303,22 +397,135 @@ func testEventSystemInitialization(t *testing.T, mockServer *MockToggleServer, g
 	// Set expectation for events (we'll emit several events)
 	mockServer.ExpectBatches(1) // We expect 1 batch due to small test batch size
 
-	// Emit various types of events
-	EmitSystemEvent("system.test.info", LevelInfo, map[string]string{"action": "test"}, nil)
-	EmitStorageEvent("storage.test.warn", LevelWarn, "test-storage", map[string]any{"size": 1024}, map[string]string{"pool": "test"})
-	EmitNetworkEvent("network.test.error", LevelError, "test-network", "Connection failed", map[string]string{"interface": "eth0"})
-	EmitSecurityEvent("security.test.critical", LevelCritical, "test-security", map[string]bool{"authenticated": false}, nil)
-	EmitServiceEvent("service.test.info", LevelInfo, "test-service", "Service started", map[string]string{"version": "1.0"})
+	// Emit various types of events using structured payloads
 
-	// Generic emit
-	Emit("generic.test.event", LevelInfo, CategoryService, "test-generic", "Generic event", map[string]string{"type": "generic"})
+	// System Event
+	systemPayload := &eventspb.SystemStartupPayload{
+		Version:         "test-1.0.0",
+		BootTimeSeconds: time.Now().Unix(),
+		Hostname:        "test-host",
+		ServicesStarted: []string{"test-service"},
+	}
+	EmitSystemStartup(systemPayload, map[string]string{
+		eventsconstants.MetaComponent: "test-system",
+		eventsconstants.MetaAction:    "startup",
+	})
+
+	// Storage Event
+	storagePayload := &eventspb.StorageTransferPayload{
+		TransferId:       "test-transfer-warn",
+		Operation:        "receive",
+		SourceSnapshot:   "remote/dataset@snap",
+		TargetDataset:    "local/dataset",
+		Status:           "warning",
+		BytesTransferred: 1024,
+		RemoteHost:       "remote-host",
+	}
+	EmitStorageTransfer(
+		eventsconstants.StorageTransferStarted,
+		LevelWarn,
+		storagePayload,
+		map[string]string{
+			eventsconstants.MetaComponent:  "zfs-transfer",
+			eventsconstants.MetaAction:     "start",
+			eventsconstants.MetaTransferID: "test-transfer-warn",
+		},
+	)
+
+	// Network Event
+	networkPayload := &eventspb.NetworkConnectionPayload{
+		SourceIp:        "192.168.1.100",
+		DestinationIp:   "192.168.1.1",
+		SourcePort:      12345,
+		DestinationPort: 80,
+		Protocol:        "tcp",
+		ConnectionType:  "tcp",
+		Status:          "failed",
+		DurationMs:      5000,
+	}
+	EmitNetworkConnection(
+		eventsconstants.NetworkConnectionFailed,
+		LevelError,
+		networkPayload,
+		map[string]string{
+			eventsconstants.MetaComponent: "netmage",
+			eventsconstants.MetaAction:    "connect",
+			eventsconstants.MetaInterface: "eth0",
+		},
+	)
+
+	// Security Event
+	securityPayload := &eventspb.SecurityAuthPayload{
+		Username:     "test-user",
+		IpAddress:    "192.168.1.200",
+		Method:       "password",
+		Reason:       "invalid_credentials",
+		Resource:     "ssh",
+		AttemptCount: 3,
+	}
+	EmitSecurityAuth(
+		eventsconstants.SecurityAuthFailed,
+		LevelCritical,
+		securityPayload,
+		map[string]string{
+			eventsconstants.MetaComponent: "auth-manager",
+			eventsconstants.MetaAction:    "authenticate",
+			eventsconstants.MetaUser:      "test-user",
+		},
+	)
+
+	// Service Event
+	servicePayload := &eventspb.ServiceStatusPayload{
+		ServiceName:      "test-service",
+		Status:           "running",
+		Version:          "1.0.0",
+		Pid:              9999,
+		UptimeSeconds:    300,
+		EnabledAtStartup: true,
+	}
+	EmitServiceStatus(eventsconstants.ServiceStarted, LevelInfo, servicePayload, map[string]string{
+		eventsconstants.MetaComponent: "service-manager",
+		eventsconstants.MetaAction:    "start",
+		eventsconstants.MetaService:   "test-service",
+	})
+
+	// Identity Event (new category)
+	identityPayload := &eventspb.IdentityUserPayload{
+		Username:    "test-ad-user",
+		DisplayName: "Test AD User",
+		Email:       "testuser@test.local",
+		Groups:      []string{"users", "developers"},
+		Enabled:     true,
+		Domain:      "test.local",
+	}
+	EmitIdentityUser(
+		eventsconstants.IdentityUserCreated,
+		LevelInfo,
+		identityPayload,
+		map[string]string{
+			eventsconstants.MetaComponent: "ad-manager",
+			eventsconstants.MetaAction:    "create",
+			eventsconstants.MetaUser:      "test-ad-user",
+			eventsconstants.MetaDomain:    "test.local",
+		},
+	)
+
+	// Generic emit for backward compatibility testing
+	Emit(
+		"generic.test.event",
+		LevelInfo,
+		CategoryService,
+		"test-generic",
+		"Generic event",
+		map[string]string{"type": "generic"},
+	)
 
 	// Wait a bit for async processing
 	time.Sleep(2 * time.Second)
 
 	// Wait for batch to be received (batch timeout is 30s, so wait 35s)
 	err = mockServer.WaitForBatches(35 * time.Second)
-	require.NoError(t, err, "Failed to receive event batches")
+	require.NoError(t, err, "Failed to receive updated event batches")
 
 	// Verify received events
 	batches := mockServer.GetReceivedBatches()
@@ -329,7 +536,7 @@ func testEventSystemInitialization(t *testing.T, mockServer *MockToggleServer, g
 	for _, batch := range batches {
 		totalEvents += len(batch.Events)
 	}
-	assert.GreaterOrEqual(t, totalEvents, 6, "Should have received at least 6 events")
+	assert.GreaterOrEqual(t, totalEvents, 7, "Should have received at least 7 events")
 
 	// Verify event types and categories are correct
 	eventTypesSeen := make(map[string]bool)
@@ -339,403 +546,280 @@ func testEventSystemInitialization(t *testing.T, mockServer *MockToggleServer, g
 		for _, event := range batch.Events {
 			eventTypesSeen[event.EventType] = true
 			categoriesSeen[event.Category] = true
+
+			// Verify structured payloads can be parsed
+			if len(event.Payload) > 0 {
+				// Try to unmarshal as object first, then as string
+				var payload map[string]interface{}
+				err := json.Unmarshal(event.Payload, &payload)
+				if err != nil {
+					// If object unmarshal fails, try string (for backward compatibility events)
+					var stringPayload string
+					err2 := json.Unmarshal(event.Payload, &stringPayload)
+					assert.NoError(t, err2, "Payload should be valid JSON (object or string)")
+				}
+			}
 		}
 	}
 
 	// Check we saw the expected event types
 	expectedTypes := []string{
-		"system.test.info",
-		"storage.test.warn", 
-		"network.test.error",
-		"security.test.critical",
-		"service.test.info",
+		eventsconstants.SystemStartup,
+		eventsconstants.StorageTransferStarted,
+		eventsconstants.NetworkConnectionFailed,
+		eventsconstants.SecurityAuthFailed,
+		eventsconstants.ServiceStarted,
+		eventsconstants.IdentityUserCreated,
 		"generic.test.event",
 	}
 
 	for _, expectedType := range expectedTypes {
-		assert.True(t, eventTypesSeen[expectedType], "Should have seen event type: %s", expectedType)
+		assert.True(
+			t,
+			eventTypesSeen[expectedType],
+			"Should have seen event type: %s",
+			expectedType,
+		)
 	}
 
-	// Check we saw the expected categories
+	// Check we saw the expected categories (including new ones)
 	expectedCategories := []proto.EventCategory{
 		proto.EventCategory_EVENT_CATEGORY_SYSTEM,
 		proto.EventCategory_EVENT_CATEGORY_STORAGE,
 		proto.EventCategory_EVENT_CATEGORY_NETWORK,
 		proto.EventCategory_EVENT_CATEGORY_SECURITY,
 		proto.EventCategory_EVENT_CATEGORY_SERVICE,
+		proto.EventCategory_EVENT_CATEGORY_IDENTITY, // New category
 	}
 
 	for _, expectedCategory := range expectedCategories {
-		assert.True(t, categoriesSeen[expectedCategory], "Should have seen category: %s", expectedCategory)
+		assert.True(
+			t,
+			categoriesSeen[expectedCategory],
+			"Should have seen category: %s",
+			expectedCategory,
+		)
 	}
 
 	// Test shutdown
 	err = Shutdown(ctx)
-	require.NoError(t, err, "Failed to shutdown event system")
+	require.NoError(t, err, "Failed to shutdown updated event system")
 
-	assert.False(t, IsInitialized(), "Event system should not be initialized after shutdown")
-
-	t.Log("Event system initialization test completed successfully")
-}
-
-// TestEventsGRPC_BasicValidation tests basic gRPC functionality
-func TestEventsGRPC_BasicValidation(t *testing.T) {
-	mockServer, cleanup := setupEventsGRPCTest(t)
-	defer cleanup()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", testEventsGRPCPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	assert.False(
+		t,
+		IsInitialized(),
+		"Updated event system should not be initialized after shutdown",
 	)
-	require.NoError(t, err, "Failed to connect to gRPC server")
-	defer conn.Close()
 
-	client := proto.NewRodentServiceClient(conn)
-
-	// Test registration first
-	regResp, err := client.Register(ctx, &proto.RegisterRequest{
-		SystemInfo: &proto.SystemInfo{
-			CpuUsage:    50.0,
-			MemoryUsage: 60.0,
-			DiskUsage:   70.0,
-		},
-	})
-	require.NoError(t, err, "Failed to register")
-	assert.True(t, regResp.Success, "Registration failed: %s", regResp.Message)
-
-	// Set expectation for 1 batch
-	mockServer.ExpectBatches(1)
-
-	// Test SendEvents with JWT
-	testJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LW9yZyIsInBydiI6dHJ1ZX0.dTdm2rfiSvx6rZ5JyIQvXg4gCYjmKTCcRKWsJo63Oh4"
-	md := metadata.Pairs("authorization", "Bearer "+testJWT)
-	authCtx := metadata.NewOutgoingContext(ctx, md)
-
-	// Create test event
-	event := &proto.Event{
-		EventId:   "test-validation-event",
-		EventType: "validation.test",
-		Level:     proto.EventLevel_EVENT_LEVEL_INFO,
-		Category:  proto.EventCategory_EVENT_CATEGORY_SYSTEM,
-		Source:    "validation-test",
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   []byte(`{"validation": true}`),
-		Metadata:  map[string]string{"test": "validation"},
-	}
-
-	batch := &proto.EventBatch{
-		Events:         []*proto.Event{event},
-		BatchTimestamp: time.Now().UnixMilli(),
-		BatchId:        "test-validation-batch",
-	}
-
-	// Send events
-	eventsResp, err := client.SendEvents(authCtx, batch)
-	require.NoError(t, err, "Failed to send events")
-	assert.True(t, eventsResp.Success, "SendEvents failed: %s", eventsResp.Message)
-
-	// Wait for batch to be received
-	err = mockServer.WaitForBatches(5 * time.Second)
-	require.NoError(t, err, "Failed to receive expected batch")
-
-	t.Log("Basic events gRPC validation completed successfully")
+	t.Log("Updated event system initialization test completed successfully")
 }
 
-// testDiskFlushFunctionality comprehensively tests disk flush behavior
-func testDiskFlushFunctionality(t *testing.T, mockServer *MockToggleServer, gClient *client.GRPCClient, ctx context.Context, l logger.Logger) {
+// testDiskFlushFunctionalityUpdated tests disk flush behavior with structured events
+func testDiskFlushFunctionalityUpdated(t *testing.T, l logger.Logger) {
 	// Clean up any existing test events directory
-	tempEventsDir := filepath.Join(os.TempDir(), "rodent-test-events")
+	tempEventsDir := filepath.Join(os.TempDir(), "rodent-test-events-updated")
 	defer os.RemoveAll(tempEventsDir)
-	
+
 	// Create a custom config for testing with low flush threshold
 	testConfig := DefaultEventConfig()
-	testConfig.FlushThreshold = 5  // Flush after 5 events instead of 18k
-	testConfig.BufferSize = 10     // Small buffer for testing
-	
+	testConfig.FlushThreshold = 3 // Flush after 3 events for faster testing
+	testConfig.BufferSize = 6     // Small buffer for testing
+
 	// Create event buffer with test config
 	buffer := NewEventBuffer(testConfig, l)
-	
+
 	// Override the events directory to our temp directory
 	buffer.eventsDir = tempEventsDir
-	
-	// Test 1: Directory creation functionality
-	t.Run("DirectoryCreation", func(t *testing.T) {
+
+	// Test: Structured events flush to disk properly
+	t.Run("StructuredEventsDiskFlush", func(t *testing.T) {
 		// Ensure directory doesn't exist initially
 		os.RemoveAll(tempEventsDir)
-		
-		// Add events to trigger a flush (flush happens when we try to add the 6th event)
-		for i := 0; i <= testConfig.FlushThreshold; i++ { // <= to add 6 events (0,1,2,3,4,5)
-			event := &Event{
-				ID:        fmt.Sprintf("test-dir-creation-%d", i),
-				Type:      "test.directory.creation",
+
+		// Create structured events with different payload types
+		events := []*Event{
+			{
+				ID:        "flush-test-1",
+				Type:      eventsconstants.StorageTransferCompleted,
 				Level:     LevelInfo,
-				Category:  CategorySystem,
+				Category:  CategoryStorage,
 				Source:    "test",
 				Timestamp: time.Now(),
-				Payload:   []byte(`{"test": "directory creation"}`),
-				Metadata:  map[string]string{"purpose": "directory-test"},
-			}
-			
+				Payload: func() []byte {
+					payload := &eventspb.StorageTransferPayload{
+						TransferId:       "flush-transfer-1",
+						Operation:        "send",
+						Status:           "completed",
+						DurationSeconds:  120,
+						BytesTransferred: 1024 * 1024,
+					}
+					data, _ := json.Marshal(payload)
+					return data
+				}(),
+				Metadata: map[string]string{
+					eventsconstants.MetaComponent:  "zfs-transfer",
+					eventsconstants.MetaAction:     "complete",
+					eventsconstants.MetaTransferID: "flush-transfer-1",
+				},
+			},
+			{
+				ID:        "flush-test-2",
+				Type:      eventsconstants.IdentityUserCreated,
+				Level:     LevelInfo,
+				Category:  CategoryIdentity,
+				Source:    "test",
+				Timestamp: time.Now(),
+				Payload: func() []byte {
+					payload := &eventspb.IdentityUserPayload{
+						Username:    "flushuser",
+						DisplayName: "Flush Test User",
+						Email:       "flush@test.local",
+						Enabled:     true,
+						Domain:      "test.local",
+					}
+					data, _ := json.Marshal(payload)
+					return data
+				}(),
+				Metadata: map[string]string{
+					eventsconstants.MetaComponent: "ad-manager",
+					eventsconstants.MetaAction:    "create",
+					eventsconstants.MetaUser:      "flushuser",
+					eventsconstants.MetaDomain:    "test.local",
+				},
+			},
+		}
+
+		// Add events - need to add enough to trigger flush
+		// With FlushThreshold=3, we need to add 3 events to trigger flush
+		for _, event := range events {
 			err := buffer.Add(event)
 			assert.NoError(t, err)
 		}
-		
-		// Directory should exist after flush (created by flushToDiskLocked)
-		_, err := os.Stat(tempEventsDir)
+
+		// Add the trigger event (3rd event) to reach the flush threshold
+		triggerEvent := &Event{
+			ID:        "flush-trigger",
+			Type:      eventsconstants.SystemStartup,
+			Level:     LevelInfo,
+			Category:  CategorySystem,
+			Source:    "test",
+			Timestamp: time.Now(),
+			Payload: func() []byte {
+				payload := &eventspb.SystemStartupPayload{
+					Hostname:        "flush-test-host",
+					BootTimeSeconds: time.Now().Unix(),
+				}
+				data, _ := json.Marshal(payload)
+				return data
+			}(),
+			Metadata: map[string]string{
+				eventsconstants.MetaComponent: "system",
+				eventsconstants.MetaAction:    "startup",
+			},
+		}
+
+		err := buffer.Add(triggerEvent)
+		assert.NoError(t, err)
+
+		// Now we have 3 events in buffer. Add one more to trigger flush.
+		finalEvent := &Event{
+			ID:        "flush-final",
+			Type:      eventsconstants.ServiceStarted,
+			Level:     LevelInfo,
+			Category:  CategoryService,
+			Source:    "test",
+			Timestamp: time.Now(),
+			Payload: func() []byte {
+				payload := &eventspb.ServiceStatusPayload{
+					ServiceName: "test-service",
+					Status:      "running",
+					Pid:         12345,
+				}
+				data, _ := json.Marshal(payload)
+				return data
+			}(),
+			Metadata: map[string]string{
+				eventsconstants.MetaComponent: "service-manager",
+				eventsconstants.MetaAction:    "start",
+			},
+		}
+
+		err = buffer.Add(finalEvent)
+		assert.NoError(t, err)
+
+		// Directory should exist after flush
+		_, err = os.Stat(tempEventsDir)
 		assert.NoError(t, err, "Events directory should be created during flush")
-		
+
 		// Verify a file was created
 		files, err := os.ReadDir(tempEventsDir)
 		assert.NoError(t, err)
 		assert.Len(t, files, 1, "Should have one flush file")
-	})
-	
-	// Test 2: Bulk flush when buffer reaches FlushThreshold
-	t.Run("BulkFlushAtThreshold", func(t *testing.T) {
-		// Clear any existing files
-		os.RemoveAll(tempEventsDir)
-		os.MkdirAll(tempEventsDir, 0755)
-		
-		// Add exactly FlushThreshold events to trigger flush
-		for i := 0; i < testConfig.FlushThreshold; i++ {
-			event := &Event{
-				ID:        fmt.Sprintf("bulk-test-%d", i),
-				Type:      "test.bulk.flush",
-				Level:     LevelInfo,
-				Category:  CategoryStorage,
-				Source:    "bulk-test",
-				Timestamp: time.Now(),
-				Payload:   []byte(fmt.Sprintf(`{"event_number": %d, "test": "bulk flush"}`, i)),
-				Metadata:  map[string]string{"batch": "bulk-flush", "index": fmt.Sprintf("%d", i)},
-			}
-			
-			err := buffer.Add(event)
-			assert.NoError(t, err)
+
+		// Safety check for index access to prevent panic
+		if len(files) == 0 {
+			t.Fatal("No files found in events directory")
+			return
 		}
-		
-		// Buffer should have 1 event after flush (5 events flushed, 5th event added to fresh buffer)
-		assert.Equal(t, 1, buffer.Size(), "Buffer should have 1 event after flush (correct behavior)")
-		
-		// Check that a file was created
-		files, err := os.ReadDir(tempEventsDir)
-		assert.NoError(t, err)
-		assert.Len(t, files, 1, "Exactly one flush file should be created")
-		
-		// Verify the file is a JSON file
-		filename := files[0].Name()
-		assert.True(t, strings.HasSuffix(filename, ".json"), "Flush file should be JSON")
-		
-		// Print file content for posterity
-		filePath := filepath.Join(tempEventsDir, filename)
-		if fileContent, err := os.ReadFile(filePath); err == nil {
-			t.Logf("Bulk flush file content (%s):\n%s", filename, string(fileContent))
-		}
-		
-		t.Logf("Bulk flush test created file: %s", filename)
-	})
-	
-	// Test 3: UUID7 filename format validation
-	t.Run("UUID7FilenameFormat", func(t *testing.T) {
-		// Clear existing files
-		os.RemoveAll(tempEventsDir)
-		os.MkdirAll(tempEventsDir, 0755)
-		
-		// Trigger a flush
-		for i := 0; i < testConfig.FlushThreshold; i++ {
-			event := &Event{
-				ID:        fmt.Sprintf("uuid7-test-%d", i),
-				Type:      "test.uuid7.filename",
-				Level:     LevelWarn,
-				Category:  CategoryNetwork,
-				Source:    "uuid7-test",
-				Timestamp: time.Now(),
-				Payload:   []byte(`{"test": "uuid7 filename"}`),
-				Metadata:  map[string]string{"purpose": "uuid7-validation"},
-			}
-			buffer.Add(event)
-		}
-		
-		// Get the created file
-		files, err := os.ReadDir(tempEventsDir)
-		assert.NoError(t, err)
-		assert.Len(t, files, 1)
-		
-		filename := files[0].Name()
-		// Remove .json extension for UUID validation
-		uuidPart := strings.TrimSuffix(filename, ".json")
-		
-		// UUID7 should be 36 characters with specific format: 8-4-4-4-12
-		assert.Len(t, uuidPart, 36, "UUID7 should be 36 characters")
-		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, uuidPart, "Should be valid UUID7 format")
-		
-		t.Logf("UUID7 filename validation passed: %s", filename)
-	})
-	
-	// Test 4: JSON file content schema validation  
-	t.Run("JSONFileContentSchema", func(t *testing.T) {
-		// Clear existing files and create fresh buffer
-		os.RemoveAll(tempEventsDir)
-		os.MkdirAll(tempEventsDir, 0755)
-		
-		// Create a fresh buffer for this test to avoid interference
-		freshBuffer := NewEventBuffer(testConfig, l)
-		freshBuffer.eventsDir = tempEventsDir
-		
-		// Create events with varied data for schema testing
-		testEvents := []*Event{
-			{
-				ID:        "schema-test-1",
-				Type:      "test.schema.info",
-				Level:     LevelInfo,
-				Category:  CategorySystem,
-				Source:    "schema-validator",
-				Timestamp: time.Now(),
-				Payload:   []byte(`{"operation": "create", "resource": "dataset1"}`),
-				Metadata:  map[string]string{"component": "zfs", "action": "create"},
-			},
-			{
-				ID:        "schema-test-2", 
-				Type:      "test.schema.error",
-				Level:     LevelError,
-				Category:  CategorySecurity,
-				Source:    "auth-service",
-				Timestamp: time.Now(),
-				Payload:   []byte(`{"error": "authentication failed", "user": "testuser"}`),
-				Metadata:  map[string]string{"ip": "192.168.1.100", "reason": "invalid_credentials"},
-			},
-		}
-		
-		// Add events to trigger flush
-		for _, event := range testEvents {
-			freshBuffer.Add(event)
-		}
-		
-		// Add more events to trigger flush (need to exceed threshold)
-		for i := len(testEvents); i <= testConfig.FlushThreshold; i++ { // <= to trigger flush
-			event := &Event{
-				ID:        fmt.Sprintf("filler-event-%d", i),
-				Type:      "test.filler",
-				Level:     LevelInfo,
-				Category:  CategoryService,
-				Source:    "filler",
-				Timestamp: time.Now(),
-				Payload:   []byte(`{"filler": true}`),
-				Metadata:  map[string]string{"type": "filler"},
-			}
-			freshBuffer.Add(event)
-		}
-		
-		// Read and validate the JSON file
-		files, err := os.ReadDir(tempEventsDir)
-		assert.NoError(t, err)
-		assert.Len(t, files, 1)
-		
+
+		// Verify the file contains properly structured events
 		filePath := filepath.Join(tempEventsDir, files[0].Name())
 		fileContent, err := os.ReadFile(filePath)
 		assert.NoError(t, err)
-		
-		// Print file content for posterity
-		t.Logf("JSON file content (%s):\n%s", files[0].Name(), string(fileContent))
-		
+
 		// Parse as proto events array
 		var protoEvents []*proto.Event
 		err = json.Unmarshal(fileContent, &protoEvents)
 		assert.NoError(t, err, "File should contain valid JSON array of proto events")
-		
-		// Validate we have the expected number of events
-		assert.Len(t, protoEvents, testConfig.FlushThreshold, "Should have all flushed events")
-		
-		// Validate first test event schema
-		firstEvent := protoEvents[0]
-		assert.Equal(t, "schema-test-1", firstEvent.EventId)
-		assert.Equal(t, "test.schema.info", firstEvent.EventType)
-		assert.Equal(t, proto.EventLevel_EVENT_LEVEL_INFO, firstEvent.Level)
-		assert.Equal(t, proto.EventCategory_EVENT_CATEGORY_SYSTEM, firstEvent.Category)
-		assert.Equal(t, "schema-validator", firstEvent.Source)
-		assert.Contains(t, string(firstEvent.Payload), "dataset1")
-		assert.Equal(t, "zfs", firstEvent.Metadata["component"])
-		
-		t.Logf("JSON schema validation passed, file contains %d events", len(protoEvents))
-	})
-	
-	// Test 5: Multiple flush files with different UUID7s
-	t.Run("MultipleDifferentFlushFiles", func(t *testing.T) {
-		// Clear existing files
-		os.RemoveAll(tempEventsDir)
-		os.MkdirAll(tempEventsDir, 0755)
-		
-		// Trigger first flush
-		for i := 0; i < testConfig.FlushThreshold; i++ {
-			event := &Event{
-				ID:        fmt.Sprintf("multi-flush-1-%d", i),
-				Type:      "test.multi.flush.first",
-				Level:     LevelInfo,
-				Category:  CategoryStorage,
-				Source:    "multi-test",
-				Timestamp: time.Now(),
-				Payload:   []byte(fmt.Sprintf(`{"batch": 1, "event": %d}`, i)),
-				Metadata:  map[string]string{"batch": "1"},
-			}
-			buffer.Add(event)
-		}
-		
-		// Check first file exists
-		files, err := os.ReadDir(tempEventsDir)
-		assert.NoError(t, err)
-		assert.Len(t, files, 1, "First flush should create one file")
-		firstFilename := files[0].Name()
-		
-		// Small delay to ensure different timestamp in UUID7
-		time.Sleep(10 * time.Millisecond)
-		
-		// Trigger second flush
-		for i := 0; i < testConfig.FlushThreshold; i++ {
-			event := &Event{
-				ID:        fmt.Sprintf("multi-flush-2-%d", i),
-				Type:      "test.multi.flush.second",
-				Level:     LevelWarn,
-				Category:  CategoryNetwork,
-				Source:    "multi-test",
-				Timestamp: time.Now(),
-				Payload:   []byte(fmt.Sprintf(`{"batch": 2, "event": %d}`, i)),
-				Metadata:  map[string]string{"batch": "2"},
-			}
-			buffer.Add(event)
-		}
-		
-		// Check we now have two files
-		files, err = os.ReadDir(tempEventsDir)
-		assert.NoError(t, err)
-		assert.Len(t, files, 2, "Second flush should create another file")
-		
-		// Validate filenames are different UUID7s
-		var filenames []string
-		for _, file := range files {
-			filenames = append(filenames, file.Name())
-		}
-		
-		assert.NotEqual(t, filenames[0], filenames[1], "Flush files should have different UUID7 names")
-		assert.True(t, filenames[0] != firstFilename || filenames[1] != firstFilename, "Second file should be different from first")
-		
-		// Validate both are UUID7 format
-		for _, filename := range filenames {
-			uuidPart := strings.TrimSuffix(filename, ".json")
-			assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, uuidPart, "All files should be UUID7 format")
-		}
-		
-		// Validate file contents are different
-		content1, err := os.ReadFile(filepath.Join(tempEventsDir, filenames[0]))
-		assert.NoError(t, err)
-		content2, err := os.ReadFile(filepath.Join(tempEventsDir, filenames[1]))
-		assert.NoError(t, err)
-		assert.NotEqual(t, string(content1), string(content2), "File contents should be different")
-		
-		t.Logf("Multiple flush files test passed: %s, %s", filenames[0], filenames[1])
-	})
-	
-	t.Logf("Disk flush functionality tests completed successfully")
-}
 
+		// Should have flushed exactly FlushThreshold events
+		assert.Len(
+			t,
+			protoEvents,
+			testConfig.FlushThreshold,
+			"Should have flushed exactly %d events",
+			testConfig.FlushThreshold,
+		)
+
+		// Buffer should have 1 event remaining (the final event that triggered the flush)
+		assert.Equal(t, 1, buffer.Size(), "Buffer should have 1 event after flush")
+
+		// Verify structured payloads in flushed events
+		foundTransfer := false
+		foundIdentity := false
+		foundSystem := false
+
+		for _, event := range protoEvents {
+			switch event.EventType {
+			case eventsconstants.StorageTransferCompleted:
+				foundTransfer = true
+				var payload eventspb.StorageTransferPayload
+				err := json.Unmarshal(event.Payload, &payload)
+				assert.NoError(t, err, "Should be able to parse storage transfer payload")
+				assert.Equal(t, "flush-transfer-1", payload.TransferId)
+			case eventsconstants.IdentityUserCreated:
+				foundIdentity = true
+				var payload eventspb.IdentityUserPayload
+				err := json.Unmarshal(event.Payload, &payload)
+				assert.NoError(t, err, "Should be able to parse identity user payload")
+				assert.Equal(t, "flushuser", payload.Username)
+			case eventsconstants.SystemStartup:
+				foundSystem = true
+				var payload eventspb.SystemStartupPayload
+				err := json.Unmarshal(event.Payload, &payload)
+				assert.NoError(t, err, "Should be able to parse system startup payload")
+				assert.Equal(t, "flush-test-host", payload.Hostname)
+			}
+		}
+
+		assert.True(t, foundTransfer, "Should have flushed storage transfer event")
+		assert.True(t, foundIdentity, "Should have flushed identity user event")
+		assert.True(t, foundSystem, "Should have flushed system startup event")
+
+		t.Logf(
+			"Successfully flushed %d structured events to disk: %s",
+			len(protoEvents),
+			files[0].Name(),
+		)
+	})
+}

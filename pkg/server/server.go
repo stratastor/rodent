@@ -31,12 +31,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/toggle"
+	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
 // TODO: Review this logic
@@ -206,15 +209,20 @@ func Shutdown(ctx context.Context) error {
 		return nil
 	}
 	
-	// Emit server shutdown event
-	events.EmitServiceEvent("service.server.shutdown", events.LevelInfo, "rodent-server",
-		map[string]interface{}{
-			"message": "Rodent server shutting down gracefully",
-		},
-		map[string]string{
-			"component": "server",
-			"action":    "shutdown",
-		})
+	// Emit server shutdown event with structured payload
+	servicePayload := &eventspb.ServiceStatusPayload{
+		ServiceName: "rodent-server",
+		Status:     "stopping",
+		Pid:        int32(os.Getpid()),
+	}
+
+	serviceMeta := map[string]string{
+		eventsconstants.MetaComponent: "server",
+		eventsconstants.MetaAction:    "shutdown",
+		eventsconstants.MetaService:   "rodent-server",
+	}
+
+	events.EmitServiceStatus(eventsconstants.ServiceStopped, events.LevelInfo, servicePayload, serviceMeta)
 	
 	return srv.Shutdown(ctx)
 }

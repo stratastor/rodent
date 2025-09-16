@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/internal/toggle/client"
 	"github.com/stratastor/rodent/pkg/lifecycle"
 )
@@ -130,6 +131,12 @@ func emitEvent(eventType string, level EventLevel, category EventCategory, sourc
 		if err != nil {
 			// Log error but don't fail event emission
 			// We could emit a meta-event about this failure, but that might cause loops
+			common.Log.Error("Failed to marshal event payload to JSON",
+				"error", err,
+				"event_type", eventType,
+				"level", level,
+				"category", category,
+				"source", source)
 			return
 		}
 	}

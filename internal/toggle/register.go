@@ -14,6 +14,8 @@ import (
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services/traefik"
 	"github.com/stratastor/rodent/internal/toggle/client"
+	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
 const (
@@ -51,12 +53,12 @@ func RegisterNode(
 	// or we're in a private network
 	if result.Certificate == "" {
 		logger.Info("Node already registered with Toggle service")
-		
+
 		// For private network nodes, establish bidirectional stream
 		if isPrivate {
 			go establishStreamConnection(ctx, toggleClient, logger)
 		}
-		
+
 		return nil
 	}
 
@@ -82,7 +84,7 @@ func RegisterNode(
 		logger.Info("Certificate installed successfully")
 	} else if isPrivate {
 		logger.Info("Skipping certificate installation for private network node")
-		
+
 		// For private network nodes, establish bidirectional stream after successful registration
 		go establishStreamConnection(ctx, toggleClient, logger)
 	}
@@ -105,10 +107,10 @@ func establishStreamConnection(
 	if connectionMonitor == nil {
 		connectionMonitor = NewConnectionMonitor(ctx, toggleClient, logger)
 	}
-	
+
 	// Start the connection monitor
 	connectionMonitor.Start()
-	
+
 	// Log that the connection monitor has been started
 	logger.Info("Toggle connection monitor started")
 }
@@ -134,7 +136,12 @@ func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 
 	// Create a unified Toggle client that will use either REST or gRPC
 	// based on the JWT claims
-	toggleClient, err := client.NewToggleClient(l, cfg.Toggle.JWT, cfg.Toggle.BaseURL, cfg.Toggle.RPCAddr)
+	toggleClient, err := client.NewToggleClient(
+		l,
+		cfg.Toggle.JWT,
+		cfg.Toggle.BaseURL,
+		cfg.Toggle.RPCAddr,
+	)
 	if err != nil {
 		if l != nil {
 			l.Error("Failed to create Toggle client", "error", err)
@@ -162,15 +169,17 @@ func runRegistrationProcess(
 				}
 				// Continue anyway - events are not critical for core functionality
 			} else {
-				// Emit system startup event
-				events.EmitSystemEvent("system.startup", events.LevelInfo, 
-					map[string]interface{}{
-						"message": "Rodent service started and registered with Toggle",
-						"registration_successful": true,
-					}, 
-					map[string]string{
-						"component": "toggle-registration",
-					})
+				// Emit system startup event with structured payload
+				startupPayload := &eventspb.SystemStartupPayload{
+					BootTimeSeconds: time.Now().Unix(),
+				}
+
+				startupMeta := map[string]string{
+					eventsconstants.MetaComponent: "toggle-registration",
+					eventsconstants.MetaAction:    "startup",
+				}
+
+				events.EmitSystemStartup(startupPayload, startupMeta)
 			}
 			return
 		}

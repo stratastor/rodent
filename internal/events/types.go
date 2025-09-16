@@ -22,7 +22,7 @@ const (
 	LevelCritical
 )
 
-// EventCategory maps to proto.EventCategory  
+// EventCategory maps to proto.EventCategory
 type EventCategory int32
 
 const (
@@ -32,6 +32,9 @@ const (
 	CategoryNetwork
 	CategorySecurity
 	CategoryService
+	CategoryIdentity    // AD/LDAP user/group/computer management
+	CategoryAccess      // ACL, permissions, access control
+	CategorySharing     // SMB/NFS shares, connections
 )
 
 // Event represents an internal event before conversion to proto
@@ -88,7 +91,7 @@ func DefaultEventConfig() *EventConfig {
 		BatchSize:         100,
 		BatchTimeout:      30 * time.Second,
 		EnabledLevels:     []EventLevel{LevelInfo, LevelWarn, LevelError, LevelCritical},
-		EnabledCategories: []EventCategory{CategorySystem, CategoryStorage, CategoryNetwork, CategorySecurity, CategoryService},
+		EnabledCategories: []EventCategory{CategorySystem, CategoryStorage, CategoryNetwork, CategorySecurity, CategoryService, CategoryIdentity, CategoryAccess, CategorySharing},
 		MaxFileSize:       10 * 1024 * 1024, // 10MB
 		MaxRetryAttempts:  3,
 		RetryBackoffBase:  1 * time.Second,

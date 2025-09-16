@@ -18,6 +18,8 @@ import (
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/pkg/errors"
+	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
 const (
@@ -219,21 +221,24 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 
 	um.logger.Info("Successfully created system user", "username", request.Username)
 	
-	// Emit user creation event
-	events.EmitSecurityEvent("security.user.created", events.LevelInfo, "system-user-manager",
-		map[string]interface{}{
-			"username":     request.Username,
-			"full_name":    request.FullName,
-			"groups":       request.Groups,
-			"shell":        request.Shell,
-			"home_dir":     request.HomeDir,
-			"create_home":  request.CreateHome,
-			"system_user":  request.SystemUser,
-		},
-		map[string]string{
-			"component": "user-management",
-			"action":    "create",
-		})
+	// Emit user creation event with structured payload
+	userPayload := &eventspb.SystemUserPayload{
+		Username:   request.Username,
+		FullName:   request.FullName,
+		Groups:     request.Groups,
+		Shell:      request.Shell,
+		HomeDir:    request.HomeDir,
+		CreateHome: request.CreateHome,
+		SystemUser: request.SystemUser,
+	}
+
+	userMeta := map[string]string{
+		eventsconstants.MetaComponent: "system-user-manager",
+		eventsconstants.MetaAction:    "create",
+		eventsconstants.MetaUser:      request.Username,
+	}
+
+	events.EmitSystemUser(eventsconstants.SystemLocalUserCreated, events.LevelInfo, userPayload, userMeta)
 	
 	return nil
 }
@@ -299,15 +304,18 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 
 	um.logger.Info("Successfully deleted system user", "username", username)
 	
-	// Emit user deletion event
-	events.EmitSecurityEvent("security.user.deleted", events.LevelWarn, "system-user-manager",
-		map[string]interface{}{
-			"username": username,
-		},
-		map[string]string{
-			"component": "user-management",
-			"action":    "delete",
-		})
+	// Emit user deletion event with structured payload
+	userPayload := &eventspb.SystemUserPayload{
+		Username: username,
+	}
+
+	userMeta := map[string]string{
+		eventsconstants.MetaComponent: "system-user-manager",
+		eventsconstants.MetaAction:    "delete",
+		eventsconstants.MetaUser:      username,
+	}
+
+	events.EmitSystemUser(eventsconstants.SystemLocalUserDeleted, events.LevelWarn, userPayload, userMeta)
 	
 	return nil
 }
