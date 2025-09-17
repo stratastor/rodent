@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/stratastor/rodent/config"
-	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
 // EventLevel maps to proto.EventLevel
@@ -37,31 +36,7 @@ const (
 	CategorySharing     // SMB/NFS shares, connections
 )
 
-// Event represents an internal event before conversion to proto
-type Event struct {
-	ID        string
-	Type      string
-	Level     EventLevel
-	Category  EventCategory
-	Source    string
-	Timestamp time.Time
-	Payload   []byte
-	Metadata  map[string]string
-}
-
-// ToProtoEvent converts internal Event to proto.Event
-func (e *Event) ToProtoEvent() *proto.Event {
-	return &proto.Event{
-		EventId:   e.ID,
-		EventType: e.Type,
-		Level:     proto.EventLevel(e.Level),
-		Category:  proto.EventCategory(e.Category),
-		Source:    e.Source,
-		Timestamp: e.Timestamp.UnixMilli(),
-		Payload:   e.Payload,
-		Metadata:  e.Metadata,
-	}
-}
+// Legacy Event struct removed - using eventspb.Event directly for type safety
 
 // EventConfig represents event system configuration
 type EventConfig struct {

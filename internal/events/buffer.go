@@ -5,22 +5,24 @@
 package events
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/toggle-rodent-proto/proto"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
+	pbproto "google.golang.org/protobuf/proto"
 )
 
 // EventBuffer manages the in-memory event buffer with disk spillover
 type EventBuffer struct {
-	events   []*Event  // Dynamic slice with pre-allocated capacity
+	events   []*eventspb.Event  // Dynamic slice with pre-allocated capacity - structured events only
 	mu       sync.RWMutex
 	config   *EventConfig
 	logger   logger.Logger
@@ -30,17 +32,17 @@ type EventBuffer struct {
 // NewEventBuffer creates a new event buffer
 func NewEventBuffer(cfg *EventConfig, l logger.Logger) *EventBuffer {
 	return &EventBuffer{
-		events:    make([]*Event, 0, cfg.BufferSize), // Pre-allocate capacity
+		events:    make([]*eventspb.Event, 0, cfg.BufferSize), // Pre-allocate capacity
 		config:    cfg,
 		logger:    l,
 		eventsDir: config.GetEventsDir(),
 	}
 }
 
-// Add adds an event to the buffer
-func (eb *EventBuffer) Add(event *Event) error {
+// AddStructured adds a structured event to the buffer
+func (eb *EventBuffer) AddStructured(event *eventspb.Event) error {
 	// Apply filtering
-	if !eb.config.ShouldProcess(event) {
+	if !eb.config.ShouldProcessStructured(event) {
 		return nil // Event filtered out
 	}
 
@@ -58,17 +60,17 @@ func (eb *EventBuffer) Add(event *Event) error {
 	// Add event to buffer
 	eb.events = append(eb.events, event)
 	
-	eb.logger.Debug("Event added to buffer", 
-		"event_id", event.ID,
-		"event_type", event.Type, 
+	eb.logger.Debug("Structured event added to buffer",
+		"event_id", event.EventId,
+		"event_category", event.Category.String(),
 		"buffer_size", len(eb.events))
 	
 	return nil
 }
 
-// GetBatch gets up to batchSize events from the buffer
+// GetBatchStructured gets up to batchSize structured events from the buffer
 // Returns events and whether there are more events available
-func (eb *EventBuffer) GetBatch(batchSize int) ([]*Event, bool) {
+func (eb *EventBuffer) GetBatchStructured(batchSize int) ([]*eventspb.Event, bool) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
@@ -83,7 +85,7 @@ func (eb *EventBuffer) GetBatch(batchSize int) ([]*Event, bool) {
 	}
 
 	// Copy events for the batch
-	batch := make([]*Event, end)
+	batch := make([]*eventspb.Event, end)
 	copy(batch, eb.events[:end])
 
 	// Remove batched events from buffer
@@ -99,8 +101,8 @@ func (eb *EventBuffer) GetBatch(batchSize int) ([]*Event, bool) {
 	return batch, hasMore
 }
 
-// GetAll gets all events from the buffer (for shutdown)
-func (eb *EventBuffer) GetAll() []*Event {
+// GetAllStructured gets all structured events from the buffer (for shutdown)
+func (eb *EventBuffer) GetAllStructured() []*eventspb.Event {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
@@ -109,13 +111,13 @@ func (eb *EventBuffer) GetAll() []*Event {
 	}
 
 	// Copy all events
-	all := make([]*Event, len(eb.events))
+	all := make([]*eventspb.Event, len(eb.events))
 	copy(all, eb.events)
 
 	// Clear buffer
 	eb.events = eb.events[:0] // Reset slice but keep capacity
 
-	eb.logger.Debug("Retrieved all events from buffer", "count", len(all))
+	eb.logger.Debug("Retrieved all structured events from buffer", "count", len(all))
 	return all
 }
 
@@ -139,14 +141,16 @@ func (eb *EventBuffer) flushToDiskLocked() error {
 		return nil
 	}
 
-	// Convert to proto format for consistent schema
-	protoEvents := make([]*proto.Event, len(eb.events))
-	for i, event := range eb.events {
-		protoEvents[i] = event.ToProtoEvent()
+	// Events are already in protobuf format (eventspb.Event)
+	// Create proto.EventBatch for disk storage
+	eventBatch := &proto.EventBatch{
+		Events:         eb.events,  // Our events are already eventspb.Event
+		BatchTimestamp: time.Now().UnixMilli(),
+		BatchId:        common.UUID7(),
 	}
 
 	// Generate UUID7 filename for natural time ordering
-	filename := common.UUID7() + ".json"
+	filename := common.UUID7() + ".pb"
 	filepath := filepath.Join(eb.eventsDir, filename)
 
 	// Create the events directory if it doesn't exist
@@ -161,15 +165,17 @@ func (eb *EventBuffer) flushToDiskLocked() error {
 	}
 	defer file.Close()
 
-	// Write proto events as JSON (same schema as gRPC)
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ") // Pretty print for debugging ease
-	
-	if err := encoder.Encode(protoEvents); err != nil {
-		return fmt.Errorf("failed to encode events to JSON: %w", err)
+	// Serialize EventBatch as protobuf binary
+	binaryData, err := pbproto.Marshal(eventBatch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event batch to protobuf: %w", err)
 	}
 
-	eb.logger.Info("Flushed events to disk", 
+	if _, err := file.Write(binaryData); err != nil {
+		return fmt.Errorf("failed to write protobuf data to disk: %w", err)
+	}
+
+	eb.logger.Info("Flushed structured events to disk as protobuf binary",
 		"count", len(eb.events),
 		"file", filename)
 
@@ -179,13 +185,17 @@ func (eb *EventBuffer) flushToDiskLocked() error {
 	return nil
 }
 
-// ShouldProcess determines if an event should be processed based on filters
-func (c *EventConfig) ShouldProcess(event *Event) bool {
+// ShouldProcessStructured determines if a structured event should be processed based on filters
+func (c *EventConfig) ShouldProcessStructured(event *eventspb.Event) bool {
+	// Convert protobuf enums to our internal types for filtering
+	level := EventLevel(event.Level)
+	category := EventCategory(event.Category)
+
 	// Check level filter using slices.Contains
-	if !slices.Contains(c.EnabledLevels, event.Level) {
+	if !slices.Contains(c.EnabledLevels, level) {
 		return false
 	}
-	
+
 	// Check category filter using slices.Contains
-	return slices.Contains(c.EnabledCategories, event.Category)
+	return slices.Contains(c.EnabledCategories, category)
 }

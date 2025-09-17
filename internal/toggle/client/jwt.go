@@ -49,6 +49,33 @@ func decodeBase64UrlSafe(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
+// ExtractRodentIDFromJWT extracts the 'rid' claim from a JWT
+func ExtractRodentIDFromJWT(tokenString string) (string, error) {
+	parts := ParseJWT(tokenString)
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid JWT format")
+	}
+
+	// Decode the payload (second part)
+	payload, err := decodeBase64UrlSafe(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("failed to parse JWT claims: %w", err)
+	}
+
+	// Extract the 'rid' claim
+	rid, ok := claims["rid"].(string)
+	if !ok {
+		return "", fmt.Errorf("rid claim not found or not a string in JWT")
+	}
+
+	return rid, nil
+}
+
 // ExtractSubFromJWT extracts the 'sub' claim from a JWT
 func ExtractSubFromJWT(tokenString string) (string, error) {
 	parts := ParseJWT(tokenString)

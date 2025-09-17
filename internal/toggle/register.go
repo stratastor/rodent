@@ -14,7 +14,6 @@ import (
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services/traefik"
 	"github.com/stratastor/rodent/internal/toggle/client"
-	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
 	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
@@ -172,11 +171,13 @@ func runRegistrationProcess(
 				// Emit system startup event with structured payload
 				startupPayload := &eventspb.SystemStartupPayload{
 					BootTimeSeconds: time.Now().Unix(),
+					ServicesStarted: []string{"rodent-controller"},
+					Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_REGISTERED,
 				}
 
 				startupMeta := map[string]string{
-					eventsconstants.MetaComponent: "toggle-registration",
-					eventsconstants.MetaAction:    "startup",
+					"component": "toggle-registration",
+					"action":    "registered",
 				}
 
 				events.EmitSystemStartup(startupPayload, startupMeta)

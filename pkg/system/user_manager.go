@@ -18,7 +18,6 @@ import (
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/pkg/errors"
-	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
 	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
@@ -223,22 +222,21 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 	
 	// Emit user creation event with structured payload
 	userPayload := &eventspb.SystemUserPayload{
-		Username:   request.Username,
-		FullName:   request.FullName,
-		Groups:     request.Groups,
-		Shell:      request.Shell,
-		HomeDir:    request.HomeDir,
-		CreateHome: request.CreateHome,
-		SystemUser: request.SystemUser,
+		Username:    request.Username,
+		DisplayName: request.FullName,
+		Groups:      request.Groups,
+		Operation:   eventspb.SystemUserPayload_SYSTEM_USER_OPERATION_CREATED,
 	}
 
 	userMeta := map[string]string{
-		eventsconstants.MetaComponent: "system-user-manager",
-		eventsconstants.MetaAction:    "create",
-		eventsconstants.MetaUser:      request.Username,
+		"component": "system-user-manager",
+		"action":    "create",
+		"user":      request.Username,
+		"shell":     request.Shell,
+		"home_dir":  request.HomeDir,
 	}
 
-	events.EmitSystemUser(eventsconstants.SystemLocalUserCreated, events.LevelInfo, userPayload, userMeta)
+	events.EmitSystemUser(eventspb.EventLevel_EVENT_LEVEL_INFO, userPayload, userMeta)
 	
 	return nil
 }
@@ -306,16 +304,17 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	
 	// Emit user deletion event with structured payload
 	userPayload := &eventspb.SystemUserPayload{
-		Username: username,
+		Username:  username,
+		Operation: eventspb.SystemUserPayload_SYSTEM_USER_OPERATION_DELETED,
 	}
 
 	userMeta := map[string]string{
-		eventsconstants.MetaComponent: "system-user-manager",
-		eventsconstants.MetaAction:    "delete",
-		eventsconstants.MetaUser:      username,
+		"component": "system-user-manager",
+		"action":    "delete",
+		"user":      username,
 	}
 
-	events.EmitSystemUser(eventsconstants.SystemLocalUserDeleted, events.LevelWarn, userPayload, userMeta)
+	events.EmitSystemUser(eventspb.EventLevel_EVENT_LEVEL_INFO, userPayload, userMeta)
 	
 	return nil
 }

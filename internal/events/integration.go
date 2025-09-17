@@ -6,12 +6,10 @@ package events
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/stratastor/logger"
-	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/internal/toggle/client"
 	"github.com/stratastor/rodent/pkg/lifecycle"
 )
@@ -82,72 +80,11 @@ func Shutdown(ctx context.Context) error {
 	return err
 }
 
-// EmitSystemEvent emits a system-level event
-func EmitSystemEvent(eventType string, level EventLevel, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, CategorySystem, "system", payload, metadata)
-}
-
-// EmitStorageEvent emits a storage-related event
-func EmitStorageEvent(eventType string, level EventLevel, source string, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, CategoryStorage, source, payload, metadata)
-}
-
-// EmitNetworkEvent emits a network-related event
-func EmitNetworkEvent(eventType string, level EventLevel, source string, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, CategoryNetwork, source, payload, metadata)
-}
-
-// EmitSecurityEvent emits a security-related event
-func EmitSecurityEvent(eventType string, level EventLevel, source string, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, CategorySecurity, source, payload, metadata)
-}
-
-// EmitServiceEvent emits a service-related event
-func EmitServiceEvent(eventType string, level EventLevel, source string, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, CategoryService, source, payload, metadata)
-}
-
-// Emit emits a generic event
-func Emit(eventType string, level EventLevel, category EventCategory, source string, payload interface{}, metadata map[string]string) {
-	emitEvent(eventType, level, category, source, payload, metadata)
-}
-
-// emitEvent is the internal implementation for emitting events
-func emitEvent(eventType string, level EventLevel, category EventCategory, source string, payload interface{}, metadata map[string]string) {
-	globalMu.RLock()
-	bus := globalEventBus
-	globalMu.RUnlock()
-
-	if bus == nil {
-		// Events not initialized - silently ignore
-		return
-	}
-
-	// Marshal payload to JSON
-	var payloadBytes []byte
-	if payload != nil {
-		var err error
-		payloadBytes, err = json.Marshal(payload)
-		if err != nil {
-			// Log error but don't fail event emission
-			// We could emit a meta-event about this failure, but that might cause loops
-			common.Log.Error("Failed to marshal event payload to JSON",
-				"error", err,
-				"event_type", eventType,
-				"level", level,
-				"category", category,
-				"source", source)
-			return
-		}
-	}
-
-	// Ensure metadata is not nil
-	if metadata == nil {
-		metadata = make(map[string]string)
-	}
-
-	bus.Emit(eventType, level, category, source, payloadBytes, metadata)
-}
+// Legacy emission functions removed - use type-safe structured emission functions from schema.go:
+// - EmitSystemStartup, EmitSystemShutdown, EmitSystemConfigChange, EmitSystemUser
+// - EmitServiceStatus
+// - EmitStoragePool, EmitStorageDataset, EmitStorageTransfer
+// - etc.
 
 // GetStats returns event system statistics
 func GetStats() map[string]interface{} {

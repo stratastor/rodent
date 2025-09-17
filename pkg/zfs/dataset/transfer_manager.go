@@ -26,7 +26,6 @@ import (
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
-	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
 	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
@@ -186,22 +185,20 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig
 	
 	// Emit transfer started event with structured payload
 	transferPayload := &eventspb.StorageTransferPayload{
-		TransferId:     transferID,
-		Operation:      string(transferInfo.Operation),
-		SourceSnapshot: cfg.SendConfig.Snapshot,
-		TargetDataset:  cfg.ReceiveConfig.Target,
-		Status:        "started",
-		RemoteHost:    cfg.ReceiveConfig.RemoteConfig.Host,
+		Source:         cfg.SendConfig.Snapshot,
+		Destination:    cfg.ReceiveConfig.Target,
+		SizeBytes:      0, // Will be updated as transfer progresses
+		Operation:      eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_STARTED,
 	}
 
 	transferMeta := map[string]string{
-		eventsconstants.MetaComponent:  "zfs-transfer",
-		eventsconstants.MetaAction:     "start",
-		eventsconstants.MetaTransferID: transferID,
-		eventsconstants.MetaOperation:  string(transferInfo.Operation),
+		"component":   "zfs-transfer",
+		"action":      "start",
+		"transfer_id": transferID,
+		"operation":   string(transferInfo.Operation),
 	}
 
-	events.EmitStorageTransfer(eventsconstants.StorageTransferStarted, events.LevelInfo, transferPayload, transferMeta)
+	events.EmitStorageTransfer(eventspb.EventLevel_EVENT_LEVEL_INFO, transferPayload, transferMeta)
 	
 	return transferID, nil
 }
@@ -1501,51 +1498,56 @@ func (tm *TransferManager) loadExistingTransfers() error {
 
 // emitTransferCompletionEvent emits events for transfer completion/failure/cancellation
 func (tm *TransferManager) emitTransferCompletionEvent(info *TransferInfo, status TransferStatus, errorMsg string) {
-	var eventType string
-	var level events.EventLevel
+	var level eventspb.EventLevel
+	var operation eventspb.StorageTransferPayload_StorageTransferOperation
 	var action string
 
 	switch status {
 	case TransferStatusCompleted:
-		eventType = eventsconstants.StorageTransferCompleted
-		level = events.LevelInfo
+		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_COMPLETED
+		level = eventspb.EventLevel_EVENT_LEVEL_INFO
 		action = "completed"
 	case TransferStatusFailed:
-		eventType = eventsconstants.StorageTransferFailed
-		level = events.LevelError
+		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_FAILED
+		level = eventspb.EventLevel_EVENT_LEVEL_ERROR
 		action = "failed"
 	case TransferStatusCancelled:
-		eventType = eventsconstants.StorageTransferCancelled
-		level = events.LevelWarn
+		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_CANCELLED
+		level = eventspb.EventLevel_EVENT_LEVEL_WARN
 		action = "cancelled"
 	default:
 		return // Don't emit events for other status changes
 	}
 
-	// Create structured payload
+	// Create structured payload using proto-defined fields
 	payload := &eventspb.StorageTransferPayload{
-		TransferId:     info.ID,
-		Operation:      string(info.Operation),
-		SourceSnapshot: info.Config.SendConfig.Snapshot,
-		TargetDataset:  info.Config.ReceiveConfig.Target,
-		Status:        string(status),
-		Error:         errorMsg,
-		RemoteHost:    info.Config.ReceiveConfig.RemoteConfig.Host,
+		Source:         info.Config.SendConfig.Snapshot,
+		Destination:    info.Config.ReceiveConfig.Target,
+		SizeBytes:      0, // Could be populated if we track transfer size
+		Operation:      operation,
 	}
 
-	if info.CompletedAt != nil && info.StartedAt != nil {
-		payload.DurationSeconds = int64(info.CompletedAt.Sub(*info.StartedAt).Seconds())
-	}
-
+	// Duration calculation removed as DurationSeconds field doesn't exist in proto
+	// Transfer-specific details go in metadata instead
 	transferMeta := map[string]string{
-		eventsconstants.MetaComponent:  "zfs-transfer",
-		eventsconstants.MetaAction:     action,
-		eventsconstants.MetaTransferID: info.ID,
-		eventsconstants.MetaOperation:  string(info.Operation),
-		eventsconstants.MetaStatus:     string(status),
+		"component":   "zfs-transfer",
+		"action":      action,
+		"transfer_id": info.ID,
+		"operation":   string(info.Operation),
+		"status":      string(status),
 	}
 
-	events.EmitStorageTransfer(eventType, level, payload, transferMeta)
+	// Add error to metadata if present
+	if errorMsg != "" {
+		transferMeta["error"] = errorMsg
+	}
+
+	// Add duration to metadata if available
+	if info.CompletedAt != nil && info.StartedAt != nil {
+		transferMeta["duration_seconds"] = fmt.Sprintf("%.0f", info.CompletedAt.Sub(*info.StartedAt).Seconds())
+	}
+
+	events.EmitStorageTransfer(level, payload, transferMeta)
 }
 
 func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {

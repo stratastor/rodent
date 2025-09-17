@@ -12,6 +12,7 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/toggle-rodent-proto/proto"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
 // EventBus coordinates event processing, buffering, and transmission
@@ -22,7 +23,7 @@ type EventBus struct {
 	logger     logger.Logger
 	
 	// Processing channels
-	eventChan   chan *Event
+	eventChan   chan *eventspb.Event  // Use structured events directly
 	stopChan    chan struct{}
 	shutdownChan chan struct{}
 	
@@ -39,7 +40,7 @@ func NewEventBus(grpcClient proto.RodentServiceClient, jwt string, cfg *EventCon
 		client:       NewEventClient(grpcClient, jwt, cfg, l),
 		config:       cfg,
 		logger:       l,
-		eventChan:    make(chan *Event, 1000), // Buffer for async event processing
+		eventChan:    make(chan *eventspb.Event, 1000), // Buffer for async event processing
 		stopChan:     make(chan struct{}),
 		shutdownChan: make(chan struct{}),
 	}
@@ -71,8 +72,8 @@ func (eb *EventBus) Start(ctx context.Context) error {
 	return nil
 }
 
-// Emit emits an event (non-blocking)
-func (eb *EventBus) Emit(eventType string, level EventLevel, category EventCategory, source string, payload []byte, metadata map[string]string) {
+// EmitStructuredEvent emits a structured protobuf event (non-blocking)
+func (eb *EventBus) EmitStructuredEvent(event *eventspb.Event) {
 	eb.mu.RLock()
 	if eb.isShutdown {
 		eb.mu.RUnlock()
@@ -80,15 +81,15 @@ func (eb *EventBus) Emit(eventType string, level EventLevel, category EventCateg
 	}
 	eb.mu.RUnlock()
 
-	event := &Event{
-		ID:        common.UUID7(),
-		Type:      eventType,
-		Level:     level,
-		Category:  category,
-		Source:    source,
-		Timestamp: time.Now(),
-		Payload:   payload,
-		Metadata:  metadata,
+	// Ensure event has required fields
+	if event.EventId == "" {
+		event.EventId = common.UUID7()
+	}
+	if event.Timestamp == 0 {
+		event.Timestamp = time.Now().UnixMilli()
+	}
+	if event.Metadata == nil {
+		event.Metadata = make(map[string]string)
 	}
 
 	select {
@@ -96,9 +97,9 @@ func (eb *EventBus) Emit(eventType string, level EventLevel, category EventCateg
 		// Event queued successfully
 	default:
 		// Channel full - log warning but don't block
-		eb.logger.Warn("Event channel full, dropping event",
-			"event_type", eventType,
-			"event_id", event.ID)
+		eb.logger.Warn("Event channel full, dropping structured event",
+			"event_id", event.EventId,
+			"event_category", event.Category.String())
 	}
 }
 
@@ -113,10 +114,10 @@ func (eb *EventBus) processEvents(ctx context.Context) {
 		case <-eb.stopChan:
 			return
 		case event := <-eb.eventChan:
-			if err := eb.buffer.Add(event); err != nil {
-				eb.logger.Error("Failed to add event to buffer",
-					"event_id", event.ID,
-					"event_type", event.Type,
+			if err := eb.buffer.AddStructured(event); err != nil {
+				eb.logger.Error("Failed to add structured event to buffer",
+					"event_id", event.EventId,
+					"event_category", event.Category.String(),
 					"error", err)
 			}
 			
@@ -165,13 +166,13 @@ func (eb *EventBus) sendBatchIfReady(ctx context.Context, force bool) {
 	}
 
 	// Get batch from buffer
-	events, hasMore := eb.buffer.GetBatch(eb.config.BatchSize)
+	events, hasMore := eb.buffer.GetBatchStructured(eb.config.BatchSize)
 	if len(events) == 0 {
 		return
 	}
 
 	// Send batch
-	if err := eb.client.SendBatch(ctx, events); err != nil {
+	if err := eb.client.SendBatchStructured(ctx, events); err != nil {
 		eb.logger.Error("Failed to send event batch",
 			"batch_size", len(events),
 			"error", err)
@@ -207,9 +208,9 @@ func (eb *EventBus) Shutdown(ctx context.Context) error {
 	for {
 		select {
 		case event := <-eb.eventChan:
-			if err := eb.buffer.Add(event); err != nil {
-				eb.logger.Error("Failed to add event to buffer during shutdown",
-					"event_id", event.ID, "error", err)
+			if err := eb.buffer.AddStructured(event); err != nil {
+				eb.logger.Error("Failed to add structured event to buffer during shutdown",
+					"event_id", event.EventId, "error", err)
 			}
 		default:
 			goto processingDone
@@ -221,14 +222,14 @@ processingDone:
 	eb.logger.Debug("Shutdown: processing remaining events in buffer", 
 		"buffer_size", eb.buffer.Size())
 	for {
-		events, hasMore := eb.buffer.GetBatch(eb.config.BatchSize)
+		events, hasMore := eb.buffer.GetBatchStructured(eb.config.BatchSize)
 		if len(events) == 0 {
 			break
 		}
 
 		eb.logger.Debug("Shutdown: sending batch", 
 			"batch_size", len(events), "has_more", hasMore)
-		if err := eb.client.SendBatch(ctx, events); err != nil {
+		if err := eb.client.SendBatchStructured(ctx, events); err != nil {
 			eb.logger.Error("Failed to send events during shutdown",
 				"batch_size", len(events), "error", err)
 			// Continue trying to send other batches

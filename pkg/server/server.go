@@ -38,7 +38,6 @@ import (
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/toggle"
-	eventsconstants "github.com/stratastor/toggle-rodent-proto/go/events"
 	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
@@ -208,21 +207,26 @@ func Shutdown(ctx context.Context) error {
 	if srv == nil {
 		return nil
 	}
-	
+
 	// Emit server shutdown event with structured payload
 	servicePayload := &eventspb.ServiceStatusPayload{
-		ServiceName: "rodent-server",
-		Status:     "stopping",
-		Pid:        int32(os.Getpid()),
+		ServiceName: "rodent-controller",
+		Status:      "stopping",
+		Pid:         int32(os.Getpid()),
+		Operation:   eventspb.ServiceStatusPayload_SERVICE_STATUS_OPERATION_STOPPED,
 	}
 
 	serviceMeta := map[string]string{
-		eventsconstants.MetaComponent: "server",
-		eventsconstants.MetaAction:    "shutdown",
-		eventsconstants.MetaService:   "rodent-server",
+		"component": "service",
+		"action":    "shutdown",
+		"service":   "rodent-controller",
 	}
 
-	events.EmitServiceStatus(eventsconstants.ServiceStopped, events.LevelInfo, servicePayload, serviceMeta)
-	
+	events.EmitServiceStatus(
+		eventspb.EventLevel_EVENT_LEVEL_INFO,
+		servicePayload,
+		serviceMeta,
+	)
+
 	return srv.Shutdown(ctx)
 }

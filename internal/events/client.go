@@ -12,6 +12,7 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/toggle-rodent-proto/proto"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -33,21 +34,15 @@ func NewEventClient(grpcClient proto.RodentServiceClient, jwt string, cfg *Event
 	}
 }
 
-// SendBatch sends a batch of events to Toggle
-func (ec *EventClient) SendBatch(ctx context.Context, events []*Event) error {
+// SendBatchStructured sends a batch of structured events to Toggle
+func (ec *EventClient) SendBatchStructured(ctx context.Context, events []*eventspb.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// Convert to proto events
-	protoEvents := make([]*proto.Event, len(events))
-	for i, event := range events {
-		protoEvents[i] = event.ToProtoEvent()
-	}
-
-	// Create batch
+	// Events are already structured - create batch directly
 	batch := &proto.EventBatch{
-		Events:         protoEvents,
+		Events:         events,  // No conversion needed!
 		BatchTimestamp: time.Now().UnixMilli(),
 		BatchId:        common.UUID7(),
 	}
