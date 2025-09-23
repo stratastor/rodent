@@ -65,6 +65,28 @@ func RegisterNode(
 		"orgID", orgID, "domain", result.Domain,
 		"expiresOn", result.ExpiresOn)
 
+	// Registration successful, initialize event system
+	if err := events.InitializeWithClient(ctx, toggleClient, logger); err != nil {
+		if logger != nil {
+			logger.Warn("Failed to initialize event system", "error", err)
+		}
+		// Continue anyway - events are not critical for core functionality
+	} else {
+		// Emit system startup event with structured payload
+		startupPayload := &eventspb.SystemStartupPayload{
+			BootTimeSeconds: time.Now().Unix(),
+			ServicesStarted: []string{"rodent-controller"},
+			Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_REGISTERED,
+		}
+
+		startupMeta := map[string]string{
+			"component": "toggle-registration",
+			"action":    "registered",
+		}
+
+		events.EmitSystemStartup(startupPayload, startupMeta)
+	}
+
 	// Skip certificate installation if we're in development mode or a private network
 	if !cfg.Development.Enabled && !isPrivate {
 		traefikSvc, err := traefik.NewClient(logger)
@@ -161,27 +183,7 @@ func runRegistrationProcess(
 	for {
 		err := RegisterNode(ctx, toggleClient, l)
 		if err == nil {
-			// Registration successful, initialize event system
-			if err := events.InitializeWithClient(ctx, toggleClient, l); err != nil {
-				if l != nil {
-					l.Warn("Failed to initialize event system", "error", err)
-				}
-				// Continue anyway - events are not critical for core functionality
-			} else {
-				// Emit system startup event with structured payload
-				startupPayload := &eventspb.SystemStartupPayload{
-					BootTimeSeconds: time.Now().Unix(),
-					ServicesStarted: []string{"rodent-controller"},
-					Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_REGISTERED,
-				}
-
-				startupMeta := map[string]string{
-					"component": "toggle-registration",
-					"action":    "registered",
-				}
-
-				events.EmitSystemStartup(startupPayload, startupMeta)
-			}
+			// Registration successful
 			return
 		}
 

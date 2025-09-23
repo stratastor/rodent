@@ -17,24 +17,29 @@ import (
 
 // EventBus coordinates event processing, buffering, and transmission
 type EventBus struct {
-	buffer     *EventBuffer
-	client     *EventClient
-	config     *EventConfig
-	logger     logger.Logger
-	
+	buffer *EventBuffer
+	client *EventClient
+	config *EventConfig
+	logger logger.Logger
+
 	// Processing channels
-	eventChan   chan *eventspb.Event  // Use structured events directly
-	stopChan    chan struct{}
+	eventChan    chan *eventspb.Event // Use structured events directly
+	stopChan     chan struct{}
 	shutdownChan chan struct{}
-	
+
 	// Synchronization
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
-	isShutdown  bool
+	wg         sync.WaitGroup
+	mu         sync.RWMutex
+	isShutdown bool
 }
 
 // NewEventBus creates a new event bus
-func NewEventBus(grpcClient proto.RodentServiceClient, jwt string, cfg *EventConfig, l logger.Logger) *EventBus {
+func NewEventBus(
+	grpcClient proto.RodentServiceClient,
+	jwt string,
+	cfg *EventConfig,
+	l logger.Logger,
+) *EventBus {
 	return &EventBus{
 		buffer:       NewEventBuffer(cfg, l),
 		client:       NewEventClient(grpcClient, jwt, cfg, l),
@@ -120,7 +125,7 @@ func (eb *EventBus) processEvents(ctx context.Context) {
 					"event_category", event.Category.String(),
 					"error", err)
 			}
-			
+
 			// Check if buffer reached batch size - send immediately
 			if eb.buffer.Size() >= eb.config.BatchSize {
 				eb.sendBatchIfReady(ctx, false)
@@ -144,9 +149,9 @@ func (eb *EventBus) processBatches(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Time-based batch sending - force send even if < BatchSize events
-			eb.logger.Debug("Batch timeout ticker fired, sending batch", 
-				"timeout", eb.config.BatchTimeout,
-				"buffer_size", eb.buffer.Size())
+			// eb.logger.Debug("Batch timeout ticker fired, sending batch",
+			// 	"timeout", eb.config.BatchTimeout,
+			// 	"buffer_size", eb.buffer.Size())
 			eb.sendBatchIfReady(ctx, true)
 		}
 	}
@@ -155,11 +160,11 @@ func (eb *EventBus) processBatches(ctx context.Context) {
 // sendBatchIfReady sends a batch if conditions are met
 func (eb *EventBus) sendBatchIfReady(ctx context.Context, force bool) {
 	bufferSize := eb.buffer.Size()
-	
+
 	if bufferSize == 0 {
 		return // Nothing to send
 	}
-	
+
 	// Only send partial batches when forced (timeout or shutdown)
 	if !force && bufferSize < eb.config.BatchSize {
 		return
@@ -219,7 +224,7 @@ func (eb *EventBus) Shutdown(ctx context.Context) error {
 
 processingDone:
 	// Send all remaining events in buffer
-	eb.logger.Debug("Shutdown: processing remaining events in buffer", 
+	eb.logger.Debug("Shutdown: processing remaining events in buffer",
 		"buffer_size", eb.buffer.Size())
 	for {
 		events, hasMore := eb.buffer.GetBatchStructured(eb.config.BatchSize)
@@ -227,7 +232,7 @@ processingDone:
 			break
 		}
 
-		eb.logger.Debug("Shutdown: sending batch", 
+		eb.logger.Debug("Shutdown: sending batch",
 			"batch_size", len(events), "has_more", hasMore)
 		if err := eb.client.SendBatchStructured(ctx, events); err != nil {
 			eb.logger.Error("Failed to send events during shutdown",
@@ -266,12 +271,12 @@ processingDone:
 // GetStats returns current event bus statistics
 func (eb *EventBus) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"buffer_size":       eb.buffer.Size(),
-		"max_buffer_size":   eb.config.BufferSize,
-		"flush_threshold":   eb.config.FlushThreshold,
-		"batch_size":        eb.config.BatchSize,
-		"pending_events":    len(eb.eventChan),
-		"max_pending":       cap(eb.eventChan),
-		"is_shutdown":       eb.isShutdown,
+		"buffer_size":     eb.buffer.Size(),
+		"max_buffer_size": eb.config.BufferSize,
+		"flush_threshold": eb.config.FlushThreshold,
+		"batch_size":      eb.config.BatchSize,
+		"pending_events":  len(eb.eventChan),
+		"max_pending":     cap(eb.eventChan),
+		"is_shutdown":     eb.isShutdown,
 	}
 }

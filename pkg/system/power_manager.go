@@ -64,7 +64,7 @@ func (pm *PowerManager) GetScheduledShutdown(ctx context.Context) (*ScheduledShu
 	}
 
 	info.Scheduled = true
-	
+
 	// Calculate time remaining
 	if !info.Time.IsZero() {
 		remaining := time.Until(info.Time)
@@ -154,8 +154,8 @@ func (pm *PowerManager) Shutdown(ctx context.Context, request PowerOperationRequ
 	}
 
 	// Log the shutdown
-	pm.logger.Error("SYSTEM SHUTDOWN: Executing shutdown command", 
-		"force", request.Force, 
+	pm.logger.Error("SYSTEM SHUTDOWN: Executing shutdown command",
+		"force", request.Force,
 		"message", request.Message,
 		"timestamp", time.Now().Format(time.RFC3339))
 
@@ -194,15 +194,15 @@ func (pm *PowerManager) Reboot(ctx context.Context, request PowerOperationReques
 	}
 
 	// Log the reboot
-	pm.logger.Error("SYSTEM REBOOT: Executing reboot command", 
-		"force", request.Force, 
+	pm.logger.Error("SYSTEM REBOOT: Executing reboot command",
+		"force", request.Force,
 		"message", request.Message,
 		"timestamp", time.Now().Format(time.RFC3339))
 
 	// Execute reboot command (using shutdown -r for consistency)
 	rebootArgs := []string{"-r"}
 	rebootArgs = append(rebootArgs, args...)
-	
+
 	result, err := pm.executor.ExecuteCommand(ctx, "shutdown", rebootArgs...)
 	if err != nil {
 		pm.logger.Error("Failed to execute reboot", "error", err)
@@ -218,18 +218,12 @@ func (pm *PowerManager) Reboot(ctx context.Context, request PowerOperationReques
 // GetPowerStatus gets current power management status
 func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interface{}, error) {
 	status := make(map[string]interface{})
-	
+
 	// Set basic status
 	status["status"] = "ok"
 
-	// Check if systemctl is available and get power-related status
-	result, err := pm.executor.ExecuteCommand(ctx, "systemctl", "is-system-running")
-	if err == nil {
-		status["system_state"] = strings.TrimSpace(result.Stdout)
-	}
-
 	// Get uptime information
-	result, err = pm.executor.ExecuteCommand(ctx, "uptime", "-p")
+	result, err := pm.executor.ExecuteCommand(ctx, "uptime", "-p")
 	if err == nil {
 		status["uptime"] = strings.TrimSpace(result.Stdout)
 	}
@@ -237,7 +231,7 @@ func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interfac
 	// Check for pending restart (if reboot-required file exists)
 	if _, err := os.Stat("/var/run/reboot-required"); err == nil {
 		status["reboot_required"] = true
-		
+
 		// Get reason if available
 		if data, err := os.ReadFile("/var/run/reboot-required.pkgs"); err == nil {
 			status["reboot_reason"] = strings.TrimSpace(string(data))
@@ -262,18 +256,22 @@ func (pm *PowerManager) GetPowerStatus(ctx context.Context) (map[string]interfac
 }
 
 // ScheduleShutdown schedules a shutdown at a specific time
-func (pm *PowerManager) ScheduleShutdown(ctx context.Context, delay time.Duration, message string) error {
+func (pm *PowerManager) ScheduleShutdown(
+	ctx context.Context,
+	delay time.Duration,
+	message string,
+) error {
 	if delay < time.Minute {
 		return errors.New(errors.SystemPowerInvalidDelay, "Minimum shutdown delay is 1 minute")
 	}
 
 	// Convert delay to minutes for shutdown command
 	minutes := int(delay.Minutes())
-	
+
 	pm.logger.Warn("Scheduled shutdown requested", "delay_minutes", minutes, "message", message)
 
 	args := []string{fmt.Sprintf("+%d", minutes)}
-	
+
 	if message != "" {
 		args = append(args, message)
 	} else {
@@ -310,7 +308,10 @@ func (pm *PowerManager) CancelScheduledShutdown(ctx context.Context) error {
 }
 
 // ValidatePowerOperation validates power operation requests
-func (pm *PowerManager) ValidatePowerOperation(operation string, request PowerOperationRequest) error {
+func (pm *PowerManager) ValidatePowerOperation(
+	operation string,
+	request PowerOperationRequest,
+) error {
 	// Validate operation type
 	validOperations := []string{"shutdown", "reboot"}
 	valid := false
@@ -320,14 +321,20 @@ func (pm *PowerManager) ValidatePowerOperation(operation string, request PowerOp
 			break
 		}
 	}
-	
+
 	if !valid {
-		return errors.New(errors.SystemPowerOperationDenied, fmt.Sprintf("Invalid power operation: %s", operation))
+		return errors.New(
+			errors.SystemPowerOperationDenied,
+			fmt.Sprintf("Invalid power operation: %s", operation),
+		)
 	}
 
 	// Validate message length if provided
 	if len(request.Message) > 200 {
-		return errors.New(errors.SystemPowerInvalidMessage, "Power operation message too long (max 200 characters)")
+		return errors.New(
+			errors.SystemPowerInvalidMessage,
+			"Power operation message too long (max 200 characters)",
+		)
 	}
 
 	return nil

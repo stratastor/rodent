@@ -165,6 +165,26 @@ NETPLAN_PATH=$(detect_binary "netplan" "/usr/sbin/netplan")
 WHICH_PATH=$(detect_binary "which" "/usr/bin/which")
 PING_PATH=$(detect_binary "ping" "/usr/bin/ping")
 HOSTNAMECTL_PATH=$(detect_binary "hostnamectl" "/usr/bin/hostnamectl")
+TIMEDATECTL_PATH=$(detect_binary "timedatectl" "/usr/bin/timedatectl")
+LOCALECTL_PATH=$(detect_binary "localectl" "/usr/bin/localectl")
+LAST_PATH=$(detect_binary "last" "/usr/bin/last")
+HOSTNAME_PATH=$(detect_binary "hostname" "/usr/bin/hostname")
+UNAME_PATH=$(detect_binary "uname" "/usr/bin/uname")
+UPTIME_PATH=$(detect_binary "uptime" "/usr/bin/uptime")
+GROUPS_PATH=$(detect_binary "groups" "/usr/bin/groups")
+PASSWD_PATH=$(detect_binary "passwd" "/usr/bin/passwd")
+OPENSSL_PATH=$(detect_binary "openssl" "/usr/bin/openssl")
+DMIDECODE_PATH=$(detect_binary "dmidecode" "/usr/sbin/dmidecode")
+REBOOT_PATH=$(detect_binary "reboot" "/usr/sbin/reboot")
+SHUTDOWN_PATH=$(detect_binary "shutdown" "/usr/sbin/shutdown")
+USERADD_PATH=$(detect_binary "useradd" "/usr/sbin/useradd")
+USERDEL_PATH=$(detect_binary "userdel" "/usr/sbin/userdel")
+USERMOD_PATH=$(detect_binary "usermod" "/usr/sbin/usermod")
+GROUPADD_PATH=$(detect_binary "groupadd" "/usr/sbin/groupadd")
+GROUPDEL_PATH=$(detect_binary "groupdel" "/usr/sbin/groupdel")
+GROUPMOD_PATH=$(detect_binary "groupmod" "/usr/sbin/groupmod")
+CHPASSWD_PATH=$(detect_binary "chpasswd" "/usr/sbin/chpasswd")
+
 
 # File operation binaries
 CAT_PATH=$(detect_binary "cat" "/bin/cat")
@@ -436,6 +456,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $SYSTEMCTL_PATH restart systemd-resolved*, \\
     $SYSTEMCTL_PATH status *, \\
     $SYSTEMCTL_PATH is-enabled *, \\
+    $SYSTEMCTL_PATH is-system-running *, \\
     $SYSTEMCTL_PATH is-active *, \\
     $SYSTEMCTL_PATH is-failed *, \\
     $SYSTEMCTL_PATH daemon-reload *, \\
@@ -445,7 +466,26 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $RESOLVECTL_PATH *, \\
     $JOURNALCTL_PATH *, \\
     $HOSTNAMECTL_PATH *, \\
-    $NETPLAN_PATH *
+    $NETPLAN_PATH *, \\
+    $TIMEDATECTL_PATH *, \\
+    $LOCALECTL_PATH *, \\
+    $LAST_PATH *, \\
+    $HOSTNAME_PATH *, \\
+    $UNAME_PATH *, \\
+    $UPTIME_PATH *, \\
+    $GROUPS_PATH *, \\
+    $PASSWD_PATH *, \\
+    $OPENSSL_PATH *, \\
+    $DMIDECODE_PATH *, \\
+    $REBOOT_PATH *, \\
+    $SHUTDOWN_PATH *, \\
+    $USERADD_PATH *, \\
+    $USERDEL_PATH *, \\
+    $USERMOD_PATH *, \\
+    $GROUPADD_PATH *, \\
+    $GROUPDEL_PATH *, \\
+    $GROUPMOD_PATH *, \\
+    $CHPASSWD_PATH *
 
 # Command aliases for file operations
 Cmnd_Alias FILE_OPERATIONS = \\
@@ -505,6 +545,7 @@ Cmnd_Alias FILE_OPERATIONS = \\
     $TEST_PATH -e /run/systemd/resolve*, \\
     $CHMOD_PATH * /run/systemd/resolve*, \\
     $RM_PATH -f /run/systemd/resolve*, \\
+    $MKDIR_PATH -p /etc/systemd/resolved.conf.d, \\
     $CAT_PATH /etc/netplan/*, \\
     $CP_PATH * /etc/netplan/*, \\
     $TEE_PATH /etc/netplan/*, \\
