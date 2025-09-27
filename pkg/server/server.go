@@ -52,6 +52,8 @@ func Start(ctx context.Context, port int) error {
 	}
 	cfg := config.GetConfig()
 
+	toggle.StartRegistrationProcess(ctx, l)
+
 	// Switch to debug mode for non-production environments
 	switch cfg.Environment {
 	case "prod", "production":
@@ -81,41 +83,9 @@ func Start(ctx context.Context, port int) error {
 	}
 	defer serviceHandler.Close()
 
-	// Start AD DC service if enabled in config
-	if cfg.AD.DC.Enabled {
-		l.Info("AD DC service is enabled, starting the service...")
-
-		// Get the service manager
-		svcManager, ok := serviceHandler.GetServiceManager()
-		if !ok {
-			l.Warn("Service manager not available, AD DC service will not be started")
-		} else {
-			// Start AD DC service
-			if err := svcManager.StartService(ctx, "addc"); err != nil {
-				l.Warn("Failed to start AD DC service, continuing anyway", "error", err)
-			} else {
-				l.Info("AD DC service started successfully")
-			}
-		}
-	}
-
 	err = registerZFSRoutes(engine)
 	if err != nil {
 		l.Error("Failed to register ZFS routes, continuing without ZFS functionality", "error", err)
-	}
-
-	// Wait a moment for AD DC to initialize if it was just started
-	if cfg.AD.DC.Enabled {
-		l.Info("Waiting for AD DC service to initialize before registering AD routes...")
-		// We don't need to sleep here as the AD client will retry connection if needed
-	}
-
-	// Register AD routes with graceful error handling
-	adHandler, err := registerADRoutes(engine)
-	if err != nil {
-		l.Error("Failed to register AD routes, continuing without AD functionality", "error", err)
-	} else {
-		defer adHandler.Close()
 	}
 
 	// Register ACL routes with graceful error handling
@@ -172,7 +142,40 @@ func Start(ctx context.Context, port int) error {
 		_ = systemHandler // Handler doesn't implement Close() method
 	}
 
-	toggle.StartRegistrationProcess(ctx, l)
+	// Start AD DC service if enabled in config
+	if cfg.AD.DC.Enabled {
+		l.Info("AD DC service is enabled, starting the service...")
+
+		// Get the service manager
+		svcManager, ok := serviceHandler.GetServiceManager()
+		if !ok {
+			l.Warn("Service manager not available, AD DC service will not be started")
+		} else {
+			// Start AD DC service
+			if err := svcManager.StartService(ctx, "addc"); err != nil {
+				l.Warn("Failed to start AD DC service, continuing anyway", "error", err)
+			} else {
+				l.Info("AD DC service started successfully")
+			}
+		}
+
+		// Wait a moment for AD DC to initialize if it was just started
+		l.Info("Waiting for AD DC service to initialize before registering AD routes...")
+		// We don't need to sleep here as the AD client will retry connection if needed
+
+		// Register AD routes with graceful error handling
+		adHandler, err := registerADRoutes(engine)
+		if err != nil {
+			l.Error(
+				"Failed to register AD routes, continuing without AD functionality",
+				"error",
+				err,
+			)
+		} else {
+			defer adHandler.Close()
+		}
+
+	}
 
 	srv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),

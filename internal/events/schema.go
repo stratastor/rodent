@@ -100,6 +100,28 @@ func EmitSystemUser(
 
 // Service Events
 
+func EmitServiceConfigChange(
+	serviceName string,
+	configPath string,
+	status string,
+	metadata map[string]string,
+) {
+	payload := &eventspb.SystemConfigChangePayload{
+		ConfigSection: serviceName,
+		ChangedKeys:   []string{configPath},
+		Operation:     eventspb.SystemConfigChangePayload_SYSTEM_CONFIG_OPERATION_UPDATED,
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+	metadata["service_name"] = serviceName
+	metadata["config_path"] = configPath
+	metadata["status"] = status
+
+	EmitSystemConfigChange(payload, metadata)
+}
+
 func EmitServiceStatus(
 	level eventspb.EventLevel,
 	payload *eventspb.ServiceStatusPayload,

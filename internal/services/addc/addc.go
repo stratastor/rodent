@@ -12,11 +12,11 @@ import (
 	"github.com/stratastor/logger"
 	rodentCfg "github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/common"
+	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services"
 	"github.com/stratastor/rodent/internal/services/config"
 	"github.com/stratastor/rodent/internal/services/docker"
 	"github.com/stratastor/rodent/internal/templates"
-	tglClient "github.com/stratastor/rodent/internal/toggle/client"
 )
 
 var (
@@ -52,7 +52,6 @@ type Client struct {
 	dockerSvc     *docker.Client
 	composeFile   string
 	configManager *config.ServiceConfigManager
-	toggleClient  *tglClient.Client // Optional, for reporting
 }
 
 // NewClient creates a new AD DC client
@@ -96,17 +95,8 @@ func NewClient(logger logger.Logger) (*Client, error) {
 		configManager: configManager,
 	}
 
-	// Optional: Register state callback for reporting to Toggle
-	cfg := rodentCfg.GetConfig()
-	if cfg.StrataSecure && cfg.Toggle.JWT != "" {
-		toggleClient, err := tglClient.NewClient(logger, cfg.Toggle.JWT, cfg.Toggle.BaseURL)
-		if err != nil {
-			logger.Warn("Failed to create Toggle client, service reporting disabled", "err", err)
-		} else {
-			client.toggleClient = toggleClient
-			configManager.RegisterStateCallback(client.reportConfigChange)
-		}
-	}
+	// Register state callback for event-based reporting
+	configManager.RegisterStateCallback(client.reportConfigChange)
 
 	return client, nil
 }
@@ -190,21 +180,23 @@ func (c *Client) UpdateConfig(ctx context.Context, config *AdDcConfig) error {
 	return nil
 }
 
-// reportConfigChange reports configuration changes to the Toggle service
+// reportConfigChange reports configuration changes via the event system
 func (c *Client) reportConfigChange(
 	ctx context.Context,
 	serviceName string,
 	state config.ServiceState,
 ) error {
-	if c.toggleClient == nil {
-		return nil // Toggle reporting disabled
+	// Emit configuration change event
+	metadata := map[string]string{
+		"updated_at": state.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
-	// Report to Toggle service
-	return c.toggleClient.ReportServiceConfigChange(ctx, serviceName, tglClient.ConfigChangeData{
-		ServiceName: serviceName,
-		ConfigPath:  state.ConfigPath,
-		UpdatedAt:   state.UpdatedAt,
-		Status:      state.Status,
-	})
+	events.EmitServiceConfigChange(serviceName, state.ConfigPath, state.Status, metadata)
+
+	c.logger.Debug("Reported service configuration change via events",
+		"service", serviceName,
+		"config_path", state.ConfigPath,
+		"status", state.Status)
+
+	return nil
 }
