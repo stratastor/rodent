@@ -320,6 +320,11 @@ func emitStructuredEvent(event *eventspb.Event) {
 	// Send directly to the global event bus
 	if globalEventBus != nil {
 		globalEventBus.EmitStructuredEvent(event)
+		common.Log.Debug("Event emitted successfully",
+			"event_id", event.EventId,
+			"category", event.Category.String(),
+			"source", event.Source,
+			"level", event.Level.String())
 	} else {
 		// Log warning if event bus is not initialized - helps diagnose missing events
 		// This can happen if events are emitted before Initialize() is called

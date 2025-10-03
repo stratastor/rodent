@@ -8,54 +8,52 @@ import (
 	"time"
 
 	"github.com/stratastor/rodent/config"
+	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
-
-// EventLevel maps to proto.EventLevel
-type EventLevel int32
-
-const (
-	LevelUnspecified EventLevel = iota
-	LevelInfo
-	LevelWarn
-	LevelError
-	LevelCritical
-)
-
-// EventCategory maps to proto.EventCategory
-type EventCategory int32
-
-const (
-	CategoryUnspecified EventCategory = iota
-	CategorySystem
-	CategoryStorage
-	CategoryNetwork
-	CategorySecurity
-	CategoryService
-	CategoryIdentity    // AD/LDAP user/group/computer management
-	CategoryAccess      // ACL, permissions, access control
-	CategorySharing     // SMB/NFS shares, connections
-)
-
-// Legacy Event struct removed - using eventspb.Event directly for type safety
 
 // EventConfig represents event system configuration
 type EventConfig struct {
 	// Buffer configuration
 	BufferSize     int `json:"buffer_size"`     // Max events in memory buffer (default: 20000)
 	FlushThreshold int `json:"flush_threshold"` // Flush to disk threshold (default: 18000)
-	
+
 	// Batching configuration (memory → network)
 	BatchSize    int           `json:"batch_size"`    // Max events per batch (default: 100)
 	BatchTimeout time.Duration `json:"batch_timeout"` // Max time to wait for batch (default: 30s)
-	
+
 	// Filtering configuration (API configurable)
-	EnabledLevels     []EventLevel    `json:"enabled_levels"`     // Levels to process
-	EnabledCategories []EventCategory `json:"enabled_categories"` // Categories to process
-	
+	EnabledLevels     []eventspb.EventLevel    `json:"enabled_levels"`     // Levels to process
+	EnabledCategories []eventspb.EventCategory `json:"enabled_categories"` // Categories to process
+
 	// Performance settings
 	MaxFileSize      int64         `json:"max_file_size"`      // Max size per event log file (default: 10MB)
 	MaxRetryAttempts int           `json:"max_retry_attempts"` // Max retry attempts for failed sends (default: 3)
 	RetryBackoffBase time.Duration `json:"retry_backoff_base"` // Base backoff for retries (default: 1s)
+}
+
+// GetAllEventLevels returns all available event levels except UNSPECIFIED and TRACE/DEBUG
+func GetAllEventLevels() []eventspb.EventLevel {
+	return []eventspb.EventLevel{
+		eventspb.EventLevel_EVENT_LEVEL_INFO,
+		eventspb.EventLevel_EVENT_LEVEL_WARN,
+		eventspb.EventLevel_EVENT_LEVEL_ERROR,
+		eventspb.EventLevel_EVENT_LEVEL_CRITICAL,
+	}
+}
+
+// GetAllEventCategories returns all available event categories except UNSPECIFIED
+func GetAllEventCategories() []eventspb.EventCategory {
+	return []eventspb.EventCategory{
+		eventspb.EventCategory_EVENT_CATEGORY_SYSTEM,
+		eventspb.EventCategory_EVENT_CATEGORY_STORAGE,
+		eventspb.EventCategory_EVENT_CATEGORY_NETWORK,
+		eventspb.EventCategory_EVENT_CATEGORY_SECURITY,
+		eventspb.EventCategory_EVENT_CATEGORY_SERVICE,
+		eventspb.EventCategory_EVENT_CATEGORY_IDENTITY,
+		eventspb.EventCategory_EVENT_CATEGORY_ACCESS,
+		eventspb.EventCategory_EVENT_CATEGORY_SHARING,
+		eventspb.EventCategory_EVENT_CATEGORY_DATA_TRANSFER,
+	}
 }
 
 // DefaultEventConfig returns default configuration
@@ -65,8 +63,8 @@ func DefaultEventConfig() *EventConfig {
 		FlushThreshold:    18000,
 		BatchSize:         100,
 		BatchTimeout:      30 * time.Second,
-		EnabledLevels:     []EventLevel{LevelInfo, LevelWarn, LevelError, LevelCritical},
-		EnabledCategories: []EventCategory{CategorySystem, CategoryStorage, CategoryNetwork, CategorySecurity, CategoryService, CategoryIdentity, CategoryAccess, CategorySharing},
+		EnabledLevels:     GetAllEventLevels(),
+		EnabledCategories: GetAllEventCategories(),
 		MaxFileSize:       10 * 1024 * 1024, // 10MB
 		MaxRetryAttempts:  3,
 		RetryBackoffBase:  1 * time.Second,
@@ -96,7 +94,10 @@ func GetEventConfig() *EventConfig {
 		eventConfig.BufferSize = 2000
 		eventConfig.FlushThreshold = 1800
 		eventConfig.BatchSize = 25
-		eventConfig.EnabledLevels = []EventLevel{LevelError, LevelCritical}
+		eventConfig.EnabledLevels = []eventspb.EventLevel{
+			eventspb.EventLevel_EVENT_LEVEL_ERROR,
+			eventspb.EventLevel_EVENT_LEVEL_CRITICAL,
+		}
 	}
 	
 	// Apply specific overrides after profile

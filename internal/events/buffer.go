@@ -187,15 +187,11 @@ func (eb *EventBuffer) flushToDiskLocked() error {
 
 // ShouldProcessStructured determines if a structured event should be processed based on filters
 func (c *EventConfig) ShouldProcessStructured(event *eventspb.Event) bool {
-	// Convert protobuf enums to our internal types for filtering
-	level := EventLevel(event.Level)
-	category := EventCategory(event.Category)
-
-	// Check level filter using slices.Contains
-	if !slices.Contains(c.EnabledLevels, level) {
+	// Check level filter
+	if !slices.Contains(c.EnabledLevels, event.Level) {
 		return false
 	}
 
-	// Check category filter using slices.Contains
-	return slices.Contains(c.EnabledCategories, category)
+	// Check category filter
+	return slices.Contains(c.EnabledCategories, event.Category)
 }
