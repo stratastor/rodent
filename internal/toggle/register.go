@@ -14,7 +14,6 @@ import (
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services/traefik"
 	"github.com/stratastor/rodent/internal/toggle/client"
-	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
 const (
@@ -48,6 +47,15 @@ func RegisterNode(
 		logger.Warn("Failed to determine network type from JWT", "error", err)
 	}
 
+	// Initialize event system regardless of registration status
+	// This ensures events work on both first-time registration and subsequent startups
+	if err := events.InitializeWithClient(ctx, toggleClient, logger); err != nil {
+		if logger != nil {
+			logger.Warn("Failed to initialize event system", "error", err)
+		}
+		// Continue anyway - events are not critical for core functionality
+	}
+
 	// If we received a message without certificate data, we're either already registered
 	// or we're in a private network
 	if result.Certificate == "" {
@@ -58,6 +66,9 @@ func RegisterNode(
 			go establishStreamConnection(ctx, toggleClient, logger)
 		}
 
+		// Emit system startup event even for already-registered nodes
+		events.EmitSystemStartup("restart")
+
 		return nil
 	}
 
@@ -65,27 +76,8 @@ func RegisterNode(
 		"orgID", orgID, "domain", result.Domain,
 		"expiresOn", result.ExpiresOn)
 
-	// Registration successful, initialize event system
-	if err := events.InitializeWithClient(ctx, toggleClient, logger); err != nil {
-		if logger != nil {
-			logger.Warn("Failed to initialize event system", "error", err)
-		}
-		// Continue anyway - events are not critical for core functionality
-	} else {
-		// Emit system startup event with structured payload
-		startupPayload := &eventspb.SystemStartupPayload{
-			BootTimeSeconds: time.Now().Unix(),
-			ServicesStarted: []string{"rodent-controller"},
-			Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_REGISTERED,
-		}
-
-		startupMeta := map[string]string{
-			"component": "toggle-registration",
-			"action":    "registered",
-		}
-
-		events.EmitSystemStartup(startupPayload, startupMeta)
-	}
+	// Emit registration event for new registrations
+	events.EmitSystemRegistration("new_registration", result.Domain, result.ExpiresOn, isPrivate)
 
 	// Skip certificate installation if we're in development mode or a private network
 	if !cfg.Development.Enabled && !isPrivate {

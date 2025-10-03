@@ -272,21 +272,24 @@ func testDirectStructuredEventClient(
 	events := []*eventspb.Event{
 		{
 			Level:    eventspb.EventLevel_EVENT_LEVEL_INFO,
-			Category: eventspb.EventCategory_EVENT_CATEGORY_STORAGE,
+			Category: eventspb.EventCategory_EVENT_CATEGORY_DATA_TRANSFER,
 			Source:   "integration-test",
 			Metadata: map[string]string{
 				"component":   "zfs-transfer",
 				"action":      "start",
 				"transfer_id": "test-transfer-1",
 			},
-			EventPayload: &eventspb.Event_StorageEvent{
-				StorageEvent: &eventspb.StorageEvent{
-					EventType: &eventspb.StorageEvent_TransferEvent{
-						TransferEvent: &eventspb.StorageTransferPayload{
-							Source:      "tank/test@snap1",
-							Destination: "backup/test",
-							SizeBytes:   1024 * 1024,
-							Operation:   eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_STARTED,
+			EventPayload: &eventspb.Event_DataTransferEvent{
+				DataTransferEvent: &eventspb.DataTransferEvent{
+					EventType: &eventspb.DataTransferEvent_TransferEvent{
+						TransferEvent: &eventspb.DataTransferTransferPayload{
+							TransferId:    "test-transfer-1",
+							OperationType: "send_receive",
+							Source:        "tank/test@snap1",
+							Destination:   "backup/test",
+							Status:        "running",
+							TotalBytes:    1024 * 1024,
+							Operation:     eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED,
 						},
 					},
 				},
@@ -334,19 +337,19 @@ func testDirectStructuredEventClient(
 	batch := batches[0]
 	require.Len(t, batch.Events, 2, "Batch should contain 2 events")
 
-	// Verify first event (Storage Transfer)
+	// Verify first event (Data Transfer)
 	event1 := batch.Events[0]
 	assert.Equal(t, eventspb.EventLevel_EVENT_LEVEL_INFO, event1.Level)
-	assert.Equal(t, eventspb.EventCategory_EVENT_CATEGORY_STORAGE, event1.Category)
+	assert.Equal(t, eventspb.EventCategory_EVENT_CATEGORY_DATA_TRANSFER, event1.Category)
 	assert.Equal(t, "integration-test", event1.Source)
 
 	// Verify structured payload
-	storageEvent := event1.GetStorageEvent()
-	require.NotNil(t, storageEvent, "Should have storage event payload")
-	transferEvent := storageEvent.GetTransferEvent()
+	dataTransferEvent := event1.GetDataTransferEvent()
+	require.NotNil(t, dataTransferEvent, "Should have data transfer event payload")
+	transferEvent := dataTransferEvent.GetTransferEvent()
 	require.NotNil(t, transferEvent, "Should have transfer event")
 	assert.Equal(t, "tank/test@snap1", transferEvent.Source)
-	assert.Equal(t, eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_STARTED, transferEvent.Operation)
+	assert.Equal(t, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED, transferEvent.Operation)
 
 	// Verify metadata
 	assert.Equal(t, "zfs-transfer", event1.Metadata["component"])
@@ -392,24 +395,19 @@ func testStructuredEventSystemInitialization(
 
 	// Emit various types of structured events using new emission functions
 
-	// System Event
-	EmitSystemStartup(&eventspb.SystemStartupPayload{
-		BootTimeSeconds: time.Now().Unix(),
-		ServicesStarted: []string{"test-service"},
-		Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_STARTED,
-	}, map[string]string{
-		"component": "test-system",
-		"action":    "startup",
-	})
+	// System Event - using new smart emission function
+	EmitSystemStartup("initial_startup")
 
-	// Storage Event
-	EmitStorageTransfer(eventspb.EventLevel_EVENT_LEVEL_WARN, &eventspb.StorageTransferPayload{
-		Source:            "remote/dataset@snap",
-		Destination:       "local/dataset",
-		SizeBytes:         1024,
-		TransferredBytes:  512,
-		ProgressPercent:   50,
-		Operation:         eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_PROGRESS,
+	// Data Transfer Event - using new comprehensive payload
+	EmitDataTransfer(eventspb.EventLevel_EVENT_LEVEL_WARN, &eventspb.DataTransferTransferPayload{
+		TransferId:       "test-transfer-warn",
+		OperationType:    "send_receive",
+		Source:           "remote/dataset@snap",
+		Destination:      "local/dataset",
+		Status:           "running",
+		TotalBytes:       1024,
+		BytesTransferred: 512,
+		Operation:        eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_PROGRESS,
 	}, map[string]string{
 		"component":   "zfs-transfer",
 		"action":      "progress",
@@ -465,9 +463,9 @@ func testStructuredEventSystemInitialization(
 			case *eventspb.Event_SystemEvent:
 				payloadTypesSeen["SystemEvent"] = true
 				assert.NotNil(t, payload.SystemEvent.GetStartup(), "Should have system startup payload")
-			case *eventspb.Event_StorageEvent:
-				payloadTypesSeen["StorageEvent"] = true
-				assert.NotNil(t, payload.StorageEvent.GetTransferEvent(), "Should have storage transfer payload")
+			case *eventspb.Event_DataTransferEvent:
+				payloadTypesSeen["DataTransferEvent"] = true
+				assert.NotNil(t, payload.DataTransferEvent.GetTransferEvent(), "Should have data transfer payload")
 			case *eventspb.Event_NetworkEvent:
 				payloadTypesSeen["NetworkEvent"] = true
 				assert.NotNil(t, payload.NetworkEvent.GetConnectionEvent(), "Should have network connection payload")
@@ -487,7 +485,7 @@ func testStructuredEventSystemInitialization(
 	// Check we saw the expected categories (focusing on implemented ones)
 	expectedCategories := []eventspb.EventCategory{
 		eventspb.EventCategory_EVENT_CATEGORY_SYSTEM,
-		eventspb.EventCategory_EVENT_CATEGORY_STORAGE,
+		eventspb.EventCategory_EVENT_CATEGORY_DATA_TRANSFER,
 		eventspb.EventCategory_EVENT_CATEGORY_SERVICE,
 	}
 
@@ -498,7 +496,7 @@ func testStructuredEventSystemInitialization(
 	// Check we saw the expected payload types (focusing on implemented ones)
 	expectedPayloadTypes := []string{
 		"SystemEvent",
-		"StorageEvent",
+		"DataTransferEvent",
 		"ServiceEvent",
 	}
 
@@ -549,16 +547,18 @@ func testProtobufBinaryDiskFlush(t *testing.T, l logger.Logger) {
 				"action":      "complete",
 				"transfer_id": "flush-transfer-1",
 			},
-			EventPayload: &eventspb.Event_StorageEvent{
-				StorageEvent: &eventspb.StorageEvent{
-					EventType: &eventspb.StorageEvent_TransferEvent{
-						TransferEvent: &eventspb.StorageTransferPayload{
+			EventPayload: &eventspb.Event_DataTransferEvent{
+				DataTransferEvent: &eventspb.DataTransferEvent{
+					EventType: &eventspb.DataTransferEvent_TransferEvent{
+						TransferEvent: &eventspb.DataTransferTransferPayload{
+							TransferId:       "flush-transfer-1",
+							OperationType:    "send_receive",
 							Source:           "tank/test@snap",
 							Destination:      "backup/test",
-							SizeBytes:        1024 * 1024,
-							TransferredBytes: 1024 * 1024,
-							ProgressPercent:  100,
-							Operation:        eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_COMPLETED,
+							Status:           "completed",
+							TotalBytes:       1024 * 1024,
+							BytesTransferred: 1024 * 1024,
+							Operation:        eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED,
 						},
 					},
 				},
@@ -614,9 +614,13 @@ func testProtobufBinaryDiskFlush(t *testing.T, l logger.Logger) {
 				SystemEvent: &eventspb.SystemEvent{
 					EventType: &eventspb.SystemEvent_Startup{
 						Startup: &eventspb.SystemStartupPayload{
-							BootTimeSeconds: time.Now().Unix(),
-							ServicesStarted: []string{"flush-test-host"},
-							Operation:       eventspb.SystemStartupPayload_SYSTEM_STARTUP_OPERATION_STARTED,
+							RodentId:       "test-rodent-1",
+							OrganizationId: "test-org-1",
+							StartupTime:    time.Now().Format(time.RFC3339),
+							StartupType:    "initial_startup",
+							Services:       []string{"flush-test-host"},
+							Version:        "test-version",
+							SystemInfo:     map[string]string{"os": "linux", "arch": "amd64"},
 						},
 					},
 				},
@@ -667,12 +671,12 @@ func testProtobufBinaryDiskFlush(t *testing.T, l logger.Logger) {
 
 		for _, event := range eventBatch.Events {
 			switch payload := event.EventPayload.(type) {
-			case *eventspb.Event_StorageEvent:
+			case *eventspb.Event_DataTransferEvent:
 				foundStorage = true
-				transferEvent := payload.StorageEvent.GetTransferEvent()
+				transferEvent := payload.DataTransferEvent.GetTransferEvent()
 				assert.NotNil(t, transferEvent, "Should have transfer event")
 				assert.Equal(t, "tank/test@snap", transferEvent.Source)
-				assert.Equal(t, eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_COMPLETED, transferEvent.Operation)
+				assert.Equal(t, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED, transferEvent.Operation)
 			case *eventspb.Event_IdentityEvent:
 				foundIdentity = true
 				userEvent := payload.IdentityEvent.GetUserEvent()

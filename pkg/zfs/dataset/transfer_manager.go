@@ -182,24 +182,10 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig
 	go tm.executeTransfer(ctx, transferInfo)
 
 	tm.logger.Info("Transfer initiated", "id", transferID, "operation", transferInfo.Operation)
-	
-	// Emit transfer started event with structured payload
-	transferPayload := &eventspb.StorageTransferPayload{
-		Source:         cfg.SendConfig.Snapshot,
-		Destination:    cfg.ReceiveConfig.Target,
-		SizeBytes:      0, // Will be updated as transfer progresses
-		Operation:      eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_STARTED,
-	}
 
-	transferMeta := map[string]string{
-		"component":   "zfs-transfer",
-		"action":      "start",
-		"transfer_id": transferID,
-		"operation":   string(transferInfo.Operation),
-	}
+	// Emit transfer started event with complete transfer information
+	tm.emitTransferEvent(transferInfo, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED)
 
-	events.EmitStorageTransfer(eventspb.EventLevel_EVENT_LEVEL_INFO, transferPayload, transferMeta)
-	
 	return transferID, nil
 }
 
@@ -692,7 +678,11 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 
 	// Clear any pending action and update status to running
 	info.pendingAction = TransferActionNone
-	tm.updateTransferStatusUnlocked(info, TransferStatusRunning, "")
+	info.Status = TransferStatusRunning
+	info.ErrorMessage = ""
+
+	// Emit transfer resumed event before starting execution
+	tm.emitTransferEvent(info, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_RESUMED)
 
 	// Start transfer in background
 	go tm.executeTransfer(ctx, info)
@@ -1267,13 +1257,34 @@ func (tm *TransferManager) updateTransferStatusUnlocked(
 ) {
 	info.Status = status
 	info.ErrorMessage = errorMsg
-	if status == TransferStatusCompleted || status == TransferStatusFailed ||
-		status == TransferStatusCancelled {
+
+	// Map transfer status to event operation
+	var operation eventspb.DataTransferTransferPayload_DataTransferOperation
+	shouldEmit := true
+
+	switch status {
+	case TransferStatusCompleted:
 		completedTime := time.Now()
 		info.CompletedAt = &completedTime
-		
-		// Emit transfer completion events
-		tm.emitTransferCompletionEvent(info, status, errorMsg)
+		operation = eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED
+	case TransferStatusFailed:
+		completedTime := time.Now()
+		info.CompletedAt = &completedTime
+		operation = eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_FAILED
+	case TransferStatusCancelled:
+		completedTime := time.Now()
+		info.CompletedAt = &completedTime
+		operation = eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_CANCELLED
+	case TransferStatusPaused:
+		operation = eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_PAUSED
+	default:
+		// Don't emit events for other status changes (running, starting, etc.)
+		shouldEmit = false
+	}
+
+	// Emit event for terminal states and paused state
+	if shouldEmit {
+		tm.emitTransferEvent(info, operation)
 	}
 
 	// Save updated config
@@ -1496,50 +1507,89 @@ func (tm *TransferManager) loadExistingTransfers() error {
 	return nil
 }
 
-// emitTransferCompletionEvent emits events for transfer completion/failure/cancellation
-func (tm *TransferManager) emitTransferCompletionEvent(info *TransferInfo, status TransferStatus, errorMsg string) {
+// buildDataTransferPayload creates a complete DataTransferTransferPayload from TransferInfo
+// This ensures Toggle receives all essential transfer details for proper sync
+func (tm *TransferManager) buildDataTransferPayload(info *TransferInfo, operation eventspb.DataTransferTransferPayload_DataTransferOperation) *eventspb.DataTransferTransferPayload {
+	payload := &eventspb.DataTransferTransferPayload{
+		TransferId:    info.ID,
+		OperationType: string(info.Operation),
+		Source:        info.Config.SendConfig.Snapshot,
+		Destination:   info.Config.ReceiveConfig.Target,
+		Status:        string(info.Status),
+		Operation:     operation,
+		ErrorMessage:  info.ErrorMessage,
+
+		// Progress information
+		BytesTransferred: info.Progress.BytesTransferred,
+		TotalBytes:       info.Progress.TotalBytes,
+		TransferRate:     info.Progress.TransferRate,
+		ElapsedTime:      info.Progress.ElapsedTime,
+		EstimatedEta:     info.Progress.EstimatedETA,
+		Phase:            info.Progress.Phase,
+		PhaseDescription: info.Progress.PhaseDescription,
+
+		// Timestamps (convert to Unix milliseconds)
+		CreatedAt: info.CreatedAt.UnixMilli(),
+
+		// Process information
+		Pid:     int32(info.PID),
+		LogFile: info.LogFile,
+
+		// Configuration summary
+		IsIncremental: info.Config.SendConfig.FromSnapshot != "",
+		IsResumable:   info.Config.ReceiveConfig.Resumable,
+		FromSnapshot:  info.Config.SendConfig.FromSnapshot,
+	}
+
+	// Set timestamps conditionally (0 if nil)
+	if info.StartedAt != nil {
+		payload.StartedAt = info.StartedAt.UnixMilli()
+	}
+	if info.CompletedAt != nil {
+		payload.CompletedAt = info.CompletedAt.UnixMilli()
+	}
+
+	return payload
+}
+
+// emitTransferEvent emits DataTransfer events with complete transfer information
+func (tm *TransferManager) emitTransferEvent(info *TransferInfo, operation eventspb.DataTransferTransferPayload_DataTransferOperation) {
 	var level eventspb.EventLevel
-	var operation eventspb.StorageTransferPayload_StorageTransferOperation
 	var action string
 
-	switch status {
-	case TransferStatusCompleted:
-		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_COMPLETED
+	switch operation {
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED:
+		level = eventspb.EventLevel_EVENT_LEVEL_INFO
+		action = "started"
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_PAUSED:
+		level = eventspb.EventLevel_EVENT_LEVEL_INFO
+		action = "paused"
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_RESUMED:
+		level = eventspb.EventLevel_EVENT_LEVEL_INFO
+		action = "resumed"
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED:
 		level = eventspb.EventLevel_EVENT_LEVEL_INFO
 		action = "completed"
-	case TransferStatusFailed:
-		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_FAILED
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_FAILED:
 		level = eventspb.EventLevel_EVENT_LEVEL_ERROR
 		action = "failed"
-	case TransferStatusCancelled:
-		operation = eventspb.StorageTransferPayload_STORAGE_TRANSFER_OPERATION_CANCELLED
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_CANCELLED:
 		level = eventspb.EventLevel_EVENT_LEVEL_WARN
 		action = "cancelled"
 	default:
-		return // Don't emit events for other status changes
+		return // Don't emit events for unspecified operations
 	}
 
-	// Create structured payload using proto-defined fields
-	payload := &eventspb.StorageTransferPayload{
-		Source:         info.Config.SendConfig.Snapshot,
-		Destination:    info.Config.ReceiveConfig.Target,
-		SizeBytes:      0, // Could be populated if we track transfer size
-		Operation:      operation,
-	}
+	// Build complete payload with all TransferInfo details
+	payload := tm.buildDataTransferPayload(info, operation)
 
-	// Duration calculation removed as DurationSeconds field doesn't exist in proto
-	// Transfer-specific details go in metadata instead
+	// Metadata for additional context
 	transferMeta := map[string]string{
 		"component":   "zfs-transfer",
 		"action":      action,
 		"transfer_id": info.ID,
 		"operation":   string(info.Operation),
-		"status":      string(status),
-	}
-
-	// Add error to metadata if present
-	if errorMsg != "" {
-		transferMeta["error"] = errorMsg
+		"status":      string(info.Status),
 	}
 
 	// Add duration to metadata if available
@@ -1547,7 +1597,7 @@ func (tm *TransferManager) emitTransferCompletionEvent(info *TransferInfo, statu
 		transferMeta["duration_seconds"] = fmt.Sprintf("%.0f", info.CompletedAt.Sub(*info.StartedAt).Seconds())
 	}
 
-	events.EmitStorageTransfer(level, payload, transferMeta)
+	events.EmitDataTransfer(level, payload, transferMeta)
 }
 
 func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {

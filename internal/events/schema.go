@@ -5,9 +5,15 @@
 package events
 
 import (
+	"os"
+	"runtime"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/internal/common"
+	"github.com/stratastor/rodent/internal/constants"
+	"github.com/stratastor/rodent/internal/toggle/client"
 	eventspb "github.com/stratastor/toggle-rodent-proto/proto/events"
 )
 
@@ -15,18 +21,92 @@ import (
 
 // System Events
 
-func EmitSystemStartup(payload *eventspb.SystemStartupPayload, metadata map[string]string) {
+// EmitSystemStartup emits a system startup event with auto-populated fields
+// startupType: "initial_startup", "restart", "reconnect"
+func EmitSystemStartup(startupType string) {
+	cfg := config.GetConfig()
+	jwt := cfg.Toggle.JWT
+
+	// Extract rodent_id and org_id from JWT
+	rodentID, _ := client.ExtractRodentIDFromJWT(jwt)
+	orgID, _ := client.ExtractSubFromJWT(jwt)
+
+	// Get hostname
+	hostname, _ := os.Hostname()
+
+	payload := &eventspb.SystemStartupPayload{
+		RodentId:       rodentID,
+		OrganizationId: orgID,
+		StartupTime:    time.Now().Format(time.RFC3339),
+		StartupType:    startupType,
+		Services:       []string{"rodent-controller"},
+		Version:        constants.RodentVersion,
+		SystemInfo: map[string]string{
+			"os":       runtime.GOOS,
+			"arch":     runtime.GOARCH,
+			"hostname": hostname,
+		},
+	}
+
 	event := &eventspb.Event{
 		EventId:   generateEventID(),
 		Level:     eventspb.EventLevel_EVENT_LEVEL_INFO,
 		Category:  eventspb.EventCategory_EVENT_CATEGORY_SYSTEM,
-		Source:    "system",
+		Source:    "rodent.system",
 		Timestamp: time.Now().UnixMilli(),
-		Metadata:  metadata,
+		Metadata:  map[string]string{},
 		EventPayload: &eventspb.Event_SystemEvent{
 			SystemEvent: &eventspb.SystemEvent{
 				EventType: &eventspb.SystemEvent_Startup{
 					Startup: payload,
+				},
+			},
+		},
+	}
+	emitStructuredEvent(event)
+}
+
+// EmitSystemRegistration emits a registration event with auto-populated fields
+// registrationType: "new_registration", "renewal", "reconnect"
+func EmitSystemRegistration(
+	registrationType string,
+	toggleDomain string,
+	certExpires time.Time,
+	isPrivateNetwork bool,
+) {
+	cfg := config.GetConfig()
+	jwt := cfg.Toggle.JWT
+
+	// Extract rodent_id and org_id from JWT
+	rodentID, _ := client.ExtractRodentIDFromJWT(jwt)
+	orgID, _ := client.ExtractSubFromJWT(jwt)
+
+	certExpiresStr := ""
+	if !certExpires.IsZero() {
+		certExpiresStr = certExpires.Format(time.RFC3339)
+	}
+
+	payload := &eventspb.SystemRegistrationPayload{
+		RodentId:           rodentID,
+		OrganizationId:     orgID,
+		RegisteredAt:       time.Now().Format(time.RFC3339),
+		ToggleDomain:       toggleDomain,
+		CertificateExpires: certExpiresStr,
+		IsPrivateNetwork:   isPrivateNetwork,
+		RegistrationType:   registrationType,
+	}
+
+	event := &eventspb.Event{
+		EventId:   generateEventID(),
+		Level:     eventspb.EventLevel_EVENT_LEVEL_INFO,
+		Category:  eventspb.EventCategory_EVENT_CATEGORY_SYSTEM,
+		Source:    "rodent.system",
+		Timestamp: time.Now().UnixMilli(),
+		Metadata:  map[string]string{},
+		EventPayload: &eventspb.Event_SystemEvent{
+			SystemEvent: &eventspb.SystemEvent{
+				EventType: &eventspb.SystemEvent_Registration{
+					Registration: payload,
 				},
 			},
 		},
@@ -193,21 +273,26 @@ func EmitStorageDataset(
 	emitStructuredEvent(event)
 }
 
-func EmitStorageTransfer(
+// Deprecated: EmitStorageTransfer is replaced by EmitDataTransfer
+// Use EmitDataTransfer with DataTransferTransferPayload for comprehensive transfer events
+
+// Data Transfer Events
+
+func EmitDataTransfer(
 	level eventspb.EventLevel,
-	payload *eventspb.StorageTransferPayload,
+	payload *eventspb.DataTransferTransferPayload,
 	metadata map[string]string,
 ) {
 	event := &eventspb.Event{
 		EventId:   generateEventID(),
 		Level:     level,
-		Category:  eventspb.EventCategory_EVENT_CATEGORY_STORAGE,
-		Source:    "zfs-transfer-manager",
+		Category:  eventspb.EventCategory_EVENT_CATEGORY_DATA_TRANSFER,
+		Source:    "rodent.zfs-transfer-manager",
 		Timestamp: time.Now().UnixMilli(),
 		Metadata:  metadata,
-		EventPayload: &eventspb.Event_StorageEvent{
-			StorageEvent: &eventspb.StorageEvent{
-				EventType: &eventspb.StorageEvent_TransferEvent{
+		EventPayload: &eventspb.Event_DataTransferEvent{
+			DataTransferEvent: &eventspb.DataTransferEvent{
+				EventType: &eventspb.DataTransferEvent_TransferEvent{
 					TransferEvent: payload,
 				},
 			},
@@ -235,5 +320,12 @@ func emitStructuredEvent(event *eventspb.Event) {
 	// Send directly to the global event bus
 	if globalEventBus != nil {
 		globalEventBus.EmitStructuredEvent(event)
+	} else {
+		// Log warning if event bus is not initialized - helps diagnose missing events
+		// This can happen if events are emitted before Initialize() is called
+		common.Log.Debug("Event dropped - globalEventBus not initialized",
+			"category", event.Category.String(),
+			"source", event.Source,
+			"level", event.Level.String())
 	}
 }
