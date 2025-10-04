@@ -1,0 +1,34 @@
+services:
+  addc:
+    image: diegogslomp/samba-ad-dc
+    container_name: {{.ContainerName}}
+    hostname: {{.Hostname}}
+    privileged: true
+    restart: unless-stopped
+    networks:
+      addc_network:
+        ipv4_address: {{.IPAddress}}
+    environment:
+      - REALM={{.Realm}}
+      - DOMAIN={{.Domain}}
+      - ADMIN_PASS={{.AdminPassword}}
+      - DNS_FORWARDER={{.DnsForwarder}}
+    volumes:
+      - {{.EtcVolume}}:/usr/local/samba/etc
+      - {{.PrivateVolume}}:/usr/local/samba/private
+      - {{.VarVolume}}:/usr/local/samba/var
+
+networks:
+  addc_network:
+    driver: macvlan
+    driver_opts:
+      parent: {{.ParentInterface}}
+    ipam:
+      config:
+        - subnet: {{.Subnet}}
+          gateway: {{.Gateway}}
+
+volumes:
+  {{.EtcVolume}}:
+  {{.PrivateVolume}}:
+  {{.VarVolume}}:

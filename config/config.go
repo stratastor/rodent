@@ -54,6 +54,12 @@ type Config struct {
 			EtcVolume     string `mapstructure:"etcVolume"`
 			PrivateVolume string `mapstructure:"privateVolume"`
 			VarVolume     string `mapstructure:"varVolume"`
+			// Network deployment configuration
+			NetworkMode      string `mapstructure:"networkMode"`      // "auto", "host", or "macvlan"
+			ParentInterface  string `mapstructure:"parentInterface"`  // For macvlan: parent interface; For host: dedicated interface
+			IPAddress        string `mapstructure:"ipAddress"`        // Static IP for AD DC (with CIDR for macvlan)
+			Gateway          string `mapstructure:"gateway"`          // Gateway for macvlan mode
+			Subnet           string `mapstructure:"subnet"`           // Subnet for macvlan mode (e.g., "172.31.0.0/20")
 		} `mapstructure:"dc"`
 	} `mapstructure:"ad"`
 
@@ -188,6 +194,11 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("ad.dc.etcVolume", "dc1_etc")
 		viper.SetDefault("ad.dc.privateVolume", "dc1_private")
 		viper.SetDefault("ad.dc.varVolume", "dc1_var")
+		viper.SetDefault("ad.dc.networkMode", "auto")
+		viper.SetDefault("ad.dc.parentInterface", "")
+		viper.SetDefault("ad.dc.ipAddress", "")
+		viper.SetDefault("ad.dc.gateway", "")
+		viper.SetDefault("ad.dc.subnet", "")
 
 		// Set defaults for Toggle configuration
 		viper.SetDefault("toggle.jwt", "")

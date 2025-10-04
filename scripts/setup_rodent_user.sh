@@ -175,6 +175,7 @@ GROUPS_PATH=$(detect_binary "groups" "/usr/bin/groups")
 PASSWD_PATH=$(detect_binary "passwd" "/usr/bin/passwd")
 OPENSSL_PATH=$(detect_binary "openssl" "/usr/bin/openssl")
 DMIDECODE_PATH=$(detect_binary "dmidecode" "/usr/sbin/dmidecode")
+SYSTEMD_DETECT_VIRT_PATH=$(detect_binary "systemd-detect-virt" "/usr/bin/systemd-detect-virt")
 REBOOT_PATH=$(detect_binary "reboot" "/usr/sbin/reboot")
 SHUTDOWN_PATH=$(detect_binary "shutdown" "/usr/sbin/shutdown")
 USERADD_PATH=$(detect_binary "useradd" "/usr/sbin/useradd")
@@ -477,6 +478,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $PASSWD_PATH *, \\
     $OPENSSL_PATH *, \\
     $DMIDECODE_PATH *, \\
+    $SYSTEMD_DETECT_VIRT_PATH *, \\
     $REBOOT_PATH *, \\
     $SHUTDOWN_PATH *, \\
     $USERADD_PATH *, \\
