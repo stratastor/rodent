@@ -51,7 +51,25 @@ func (m *manager) SafeApplyConfig(ctx context.Context, config *types.NetplanConf
 		"auto_backup", options.AutoBackup,
 		"auto_rollback", options.AutoRollback,
 		"connectivity_targets", options.ConnectivityTargets)
-	
+
+	// Step 0: Check if configuration has changed (idempotency check)
+	m.logger.Debug("Checking if configuration has changed")
+	currentConfig, err := m.netplanCmd.GetConfig(ctx)
+	if err != nil {
+		m.logger.Debug("Failed to get current config for comparison, will proceed with apply", "error", err)
+	} else {
+		if m.configsAreEqual(currentConfig, config) {
+			m.logger.Info("Configuration unchanged, skipping apply")
+			result.Success = true
+			result.Applied = false
+			result.Message = "Configuration unchanged, no action needed"
+			result.CompletionTime = time.Now()
+			result.TotalDuration = result.CompletionTime.Sub(result.StartTime)
+			return result, nil
+		}
+		m.logger.Debug("Configuration has changed, proceeding with apply")
+	}
+
 	// Step 1: Pre-validation
 	if !options.SkipPreValidation {
 		m.logger.Debug("Performing pre-validation")
@@ -541,7 +559,246 @@ func (m *manager) validatePostApplyRoutes(ctx context.Context) error {
 func (m *manager) pingTarget(ctx context.Context, target string, timeout time.Duration) bool {
 	pingCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	result, err := m.executor.ExecuteCommand(pingCtx, "ping", "-c", "1", "-W", "1", target)
 	return err == nil && result.ExitCode == 0
+}
+
+// configsAreEqual performs semantic comparison of two netplan configurations
+// Returns true if the configurations are functionally equivalent
+func (m *manager) configsAreEqual(a, b *types.NetplanConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Compare network configurations
+	if a.Network == nil && b.Network == nil {
+		return true
+	}
+	if a.Network == nil || b.Network == nil {
+		return false
+	}
+
+	// Compare ethernet interfaces
+	if !m.ethernetsAreEqual(a.Network.Ethernets, b.Network.Ethernets) {
+		return false
+	}
+
+	// Compare bonds
+	if !m.bondsAreEqual(a.Network.Bonds, b.Network.Bonds) {
+		return false
+	}
+
+	// Compare bridges
+	if !m.bridgesAreEqual(a.Network.Bridges, b.Network.Bridges) {
+		return false
+	}
+
+	// Compare VLANs
+	if !m.vlansAreEqual(a.Network.VLANs, b.Network.VLANs) {
+		return false
+	}
+
+	return true
+}
+
+// ethernetsAreEqual compares ethernet interface configurations
+func (m *manager) ethernetsAreEqual(a, b map[string]*types.EthernetConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for name, ethA := range a {
+		ethB, exists := b[name]
+		if !exists {
+			return false
+		}
+
+		if !m.ethernetConfigIsEqual(ethA, ethB) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// ethernetConfigIsEqual compares two ethernet configurations
+func (m *manager) ethernetConfigIsEqual(a, b *types.EthernetConfig) bool {
+	// Compare DHCP settings
+	if !m.boolPtrsEqual(a.DHCPv4, b.DHCPv4) || !m.boolPtrsEqual(a.DHCPv6, b.DHCPv6) {
+		return false
+	}
+
+	// Compare addresses
+	if !m.stringSlicesEqual(a.Addresses, b.Addresses) {
+		return false
+	}
+
+	// Compare nameservers
+	if !m.nameserversEqual(a.Nameservers, b.Nameservers) {
+		return false
+	}
+
+	// Compare routes
+	if !m.routesEqual(a.Routes, b.Routes) {
+		return false
+	}
+
+	// Compare routing policies
+	if !m.routingPoliciesEqual(a.RoutingPolicy, b.RoutingPolicy) {
+		return false
+	}
+
+	// Compare optional flag
+	if !m.boolPtrsEqual(a.Optional, b.Optional) {
+		return false
+	}
+
+	return true
+}
+
+// nameserversEqual compares nameserver configurations
+func (m *manager) nameserversEqual(a, b *types.NameserverConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	return m.stringSlicesEqual(a.Addresses, b.Addresses) &&
+		m.stringSlicesEqual(a.Search, b.Search)
+}
+
+// routesEqual compares route configurations
+func (m *manager) routesEqual(a, b []*types.RouteConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if !m.routeConfigIsEqual(a[i], b[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// routeConfigIsEqual compares two route configurations
+func (m *manager) routeConfigIsEqual(a, b *types.RouteConfig) bool {
+	return a.To == b.To &&
+		a.Via == b.Via &&
+		m.intPtrsEqual(a.Table, b.Table) &&
+		m.intPtrsEqual(a.Metric, b.Metric)
+}
+
+// routingPoliciesEqual compares routing policy configurations
+func (m *manager) routingPoliciesEqual(a, b []*types.RoutingPolicyConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if !m.routingPolicyIsEqual(a[i], b[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// routingPolicyIsEqual compares two routing policy configurations
+func (m *manager) routingPolicyIsEqual(a, b *types.RoutingPolicyConfig) bool {
+	return a.From == b.From &&
+		a.To == b.To &&
+		m.intPtrsEqual(a.Table, b.Table) &&
+		m.intPtrsEqual(a.Priority, b.Priority)
+}
+
+// bondsAreEqual compares bond configurations
+func (m *manager) bondsAreEqual(a, b map[string]*types.BondConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for name, bondA := range a {
+		bondB, exists := b[name]
+		if !exists || !m.stringSlicesEqual(bondA.Interfaces, bondB.Interfaces) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// bridgesAreEqual compares bridge configurations
+func (m *manager) bridgesAreEqual(a, b map[string]*types.BridgeConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for name, bridgeA := range a {
+		bridgeB, exists := b[name]
+		if !exists || !m.stringSlicesEqual(bridgeA.Interfaces, bridgeB.Interfaces) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// vlansAreEqual compares VLAN configurations
+func (m *manager) vlansAreEqual(a, b map[string]*types.VLANConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for name, vlanA := range a {
+		vlanB, exists := b[name]
+		if !exists || vlanA.ID != vlanB.ID || vlanA.Link != vlanB.Link {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Helper comparison functions
+
+func (m *manager) boolPtrsEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func (m *manager) intPtrsEqual(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func (m *manager) stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
 }
