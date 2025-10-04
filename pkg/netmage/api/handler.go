@@ -67,8 +67,16 @@ func (h *NetworkHandler) RegisterRoutes(router *gin.RouterGroup) {
 	routes := router.Group("/routes")
 	{
 		routes.GET("", h.GetRoutes)
-		routes.POST("", h.AddRoute)
-		routes.DELETE("", h.RemoveRoute)
+		routes.POST("/:iface_name", h.AddRoute)
+		routes.DELETE("/:iface_name", h.RemoveRoute)
+	}
+
+	// Routing policy management routes
+	routingPolicies := router.Group("/routing-policies")
+	{
+		routingPolicies.GET("/:iface_name", h.GetRoutingPolicies)
+		routingPolicies.POST("/:iface_name", h.AddRoutingPolicy)
+		routingPolicies.DELETE("/:iface_name", h.RemoveRoutingPolicy)
 	}
 
 	// Netplan configuration routes
@@ -320,9 +328,15 @@ func (h *NetworkHandler) GetRoutes(c *gin.Context) {
 	h.sendSuccess(c, http.StatusOK, result)
 }
 
-// AddRoute handles POST /routes
+// AddRoute handles POST /routes/:iface_name
 func (h *NetworkHandler) AddRoute(c *gin.Context) {
 	ctx := c.Request.Context()
+	ifaceName := c.Param("iface_name")
+
+	if ifaceName == "" {
+		h.sendError(c, errors.New(errors.ServerRequestValidation, "interface name is required"))
+		return
+	}
 
 	var req types.RouteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -330,29 +344,41 @@ func (h *NetworkHandler) AddRoute(c *gin.Context) {
 		return
 	}
 
-	route := &types.Route{
-		To:     req.To,
-		Via:    req.Via,
-		From:   req.From,
-		Device: req.Device,
-		Table:  req.Table,
-		Metric: req.Metric,
+	route := &types.RouteConfig{
+		To:                      req.To,
+		Via:                     req.Via,
+		From:                    req.From,
+		OnLink:                  req.OnLink,
+		Metric:                  req.Metric,
+		Type:                    req.Type,
+		Scope:                   req.Scope,
+		Table:                   req.Table,
+		MTU:                     req.MTU,
+		CongestionWindow:        req.CongestionWindow,
+		AdvertisedReceiveWindow: req.AdvertisedReceiveWindow,
 	}
 
-	if err := h.manager.AddRoute(ctx, route); err != nil {
+	if err := h.manager.AddRoute(ctx, ifaceName, route); err != nil {
 		h.sendError(c, err)
 		return
 	}
 
 	h.sendSuccess(c, http.StatusCreated, map[string]interface{}{
-		"message": "Route added successfully",
-		"route":   route,
+		"message":   "Route added successfully",
+		"interface": ifaceName,
+		"route":     route,
 	})
 }
 
-// RemoveRoute handles DELETE /routes
+// RemoveRoute handles DELETE /routes/:iface_name
 func (h *NetworkHandler) RemoveRoute(c *gin.Context) {
 	ctx := c.Request.Context()
+	ifaceName := c.Param("iface_name")
+
+	if ifaceName == "" {
+		h.sendError(c, errors.New(errors.ServerRequestValidation, "interface name is required"))
+		return
+	}
 
 	var req types.RouteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -360,23 +386,125 @@ func (h *NetworkHandler) RemoveRoute(c *gin.Context) {
 		return
 	}
 
-	route := &types.Route{
-		To:     req.To,
-		Via:    req.Via,
-		From:   req.From,
-		Device: req.Device,
-		Table:  req.Table,
-		Metric: req.Metric,
+	route := &types.RouteConfig{
+		To:                      req.To,
+		Via:                     req.Via,
+		From:                    req.From,
+		OnLink:                  req.OnLink,
+		Metric:                  req.Metric,
+		Type:                    req.Type,
+		Scope:                   req.Scope,
+		Table:                   req.Table,
+		MTU:                     req.MTU,
+		CongestionWindow:        req.CongestionWindow,
+		AdvertisedReceiveWindow: req.AdvertisedReceiveWindow,
 	}
 
-	if err := h.manager.RemoveRoute(ctx, route); err != nil {
+	if err := h.manager.RemoveRoute(ctx, ifaceName, route); err != nil {
 		h.sendError(c, err)
 		return
 	}
 
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
-		"message": "Route removed successfully",
-		"route":   route,
+		"message":   "Route removed successfully",
+		"interface": ifaceName,
+		"route":     route,
+	})
+}
+
+// AddRoutingPolicy handles POST /routing-policies/:iface_name
+func (h *NetworkHandler) AddRoutingPolicy(c *gin.Context) {
+	ctx := c.Request.Context()
+	ifaceName := c.Param("iface_name")
+
+	if ifaceName == "" {
+		h.sendError(c, errors.New(errors.ServerRequestValidation, "interface name is required"))
+		return
+	}
+
+	var req types.RoutingPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	policy := &types.RoutingPolicyConfig{
+		From:          req.From,
+		To:            req.To,
+		Table:         req.Table,
+		Priority:      req.Priority,
+		Mark:          req.Mark,
+		TypeOfService: req.TypeOfService,
+	}
+
+	if err := h.manager.AddRoutingPolicy(ctx, ifaceName, policy); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusCreated, map[string]interface{}{
+		"message":   "Routing policy added successfully",
+		"interface": ifaceName,
+		"policy":    policy,
+	})
+}
+
+// RemoveRoutingPolicy handles DELETE /routing-policies/:iface_name
+func (h *NetworkHandler) RemoveRoutingPolicy(c *gin.Context) {
+	ctx := c.Request.Context()
+	ifaceName := c.Param("iface_name")
+
+	if ifaceName == "" {
+		h.sendError(c, errors.New(errors.ServerRequestValidation, "interface name is required"))
+		return
+	}
+
+	var req types.RoutingPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	policy := &types.RoutingPolicyConfig{
+		From:          req.From,
+		To:            req.To,
+		Table:         req.Table,
+		Priority:      req.Priority,
+		Mark:          req.Mark,
+		TypeOfService: req.TypeOfService,
+	}
+
+	if err := h.manager.RemoveRoutingPolicy(ctx, ifaceName, policy); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":   "Routing policy removed successfully",
+		"interface": ifaceName,
+		"policy":    policy,
+	})
+}
+
+// GetRoutingPolicies handles GET /routing-policies/:iface_name
+func (h *NetworkHandler) GetRoutingPolicies(c *gin.Context) {
+	ctx := c.Request.Context()
+	ifaceName := c.Param("iface_name")
+
+	if ifaceName == "" {
+		h.sendError(c, errors.New(errors.ServerRequestValidation, "interface name is required"))
+		return
+	}
+
+	policies, err := h.manager.GetRoutingPolicies(ctx, ifaceName)
+	if err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"interface": ifaceName,
+		"policies":  policies,
 	})
 }
 

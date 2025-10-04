@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/stratastor/rodent/internal/toggle/client"
@@ -47,6 +48,20 @@ func RegisterNetworkGRPCHandlers(networkHandler *NetworkHandler) {
 	client.RegisterCommandHandler(proto.CmdNetworkRoutesList, handleRoutesList(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkRoutesAdd, handleRoutesAdd(networkHandler))
 	client.RegisterCommandHandler(proto.CmdNetworkRoutesRemove, handleRoutesRemove(networkHandler))
+
+	// Routing policy management operations
+	client.RegisterCommandHandler(
+		proto.CmdNetworkRoutingPoliciesList,
+		handleRoutingPoliciesList(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkRoutingPoliciesAdd,
+		handleRoutingPoliciesAdd(networkHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdNetworkRoutingPoliciesRemove,
+		handleRoutingPoliciesRemove(networkHandler),
+	)
 
 	// Netplan configuration operations
 	client.RegisterCommandHandler(
@@ -391,28 +406,41 @@ func handleRoutesList(h *NetworkHandler) client.CommandHandler {
 // handleRoutesAdd returns a handler for adding routes
 func handleRoutesAdd(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		var payload types.RouteRequest
+		var payload struct {
+			InterfaceName string             `json:"interface_name"`
+			Route         types.RouteRequest `json:"route"`
+		}
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		route := &types.Route{
-			To:     payload.To,
-			Via:    payload.Via,
-			From:   payload.From,
-			Device: payload.Device,
-			Table:  payload.Table,
-			Metric: payload.Metric,
+		if payload.InterfaceName == "" {
+			return errorResponse(req.RequestId, fmt.Errorf("interface_name is required"))
+		}
+
+		route := &types.RouteConfig{
+			To:                      payload.Route.To,
+			Via:                     payload.Route.Via,
+			From:                    payload.Route.From,
+			OnLink:                  payload.Route.OnLink,
+			Metric:                  payload.Route.Metric,
+			Type:                    payload.Route.Type,
+			Scope:                   payload.Route.Scope,
+			Table:                   payload.Route.Table,
+			MTU:                     payload.Route.MTU,
+			CongestionWindow:        payload.Route.CongestionWindow,
+			AdvertisedReceiveWindow: payload.Route.AdvertisedReceiveWindow,
 		}
 
 		ctx := context.Background()
-		if err := h.manager.AddRoute(ctx, route); err != nil {
+		if err := h.manager.AddRoute(ctx, payload.InterfaceName, route); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
-			"message": "Route added successfully",
-			"route":   route,
+			"message":   "Route added successfully",
+			"interface": payload.InterfaceName,
+			"route":     route,
 		}
 
 		return successResponse(req.RequestId, "Route added", result)
@@ -422,31 +450,153 @@ func handleRoutesAdd(h *NetworkHandler) client.CommandHandler {
 // handleRoutesRemove returns a handler for removing routes
 func handleRoutesRemove(h *NetworkHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		var payload types.RouteRequest
+		var payload struct {
+			InterfaceName string             `json:"interface_name"`
+			Route         types.RouteRequest `json:"route"`
+		}
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		route := &types.Route{
-			To:     payload.To,
-			Via:    payload.Via,
-			From:   payload.From,
-			Device: payload.Device,
-			Table:  payload.Table,
-			Metric: payload.Metric,
+		if payload.InterfaceName == "" {
+			return errorResponse(req.RequestId, fmt.Errorf("interface_name is required"))
+		}
+
+		route := &types.RouteConfig{
+			To:                      payload.Route.To,
+			Via:                     payload.Route.Via,
+			From:                    payload.Route.From,
+			OnLink:                  payload.Route.OnLink,
+			Metric:                  payload.Route.Metric,
+			Type:                    payload.Route.Type,
+			Scope:                   payload.Route.Scope,
+			Table:                   payload.Route.Table,
+			MTU:                     payload.Route.MTU,
+			CongestionWindow:        payload.Route.CongestionWindow,
+			AdvertisedReceiveWindow: payload.Route.AdvertisedReceiveWindow,
 		}
 
 		ctx := context.Background()
-		if err := h.manager.RemoveRoute(ctx, route); err != nil {
+		if err := h.manager.RemoveRoute(ctx, payload.InterfaceName, route); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		result := map[string]interface{}{
-			"message": "Route removed successfully",
-			"route":   route,
+			"message":   "Route removed successfully",
+			"interface": payload.InterfaceName,
+			"route":     route,
 		}
 
 		return successResponse(req.RequestId, "Route removed", result)
+	}
+}
+
+// ROUTING POLICY HANDLERS
+
+// handleRoutingPoliciesList returns a handler for listing routing policies
+func handleRoutingPoliciesList(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			InterfaceName string `json:"interface_name"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.InterfaceName == "" {
+			return errorResponse(req.RequestId, fmt.Errorf("interface_name is required"))
+		}
+
+		ctx := context.Background()
+		policies, err := h.manager.GetRoutingPolicies(ctx, payload.InterfaceName)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"interface": payload.InterfaceName,
+			"policies":  policies,
+		}
+
+		return successResponse(req.RequestId, "Routing policies retrieved", result)
+	}
+}
+
+// handleRoutingPoliciesAdd returns a handler for adding routing policies
+func handleRoutingPoliciesAdd(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			InterfaceName string                     `json:"interface_name"`
+			Policy        types.RoutingPolicyRequest `json:"policy"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.InterfaceName == "" {
+			return errorResponse(req.RequestId, fmt.Errorf("interface_name is required"))
+		}
+
+		policy := &types.RoutingPolicyConfig{
+			From:          payload.Policy.From,
+			To:            payload.Policy.To,
+			Table:         payload.Policy.Table,
+			Priority:      payload.Policy.Priority,
+			Mark:          payload.Policy.Mark,
+			TypeOfService: payload.Policy.TypeOfService,
+		}
+
+		ctx := context.Background()
+		if err := h.manager.AddRoutingPolicy(ctx, payload.InterfaceName, policy); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":   "Routing policy added successfully",
+			"interface": payload.InterfaceName,
+			"policy":    policy,
+		}
+
+		return successResponse(req.RequestId, "Routing policy added", result)
+	}
+}
+
+// handleRoutingPoliciesRemove returns a handler for removing routing policies
+func handleRoutingPoliciesRemove(h *NetworkHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			InterfaceName string                     `json:"interface_name"`
+			Policy        types.RoutingPolicyRequest `json:"policy"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.InterfaceName == "" {
+			return errorResponse(req.RequestId, fmt.Errorf("interface_name is required"))
+		}
+
+		policy := &types.RoutingPolicyConfig{
+			From:          payload.Policy.From,
+			To:            payload.Policy.To,
+			Table:         payload.Policy.Table,
+			Priority:      payload.Policy.Priority,
+			Mark:          payload.Policy.Mark,
+			TypeOfService: payload.Policy.TypeOfService,
+		}
+
+		ctx := context.Background()
+		if err := h.manager.RemoveRoutingPolicy(ctx, payload.InterfaceName, policy); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":   "Routing policy removed successfully",
+			"interface": payload.InterfaceName,
+			"policy":    policy,
+		}
+
+		return successResponse(req.RequestId, "Routing policy removed", result)
 	}
 }
 

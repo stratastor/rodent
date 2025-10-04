@@ -104,9 +104,14 @@ type Manager interface {
 	GetIPAddresses(ctx context.Context, iface string) ([]*IPAddress, error)
 
 	// Route management
-	AddRoute(ctx context.Context, route *Route) error
-	RemoveRoute(ctx context.Context, route *Route) error
+	AddRoute(ctx context.Context, ifaceName string, route *RouteConfig) error
+	RemoveRoute(ctx context.Context, ifaceName string, route *RouteConfig) error
 	GetRoutes(ctx context.Context, table string) ([]*Route, error)
+
+	// Routing policy management
+	AddRoutingPolicy(ctx context.Context, ifaceName string, policy *RoutingPolicyConfig) error
+	RemoveRoutingPolicy(ctx context.Context, ifaceName string, policy *RoutingPolicyConfig) error
+	GetRoutingPolicies(ctx context.Context, ifaceName string) ([]*RoutingPolicyConfig, error)
 
 	// Netplan configuration management
 	GetNetplanConfig(ctx context.Context) (*NetplanConfig, error)
@@ -749,12 +754,27 @@ type AddressRequest struct {
 
 // RouteRequest represents a request to add/remove a route
 type RouteRequest struct {
-	To     string `json:"to"               binding:"required"`
-	Via    string `json:"via,omitempty"`
-	From   string `json:"from,omitempty"`
-	Device string `json:"device,omitempty"`
-	Table  string `json:"table,omitempty"`
-	Metric int    `json:"metric,omitempty"`
+	To                      string `json:"to"                                  binding:"required"`
+	Via                     string `json:"via,omitempty"`
+	From                    string `json:"from,omitempty"`
+	OnLink                  *bool  `json:"on_link,omitempty"`
+	Metric                  *int   `json:"metric,omitempty"`
+	Type                    string `json:"type,omitempty"`
+	Scope                   string `json:"scope,omitempty"`
+	Table                   *int   `json:"table,omitempty"`
+	MTU                     *int   `json:"mtu,omitempty"`
+	CongestionWindow        *int   `json:"congestion_window,omitempty"`
+	AdvertisedReceiveWindow *int   `json:"advertised_receive_window,omitempty"`
+}
+
+// RoutingPolicyRequest represents a request to add/remove routing policy
+type RoutingPolicyRequest struct {
+	From          string `json:"from,omitempty"`
+	To            string `json:"to,omitempty"`
+	Table         *int   `json:"table,omitempty"`
+	Priority      *int   `json:"priority,omitempty"`
+	Mark          *int   `json:"mark,omitempty"`
+	TypeOfService *int   `json:"type_of_service,omitempty"`
 }
 
 // NetplanConfigRequest represents a request to update netplan configuration

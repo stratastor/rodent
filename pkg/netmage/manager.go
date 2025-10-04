@@ -286,41 +286,138 @@ func (m *manager) GetIPAddresses(ctx context.Context, iface string) ([]*types.IP
 }
 
 // AddRoute adds a network route via netplan configuration
-func (m *manager) AddRoute(ctx context.Context, route *types.Route) error {
+func (m *manager) AddRoute(ctx context.Context, ifaceName string, route *types.RouteConfig) error {
 	if route == nil {
 		return errors.New(errors.NetworkRouteOperationFailed, "route cannot be nil")
+	}
+
+	if ifaceName == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "interface name cannot be empty")
 	}
 
 	if route.To == "" {
 		return errors.New(errors.NetworkRouteOperationFailed, "route destination cannot be empty")
 	}
 
-	// Add route to appropriate interface configuration
-	// This is a simplified implementation - would need to determine the correct interface
-	// and update the netplan configuration accordingly
-	return errors.New(
-		errors.NetworkFeatureUnsupported,
-		"route management via netplan not fully implemented",
+	// Get current netplan configuration
+	config, err := m.GetNetplanConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Ensure network section exists
+	if config.Network == nil {
+		config.Network = &types.NetworkConfig{
+			Version:   2,
+			Renderer:  types.RendererNetworkd,
+			Ethernets: make(map[string]*types.EthernetConfig),
+		}
+	}
+
+	// Ensure ethernets map exists
+	if config.Network.Ethernets == nil {
+		config.Network.Ethernets = make(map[string]*types.EthernetConfig)
+	}
+
+	// Ensure interface exists in config
+	if config.Network.Ethernets[ifaceName] == nil {
+		return errors.New(
+			errors.NetworkInterfaceNotFound,
+			fmt.Sprintf("interface %s not found in netplan configuration", ifaceName),
+		)
+	}
+
+	// Check if route already exists
+	for _, existingRoute := range config.Network.Ethernets[ifaceName].Routes {
+		if existingRoute.To == route.To &&
+			existingRoute.Via == route.Via &&
+			m.intPtrsEqual(existingRoute.Table, route.Table) {
+			m.logger.Debug("Route already exists, skipping add",
+				"interface", ifaceName,
+				"to", route.To,
+				"via", route.Via)
+			return nil
+		}
+	}
+
+	// Append the new route
+	config.Network.Ethernets[ifaceName].Routes = append(
+		config.Network.Ethernets[ifaceName].Routes,
+		route,
 	)
+
+	m.logger.Info("Adding route to interface",
+		"interface", ifaceName,
+		"to", route.To,
+		"via", route.Via,
+		"table", route.Table)
+
+	// Apply configuration with safety checks
+	_, err = m.SafeApplyConfig(ctx, config, DefaultSafeConfigOptions())
+	return err
 }
 
 // RemoveRoute removes a network route via netplan configuration
-func (m *manager) RemoveRoute(ctx context.Context, route *types.Route) error {
+func (m *manager) RemoveRoute(ctx context.Context, ifaceName string, route *types.RouteConfig) error {
 	if route == nil {
 		return errors.New(errors.NetworkRouteOperationFailed, "route cannot be nil")
+	}
+
+	if ifaceName == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "interface name cannot be empty")
 	}
 
 	if route.To == "" {
 		return errors.New(errors.NetworkRouteOperationFailed, "route destination cannot be empty")
 	}
 
-	// Remove route from appropriate interface configuration
-	// This is a simplified implementation - would need to determine the correct interface
-	// and update the netplan configuration accordingly
-	return errors.New(
-		errors.NetworkFeatureUnsupported,
-		"route management via netplan not fully implemented",
-	)
+	// Get current netplan configuration
+	config, err := m.GetNetplanConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Check if interface exists
+	if config.Network == nil || config.Network.Ethernets == nil || config.Network.Ethernets[ifaceName] == nil {
+		return errors.New(
+			errors.NetworkInterfaceNotFound,
+			fmt.Sprintf("interface %s not found in netplan configuration", ifaceName),
+		)
+	}
+
+	// Find and remove the matching route
+	routes := config.Network.Ethernets[ifaceName].Routes
+	found := false
+	newRoutes := make([]*types.RouteConfig, 0, len(routes))
+
+	for _, existingRoute := range routes {
+		if existingRoute.To == route.To &&
+			existingRoute.Via == route.Via &&
+			m.intPtrsEqual(existingRoute.Table, route.Table) {
+			found = true
+			m.logger.Info("Removing route from interface",
+				"interface", ifaceName,
+				"to", route.To,
+				"via", route.Via,
+				"table", route.Table)
+			continue // Skip this route (remove it)
+		}
+		newRoutes = append(newRoutes, existingRoute)
+	}
+
+	if !found {
+		return errors.New(
+			errors.NetworkRouteNotFound,
+			fmt.Sprintf("route to %s via %s not found on interface %s", route.To, route.Via, ifaceName),
+		)
+	}
+
+	// Update routes
+	config.Network.Ethernets[ifaceName].Routes = newRoutes
+
+	// Apply configuration with safety checks
+	_, err = m.SafeApplyConfig(ctx, config, DefaultSafeConfigOptions())
+	return err
 }
 
 // GetRoutes retrieves network routes from netplan status
@@ -372,6 +469,169 @@ func (m *manager) GetRoutes(ctx context.Context, table string) ([]*types.Route, 
 	}
 
 	return routes, nil
+}
+
+// AddRoutingPolicy adds a routing policy via netplan configuration
+func (m *manager) AddRoutingPolicy(ctx context.Context, ifaceName string, policy *types.RoutingPolicyConfig) error {
+	if policy == nil {
+		return errors.New(errors.NetworkRouteOperationFailed, "routing policy cannot be nil")
+	}
+
+	if ifaceName == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "interface name cannot be empty")
+	}
+
+	if policy.From == "" && policy.To == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "routing policy must have 'from' or 'to' specified")
+	}
+
+	// Get current netplan configuration
+	config, err := m.GetNetplanConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Ensure network section exists
+	if config.Network == nil {
+		config.Network = &types.NetworkConfig{
+			Version:   2,
+			Renderer:  types.RendererNetworkd,
+			Ethernets: make(map[string]*types.EthernetConfig),
+		}
+	}
+
+	// Ensure ethernets map exists
+	if config.Network.Ethernets == nil {
+		config.Network.Ethernets = make(map[string]*types.EthernetConfig)
+	}
+
+	// Ensure interface exists in config
+	if config.Network.Ethernets[ifaceName] == nil {
+		return errors.New(
+			errors.NetworkInterfaceNotFound,
+			fmt.Sprintf("interface %s not found in netplan configuration", ifaceName),
+		)
+	}
+
+	// Check if policy already exists
+	for _, existingPolicy := range config.Network.Ethernets[ifaceName].RoutingPolicy {
+		if existingPolicy.From == policy.From &&
+			existingPolicy.To == policy.To &&
+			m.intPtrsEqual(existingPolicy.Table, policy.Table) &&
+			m.intPtrsEqual(existingPolicy.Priority, policy.Priority) {
+			m.logger.Debug("Routing policy already exists, skipping add",
+				"interface", ifaceName,
+				"from", policy.From,
+				"to", policy.To)
+			return nil
+		}
+	}
+
+	// Append the new routing policy
+	config.Network.Ethernets[ifaceName].RoutingPolicy = append(
+		config.Network.Ethernets[ifaceName].RoutingPolicy,
+		policy,
+	)
+
+	m.logger.Info("Adding routing policy to interface",
+		"interface", ifaceName,
+		"from", policy.From,
+		"to", policy.To,
+		"table", policy.Table,
+		"priority", policy.Priority)
+
+	// Apply configuration with safety checks
+	_, err = m.SafeApplyConfig(ctx, config, DefaultSafeConfigOptions())
+	return err
+}
+
+// RemoveRoutingPolicy removes a routing policy via netplan configuration
+func (m *manager) RemoveRoutingPolicy(ctx context.Context, ifaceName string, policy *types.RoutingPolicyConfig) error {
+	if policy == nil {
+		return errors.New(errors.NetworkRouteOperationFailed, "routing policy cannot be nil")
+	}
+
+	if ifaceName == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "interface name cannot be empty")
+	}
+
+	if policy.From == "" && policy.To == "" {
+		return errors.New(errors.NetworkRouteOperationFailed, "routing policy must have 'from' or 'to' specified")
+	}
+
+	// Get current netplan configuration
+	config, err := m.GetNetplanConfig(ctx)
+	if err != nil {
+		return errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Check if interface exists
+	if config.Network == nil || config.Network.Ethernets == nil || config.Network.Ethernets[ifaceName] == nil {
+		return errors.New(
+			errors.NetworkInterfaceNotFound,
+			fmt.Sprintf("interface %s not found in netplan configuration", ifaceName),
+		)
+	}
+
+	// Find and remove the matching routing policy
+	policies := config.Network.Ethernets[ifaceName].RoutingPolicy
+	found := false
+	newPolicies := make([]*types.RoutingPolicyConfig, 0, len(policies))
+
+	for _, existingPolicy := range policies {
+		if existingPolicy.From == policy.From &&
+			existingPolicy.To == policy.To &&
+			m.intPtrsEqual(existingPolicy.Table, policy.Table) &&
+			m.intPtrsEqual(existingPolicy.Priority, policy.Priority) {
+			found = true
+			m.logger.Info("Removing routing policy from interface",
+				"interface", ifaceName,
+				"from", policy.From,
+				"to", policy.To,
+				"table", policy.Table,
+				"priority", policy.Priority)
+			continue // Skip this policy (remove it)
+		}
+		newPolicies = append(newPolicies, existingPolicy)
+	}
+
+	if !found {
+		return errors.New(
+			errors.NetworkRouteNotFound,
+			fmt.Sprintf("routing policy not found on interface %s", ifaceName),
+		)
+	}
+
+	// Update routing policies
+	config.Network.Ethernets[ifaceName].RoutingPolicy = newPolicies
+
+	// Apply configuration with safety checks
+	_, err = m.SafeApplyConfig(ctx, config, DefaultSafeConfigOptions())
+	return err
+}
+
+// GetRoutingPolicies retrieves routing policies for a specific interface
+func (m *manager) GetRoutingPolicies(ctx context.Context, ifaceName string) ([]*types.RoutingPolicyConfig, error) {
+	if ifaceName == "" {
+		return nil, errors.New(errors.NetworkRouteOperationFailed, "interface name cannot be empty")
+	}
+
+	// Get current netplan configuration
+	config, err := m.GetNetplanConfig(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.NetworkOperationFailed)
+	}
+
+	// Check if interface exists
+	if config.Network == nil || config.Network.Ethernets == nil || config.Network.Ethernets[ifaceName] == nil {
+		return nil, errors.New(
+			errors.NetworkInterfaceNotFound,
+			fmt.Sprintf("interface %s not found in netplan configuration", ifaceName),
+		)
+	}
+
+	// Return the routing policies (can be nil/empty)
+	return config.Network.Ethernets[ifaceName].RoutingPolicy, nil
 }
 
 // GetNetplanConfig retrieves the current netplan configuration

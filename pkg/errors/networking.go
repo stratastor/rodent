@@ -23,6 +23,7 @@ const (
 	NetworkInterfaceOperationFailed               // Network interface operation failed
 	NetworkAddressInvalid                         // Invalid network address
 	NetworkRouteOperationFailed                   // Network route operation failed
+	NetworkRouteNotFound                          // Network route not found
 	NetworkDNSConfigurationFailed                 // DNS configuration failed
 	NetworkValidationFailed                       // Network configuration validation failed
 	NetworkStateInconsistent                      // Network state is inconsistent
@@ -146,6 +147,11 @@ func init() {
 			"Network route operation failed",
 			DomainNetwork,
 			http.StatusInternalServerError,
+		},
+		NetworkRouteNotFound: {
+			"Network route not found",
+			DomainNetwork,
+			http.StatusNotFound,
 		},
 		NetworkDNSConfigurationFailed: {
 			"DNS configuration failed",
