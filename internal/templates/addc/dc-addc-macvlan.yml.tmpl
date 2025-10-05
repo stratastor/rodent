@@ -13,6 +13,7 @@ services:
       - DOMAIN={{.Domain}}
       - ADMIN_PASS={{.AdminPassword}}
       - DNS_FORWARDER={{.DnsForwarder}}
+      - INTERFACE=eth0
     volumes:
       - {{.EtcVolume}}:/usr/local/samba/etc
       - {{.PrivateVolume}}:/usr/local/samba/private

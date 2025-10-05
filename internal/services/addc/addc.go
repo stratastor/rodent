@@ -241,6 +241,13 @@ func (c *Client) UpdateConfig(ctx context.Context, config *AdDcConfig) error {
 		templateName = "addc-compose-macvlan"
 	}
 
+	// Strip CIDR notation from IP address for Docker container config
+	// Docker expects just the IP (e.g., "192.168.100.10") not CIDR (e.g., "192.168.100.10/24")
+	if strings.Contains(adDcConfig.IPAddress, "/") {
+		parts := strings.Split(adDcConfig.IPAddress, "/")
+		adDcConfig.IPAddress = parts[0]
+	}
+
 	// Update docker-compose with the configuration
 	if err := c.configManager.UpdateConfig(ctx, templateName, adDcConfig); err != nil {
 		return fmt.Errorf("failed to update docker-compose configuration: %w", err)
@@ -471,9 +478,9 @@ func (c *Client) configureNetplanForADDC(ctx context.Context, cfg *AdDcConfig) e
 	case "host":
 		return c.configureNetplanHostMode(ctx, cfg)
 	case "macvlan":
-		// MACVLAN doesn't need netplan config - Docker handles everything
-		c.logger.Info("MACVLAN mode - skipping netplan configuration (Docker manages networking)")
-		return nil
+		// MACVLAN needs a shim interface for host-to-container communication
+		c.logger.Info("MACVLAN mode - configuring shim interface for host-container communication")
+		return c.configureMacvlanShim(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported network mode for netplan config: %s", cfg.NetworkMode)
 	}
@@ -570,6 +577,13 @@ func (c *Client) configureNetplanHostMode(ctx context.Context, cfg *AdDcConfig) 
 	c.logger.Info("Netplan configuration applied successfully",
 		"backup_id", result.BackupID,
 		"duration", result.TotalDuration)
+
+	// Configure host DNS to use the AD DC (add /etc/hosts entry)
+	// Netplan already configures DNS servers, but we need the hosts file entry
+	if err := c.configureHostDNS(ctx, cfg); err != nil {
+		c.logger.Warn("Failed to configure host DNS", "error", err)
+		// Don't fail completely - DNS config is best-effort
+	}
 
 	return nil
 }
@@ -742,6 +756,141 @@ func (c *Client) detectNetworkParams(ctx context.Context, ifaceName string) (gat
 	}
 
 	return gateway, subnet, nil
+}
+
+// configureMacvlanShim creates a macvlan shim interface to enable host-to-container communication
+// This is needed because the host cannot directly communicate with macvlan containers on the same parent interface
+func (c *Client) configureMacvlanShim(ctx context.Context, cfg *AdDcConfig) error {
+	shimName := "macvlan-shim"
+
+	// Check if shim interface already exists
+	output, err := c.executor.ExecuteWithCombinedOutput(ctx, "ip", "link", "show", shimName)
+	if err == nil && len(output) > 0 {
+		c.logger.Debug("MACVLAN shim interface already exists", "interface", shimName)
+		// Interface exists, but we still need to configure DNS
+		// Configure host DNS to use the AD DC
+		if err := c.configureHostDNS(ctx, cfg); err != nil {
+			c.logger.Warn("Failed to configure host DNS", "error", err)
+			// Don't fail completely - DNS config is best-effort
+		}
+		return nil
+	}
+
+	c.logger.Info("Creating MACVLAN shim interface",
+		"shim", shimName,
+		"parent", cfg.ParentInterface,
+		"subnet", cfg.Subnet)
+
+	// Create macvlan shim interface
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "ip", "link", "add",
+		shimName, "link", cfg.ParentInterface, "type", "macvlan", "mode", "bridge")
+	if err != nil {
+		return fmt.Errorf("failed to create macvlan shim interface: %w", err)
+	}
+
+	// Extract gateway IP from subnet for shim interface
+	// Use .1 as the shim IP (e.g., 192.168.100.0/24 -> 192.168.100.1)
+	shimIP := cfg.Gateway
+
+	// Assign IP to shim interface
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "ip", "addr", "add",
+		shimIP+"/"+strings.Split(cfg.Subnet, "/")[1], "dev", shimName)
+	if err != nil {
+		// Try to clean up the interface if IP assignment fails
+		c.executor.ExecuteWithCombinedOutput(ctx, "ip", "link", "del", shimName)
+		return fmt.Errorf("failed to assign IP to macvlan shim: %w", err)
+	}
+
+	// Bring interface up
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "ip", "link", "set", shimName, "up")
+	if err != nil {
+		// Try to clean up the interface if we can't bring it up
+		c.executor.ExecuteWithCombinedOutput(ctx, "ip", "link", "del", shimName)
+		return fmt.Errorf("failed to bring up macvlan shim interface: %w", err)
+	}
+
+	// Add route to container IP via shim
+	containerIP := cfg.IPAddress // Already stripped of CIDR in UpdateConfig
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "ip", "route", "add",
+		containerIP+"/32", "dev", shimName)
+	if err != nil {
+		c.logger.Warn("Failed to add route to container via shim (may already exist)", "error", err)
+		// Don't fail completely - the route might already exist
+	}
+
+	c.logger.Info("MACVLAN shim interface configured successfully",
+		"interface", shimName,
+		"ip", shimIP,
+		"container_ip", containerIP)
+
+	// Configure host DNS to use the AD DC
+	if err := c.configureHostDNS(ctx, cfg); err != nil {
+		c.logger.Warn("Failed to configure host DNS", "error", err)
+		// Don't fail completely - DNS config is best-effort
+	}
+
+	return nil
+}
+
+// configureHostDNS configures the host system to use the AD DC for DNS resolution
+func (c *Client) configureHostDNS(ctx context.Context, cfg *AdDcConfig) error {
+	containerIP := cfg.IPAddress // Already stripped of CIDR
+	dcFQDN := fmt.Sprintf("%s.%s", strings.ToUpper(cfg.Hostname), strings.ToLower(cfg.Realm))
+	dcHostname := strings.ToUpper(cfg.Hostname)
+
+	c.logger.Info("Configuring host DNS for AD DC",
+		"dc_ip", containerIP,
+		"dc_fqdn", dcFQDN,
+		"interface", cfg.ParentInterface)
+
+	// Add entry to /etc/hosts
+	hostsEntry := fmt.Sprintf("%s %s %s", containerIP, dcFQDN, dcHostname)
+
+	// Check if entry already exists using grep (executor has sudo enabled)
+	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "grep", containerIP, "/etc/hosts")
+	if err != nil {
+		// Entry doesn't exist, add it using sed (which can append in-place with sudo)
+		c.logger.Info("Adding AD DC entry to /etc/hosts", "entry", hostsEntry)
+
+		// Use sed to append: sed -i '$a\<entry>' /etc/hosts
+		// $a means append after last line
+		sedCmd := fmt.Sprintf("$a\\%s", hostsEntry)
+		_, err = c.executor.ExecuteWithCombinedOutput(ctx, "sed", "-i", sedCmd, "/etc/hosts")
+		if err != nil {
+			c.logger.Warn("Failed to add entry to /etc/hosts", "error", err)
+		} else {
+			c.logger.Info("Added AD DC entry to /etc/hosts successfully")
+		}
+	} else {
+		c.logger.Debug("AD DC entry already exists in /etc/hosts")
+	}
+
+	// Configure systemd-resolved to use DC as DNS
+	realm := strings.ToLower(cfg.Realm)
+
+	// Set DNS server for the interface
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "resolvectl", "dns",
+		cfg.ParentInterface, containerIP)
+	if err != nil {
+		c.logger.Warn("Failed to set DNS server via resolvectl", "error", err)
+	} else {
+		c.logger.Info("Configured DNS server via resolvectl",
+			"interface", cfg.ParentInterface,
+			"dns", containerIP)
+	}
+
+	// Set DNS domain for the interface
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "resolvectl", "domain",
+		cfg.ParentInterface, realm)
+	if err != nil {
+		c.logger.Warn("Failed to set DNS domain via resolvectl", "error", err)
+	} else {
+		c.logger.Info("Configured DNS domain via resolvectl",
+			"interface", cfg.ParentInterface,
+			"domain", realm)
+	}
+
+	return nil
 }
 
 // intPtr returns a pointer to an int

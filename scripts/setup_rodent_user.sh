@@ -185,6 +185,9 @@ GROUPADD_PATH=$(detect_binary "groupadd" "/usr/sbin/groupadd")
 GROUPDEL_PATH=$(detect_binary "groupdel" "/usr/sbin/groupdel")
 GROUPMOD_PATH=$(detect_binary "groupmod" "/usr/sbin/groupmod")
 CHPASSWD_PATH=$(detect_binary "chpasswd" "/usr/sbin/chpasswd")
+ECHO_PATH=$(detect_binary "echo" "/usr/bin/echo")
+SED_PATH=$(detect_binary "sed" "/usr/bin/sed")
+GREP_PATH=$(detect_binary "grep" "/usr/bin/grep")
 
 
 # File operation binaries
@@ -487,7 +490,10 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $GROUPADD_PATH *, \\
     $GROUPDEL_PATH *, \\
     $GROUPMOD_PATH *, \\
-    $CHPASSWD_PATH *
+    $CHPASSWD_PATH *, \\
+    $ECHO_PATH *, \\
+    $SED_PATH *, \\
+    $GREP_PATH *
 
 # Command aliases for file operations
 Cmnd_Alias FILE_OPERATIONS = \\

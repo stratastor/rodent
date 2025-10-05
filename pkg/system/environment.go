@@ -114,21 +114,21 @@ func (ed *EnvironmentDetector) detectVirtualization(ctx context.Context) (bool, 
 	}
 
 	// Fallback: Check DMI/SMBIOS
-	result, err = ed.executor.ExecuteCommand(ctx, "sudo", "dmidecode", "-s", "system-product-name")
+	result, err = ed.executor.ExecuteCommand(ctx, "dmidecode", "-s", "system-product-name")
 	if err == nil {
 		productName := strings.TrimSpace(strings.ToLower(result.Stdout))
 
 		// Check for known virtualization products
 		virtProducts := map[string]string{
-			"vmware":           "vmware",
-			"virtualbox":       "virtualbox",
-			"kvm":              "kvm",
-			"qemu":             "qemu",
-			"xen":              "xen",
-			"microsoft":        "hyperv",
-			"amazon ec2":       "amazon",
-			"google compute":   "google",
-			"azure":            "azure",
+			"vmware":         "vmware",
+			"virtualbox":     "virtualbox",
+			"kvm":            "kvm",
+			"qemu":           "qemu",
+			"xen":            "xen",
+			"microsoft":      "hyperv",
+			"amazon ec2":     "amazon",
+			"google compute": "google",
+			"azure":          "azure",
 		}
 
 		for key, hypervisor := range virtProducts {
@@ -180,7 +180,7 @@ func (ed *EnvironmentDetector) getKernelVersion(ctx context.Context) (string, in
 // detectCloudProvider attempts to identify the cloud provider
 func (ed *EnvironmentDetector) detectCloudProvider(ctx context.Context) string {
 	// Check DMI product name
-	result, err := ed.executor.ExecuteCommand(ctx, "sudo", "dmidecode", "-s", "system-product-name")
+	result, err := ed.executor.ExecuteCommand(ctx, "dmidecode", "-s", "system-product-name")
 	if err == nil {
 		productName := strings.TrimSpace(strings.ToLower(result.Stdout))
 

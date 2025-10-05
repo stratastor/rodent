@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/internal/command"
@@ -197,7 +198,13 @@ func (c *Client) ComposeUp(ctx context.Context, composeFilePath string, detach b
 		args = append(args, "-d")
 	}
 
-	_, err := command.ExecCommand(ctx, c.logger, c.dockerBin, args...)
+	// Docker compose up can take a long time when pulling images
+	// Use a 5-minute timeout instead of the default 30 seconds
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	c.logger.Debug("Starting docker-compose services", "args", args)
+	_, err := command.ExecCommand(timeoutCtx, c.logger, c.dockerBin, args...)
 	if err != nil {
 		return fmt.Errorf("failed to start docker-compose services: %w", err)
 	}
