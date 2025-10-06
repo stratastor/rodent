@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stratastor/rodent/cmd/config"
+	"github.com/stratastor/rodent/cmd/domain"
 	"github.com/stratastor/rodent/cmd/health"
 	"github.com/stratastor/rodent/cmd/logs"
 	"github.com/stratastor/rodent/cmd/serve"
@@ -42,6 +43,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(status.NewStatusCmd())
 	rootCmd.AddCommand(logs.NewLogsCmd())
 	rootCmd.AddCommand(config.NewConfigCmd())
+	rootCmd.AddCommand(domain.NewDomainCmd())
 
 	return rootCmd
 }

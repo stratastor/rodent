@@ -26,8 +26,8 @@ networks:
       parent: {{.ParentInterface}}
     ipam:
       config:
-        - subnet: {{.Subnet}}
-          gateway: {{.Gateway}}
+        - subnet: {{.Subnet}}{{if .Gateway}}
+          gateway: {{.Gateway}}{{end}}
 
 volumes:
   {{.EtcVolume}}:

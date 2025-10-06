@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/stratastor/rodent/internal/events"
 	"github.com/stratastor/rodent/internal/services"
 	"github.com/stratastor/rodent/internal/services/config"
+	"github.com/stratastor/rodent/internal/services/domain"
 	"github.com/stratastor/rodent/internal/services/docker"
 	"github.com/stratastor/rodent/internal/templates"
 	"github.com/stratastor/rodent/pkg/netmage"
@@ -57,8 +57,9 @@ type AdDcConfig struct {
 	NetworkMode     string // "host" or "macvlan"
 	ParentInterface string // Parent interface for macvlan
 	IPAddress       string // IP address (with CIDR for macvlan, without for host mode)
-	Gateway         string // Gateway for macvlan
+	Gateway         string // Gateway for routing (optional)
 	Subnet          string // Subnet for macvlan
+	ShimIP          string // IP for macvlan-shim interface
 }
 
 // Client handles interactions with AD DC
@@ -68,6 +69,7 @@ type Client struct {
 	composeFile   string
 	configManager *config.ServiceConfigManager
 	executor      *command.CommandExecutor
+	domainClient  *domain.Client
 }
 
 // NewClient creates a new AD DC client
@@ -120,6 +122,12 @@ func NewClient(logger logger.Logger) (*Client, error) {
 	// Create command executor for system commands
 	executor := command.NewCommandExecutor(true) // Use sudo for network operations
 
+	// Create domain client for domain join operations
+	domainClient, err := domain.NewClient(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create domain client: %w", err)
+	}
+
 	// Create client
 	client := &Client{
 		logger:        logger,
@@ -127,6 +135,7 @@ func NewClient(logger logger.Logger) (*Client, error) {
 		composeFile:   defaultAdDcComposePath,
 		configManager: configManager,
 		executor:      executor,
+		domainClient:  domainClient,
 	}
 
 	// Register state callback for event-based reporting
@@ -164,21 +173,30 @@ func (c *Client) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Get the current configuration for domain join
-	adDcConfig := c.getConfigFromGlobal()
+	// Check if auto-join is enabled
+	cfg := rodentCfg.GetConfig()
+	if !cfg.AD.DC.AutoJoin {
+		c.logger.Info("Domain auto-join is disabled, skipping domain join")
+		return nil
+	}
+
+	// Get domain configuration
+	domainCfg := domain.GetConfigFromGlobal()
 
 	// Wait for DC to be ready
 	c.logger.Info("Waiting for AD DC to be ready...")
-	if err := c.waitForDC(ctx, &adDcConfig, 60*time.Second); err != nil {
-		c.logger.Warn("AD DC may not be fully ready", "error", err)
-		// Continue anyway - best effort
-	} else {
-		c.logger.Info("AD DC is ready")
+	if len(domainCfg.DCServers) > 0 {
+		if err := c.domainClient.WaitForDC(ctx, domainCfg.DCServers[0], 60*time.Second); err != nil {
+			c.logger.Warn("AD DC may not be fully ready", "error", err)
+			// Continue anyway - best effort
+		} else {
+			c.logger.Info("AD DC is ready")
+		}
 	}
 
-	// Join the domain
+	// Join the domain using domain client
 	c.logger.Info("Joining AD domain...")
-	if err := c.joinDomain(ctx, &adDcConfig); err != nil {
+	if err := c.domainClient.Join(ctx, domainCfg); err != nil {
 		c.logger.Warn("Failed to join AD domain", "error", err)
 		// Don't fail completely if domain join fails
 	} else {
@@ -216,6 +234,7 @@ func (c *Client) getConfigFromGlobal() AdDcConfig {
 		IPAddress:       cfg.AD.DC.IPAddress,
 		Gateway:         cfg.AD.DC.Gateway,
 		Subnet:          cfg.AD.DC.Subnet,
+		ShimIP:          cfg.AD.DC.ShimIP,
 	}
 }
 
@@ -332,18 +351,19 @@ func (c *Client) validateNetworkConfig(ctx context.Context, cfg *AdDcConfig) err
 		return nil
 
 	case "macvlan":
-		// For MACVLAN mode, we need all network parameters
+		// For MACVLAN mode, we need network parameters
 		if cfg.ParentInterface == "" {
 			return fmt.Errorf("parent interface is required for MACVLAN mode")
 		}
 		if cfg.IPAddress == "" {
 			return fmt.Errorf("IP address is required for MACVLAN mode")
 		}
-		if cfg.Gateway == "" {
-			return fmt.Errorf("gateway is required for MACVLAN mode")
-		}
 		if cfg.Subnet == "" {
 			return fmt.Errorf("subnet is required for MACVLAN mode")
+		}
+		// Gateway is optional - not needed for direct connections or when using ShimIP
+		if cfg.Gateway == "" && cfg.ShimIP == "" {
+			c.logger.Debug("No gateway or shimIP specified - will auto-assign shim IP")
 		}
 
 		// Validate the parent interface exists and is UP
@@ -820,9 +840,27 @@ func (c *Client) configureMacvlanShim(ctx context.Context, cfg *AdDcConfig) erro
 		return fmt.Errorf("failed to create macvlan shim interface: %w", err)
 	}
 
-	// Extract gateway IP from subnet for shim interface
-	// Use .1 as the shim IP (e.g., 192.168.100.0/24 -> 192.168.100.1)
-	shimIP := cfg.Gateway
+	// Determine shim IP
+	shimIP := cfg.ShimIP
+	if shimIP == "" {
+		// Auto-assign: use last IP in subnet (.254 for /24)
+		// Extract network address from subnet
+		_, ipNet, err := net.ParseCIDR(cfg.Subnet)
+		if err != nil {
+			return fmt.Errorf("failed to parse subnet %s: %w", cfg.Subnet, err)
+		}
+
+		// Use .254 as a safe default (avoids conflicts with typical gateways at .1 or .254)
+		// For 192.168.100.0/24, this gives 192.168.100.253
+		ip := ipNet.IP.To4()
+		if ip == nil {
+			return fmt.Errorf("only IPv4 subnets are supported")
+		}
+		ip[3] = 253 // Use .253 to avoid common gateway IPs
+		shimIP = ip.String()
+
+		c.logger.Info("Auto-assigned shim IP", "shim_ip", shimIP)
+	}
 
 	// Assign IP to shim interface
 	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "ip", "addr", "add",
@@ -922,199 +960,6 @@ func (c *Client) configureHostDNS(ctx context.Context, cfg *AdDcConfig) error {
 			"domain", realm)
 	}
 
-	return nil
-}
-
-// waitForDC waits for the AD DC to be ready by checking LDAPS connectivity
-func (c *Client) waitForDC(ctx context.Context, cfg *AdDcConfig, timeout time.Duration) error {
-	dcIP := cfg.IPAddress
-	ldapsPort := "636"
-
-	deadline := time.Now().Add(timeout)
-	attempt := 0
-
-	for time.Now().Before(deadline) {
-		attempt++
-
-		// Try to connect to LDAPS port
-		conn, err := net.DialTimeout("tcp", dcIP+":"+ldapsPort, 2*time.Second)
-		if err == nil {
-			conn.Close()
-			c.logger.Info("AD DC LDAPS port is reachable",
-				"attempts", attempt,
-				"elapsed", time.Since(time.Now().Add(-timeout)).String())
-			return nil
-		}
-
-		c.logger.Debug("Waiting for AD DC LDAPS port",
-			"attempt", attempt,
-			"ip", dcIP,
-			"port", ldapsPort,
-			"error", err)
-
-		// Wait before next attempt
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled while waiting for DC")
-		case <-time.After(2 * time.Second):
-			// Continue to next attempt
-		}
-	}
-
-	return fmt.Errorf("timeout waiting for AD DC to be ready after %v", timeout)
-}
-
-// joinDomain joins the host to the AD domain
-func (c *Client) joinDomain(ctx context.Context, cfg *AdDcConfig) error {
-	c.logger.Info("Checking if host is already joined to AD domain", "realm", cfg.Realm)
-
-	// Check if already joined by checking if we can get domain info
-	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "net", "ads", "testjoin")
-	if err == nil {
-		c.logger.Info("Host is already joined to AD domain", "realm", cfg.Realm)
-		return nil
-	}
-
-	c.logger.Info("Host not joined to AD domain, joining now", "realm", cfg.Realm)
-
-	// Configure Kerberos
-	if err := c.configureKerberos(ctx, cfg); err != nil {
-		return fmt.Errorf("failed to configure Kerberos: %w", err)
-	}
-
-	// Configure NSS for winbind
-	if err := c.configureNSS(ctx); err != nil {
-		return fmt.Errorf("failed to configure NSS: %w", err)
-	}
-
-	// Join the domain using net ads join
-	c.logger.Info("Joining AD domain", "realm", cfg.Realm, "user", "Administrator")
-
-	// Use --password flag for non-interactive join
-	password := cfg.AdminPassword
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "net", "ads", "join",
-		"-U", "Administrator",
-		"--password="+password)
-	if err != nil {
-		return fmt.Errorf("failed to join AD domain: %w", err)
-	}
-
-	c.logger.Info("Successfully joined AD domain", "realm", cfg.Realm)
-
-	// Restart winbind service to apply domain membership
-	c.logger.Info("Restarting winbind service")
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "systemctl", "restart", "winbind")
-	if err != nil {
-		c.logger.Warn("Failed to restart winbind, continuing", "error", err)
-		// Don't fail completely - winbind might not be installed yet
-	}
-
-	return nil
-}
-
-// configureKerberos writes a minimal Kerberos configuration for AD
-func (c *Client) configureKerberos(ctx context.Context, cfg *AdDcConfig) error {
-	realm := strings.ToUpper(cfg.Realm)
-	domainLower := strings.ToLower(cfg.Realm)
-	dcIP := cfg.IPAddress
-
-	c.logger.Info("Configuring Kerberos", "realm", realm, "kdc", dcIP)
-
-	// Backup existing krb5.conf if it exists
-	krb5Path := "/etc/krb5.conf"
-	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "test", "-f", krb5Path)
-	if err == nil {
-		// File exists, create backup with datetime
-		backupPath := fmt.Sprintf("%s.backup.%s", krb5Path, time.Now().Format("20060102-150405"))
-		c.logger.Info("Backing up existing Kerberos config", "backup", backupPath)
-		_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", krb5Path, backupPath)
-		if err != nil {
-			c.logger.Warn("Failed to backup krb5.conf", "error", err)
-		}
-	}
-
-	krb5Conf := fmt.Sprintf(`[libdefaults]
-    default_realm = %s
-    dns_lookup_realm = false
-    dns_lookup_kdc = true
-    ticket_lifetime = 24h
-    renew_lifetime = 7d
-    forwardable = true
-
-[realms]
-    %s = {
-        kdc = %s
-        admin_server = %s
-        default_domain = %s
-    }
-
-[domain_realm]
-    .%s = %s
-    %s = %s
-`, realm, realm, dcIP, dcIP, domainLower, domainLower, realm, domainLower, realm)
-
-	// Write Kerberos config using sed
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "rodent-krb5-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file for krb5.conf: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.WriteString(krb5Conf); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write krb5.conf: %w", err)
-	}
-	tmpFile.Close()
-
-	// Copy to /etc/krb5.conf using sudo
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", tmpPath, krb5Path)
-	if err != nil {
-		return fmt.Errorf("failed to copy krb5.conf: %w", err)
-	}
-
-	c.logger.Info("Kerberos configuration written successfully")
-	return nil
-}
-
-// configureNSS updates /etc/nsswitch.conf to use winbind for user/group resolution
-func (c *Client) configureNSS(ctx context.Context) error {
-	c.logger.Info("Configuring NSS for winbind")
-
-	// Check if winbind is already in nsswitch.conf
-	output, err := c.executor.ExecuteWithCombinedOutput(ctx, "grep", "winbind", "/etc/nsswitch.conf")
-	if err == nil && len(output) > 0 {
-		c.logger.Debug("NSS already configured for winbind")
-		return nil
-	}
-
-	// Backup existing nsswitch.conf
-	nssPath := "/etc/nsswitch.conf"
-	backupPath := fmt.Sprintf("%s.backup.%s", nssPath, time.Now().Format("20060102-150405"))
-	c.logger.Info("Backing up existing NSS config", "backup", backupPath)
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", nssPath, backupPath)
-	if err != nil {
-		c.logger.Warn("Failed to backup nsswitch.conf", "error", err)
-	}
-
-	// Update passwd and group lines to add winbind
-	// passwd: files systemd winbind
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "sed", "-i",
-		"s/^passwd:.*/passwd:         files systemd winbind/",
-		nssPath)
-	if err != nil {
-		c.logger.Warn("Failed to update passwd line in nsswitch.conf", "error", err)
-	}
-
-	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "sed", "-i",
-		"s/^group:.*/group:          files systemd winbind/",
-		nssPath)
-	if err != nil {
-		c.logger.Warn("Failed to update group line in nsswitch.conf", "error", err)
-	}
-
-	c.logger.Info("NSS configured for winbind")
 	return nil
 }
 

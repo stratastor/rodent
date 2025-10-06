@@ -21,13 +21,13 @@ import (
 // Default configuration constants.
 // These may be overridden by values loaded from config.
 const (
-	defaultLDAPPort     = "636"
-	defaultBaseDNString = "ad.strata.internal"
-	defaultBaseDN       = "DC=ad,DC=strata,DC=internal"
-	defaultUserOU       = "OU=StrataUsers," + defaultBaseDN
-	defaultGroupOU      = "OU=StrataGroups," + defaultBaseDN
-	defaultComputerOU   = "OU=StrataComputers," + defaultBaseDN
-	defaultAdminDN      = "CN=Administrator,CN=Users," + defaultBaseDN
+	defaultLDAPPort = "636"
+	// defaultBaseDNString = "ad.strata.internal"
+	// defaultBaseDN       = "DC=ad,DC=strata,DC=internal"
+	// defaultUserOU       = "OU=StrataUsers," + defaultBaseDN
+	// defaultGroupOU      = "OU=StrataGroups," + defaultBaseDN
+	// defaultComputerOU   = "OU=StrataComputers," + defaultBaseDN
+	// defaultAdminDN      = "CN=Administrator,CN=Users," + defaultBaseDN
 )
 
 var (
@@ -145,24 +145,38 @@ func New() (*ADClient, error) {
 	cfg := config.GetConfig() // Expected to have cfg.AD.AdminPassword
 
 	// Determine LDAP connection parameters
-	var ldapURL string
+	// Build list of DC URLs to try
+	var dcURLs []string
 
-	// If LDAPURL is explicitly set in config, use that
+	// Priority 1: Explicit LDAPURL in config
 	if cfg.AD.LDAPURL != "" {
-		ldapURL = cfg.AD.LDAPURL
+		ldapURL := cfg.AD.LDAPURL
 		// Ensure we have a protocol prefix
 		if !strings.HasPrefix(ldapURL, "ldaps://") && !strings.HasPrefix(ldapURL, "ldap://") {
 			ldapURL = fmt.Sprintf("ldaps://%s:%s", ldapURL, defaultLDAPPort)
 		}
+		dcURLs = append(dcURLs, ldapURL)
+	} else if cfg.AD.Mode == "external" && len(cfg.AD.External.DomainControllers) > 0 {
+		// Priority 2: External AD mode - try all DCs in order
+		for _, dcServer := range cfg.AD.External.DomainControllers {
+			var ldapURL string
+			if !strings.HasPrefix(dcServer, "ldaps://") && !strings.HasPrefix(dcServer, "ldap://") {
+				ldapURL = fmt.Sprintf("ldaps://%s:%s", dcServer, defaultLDAPPort)
+			} else {
+				ldapURL = dcServer
+			}
+			dcURLs = append(dcURLs, ldapURL)
+		}
 	} else if cfg.AD.DC.Enabled {
-		// When DC service is enabled, use the configured hostname and realm
-		ldapURL = fmt.Sprintf("ldaps://%s.%s:%s",
+		// Priority 3: Self-hosted DC mode - use configured hostname and realm
+		ldapURL := fmt.Sprintf("ldaps://%s.%s:%s",
 			strings.ToUpper(cfg.AD.DC.Hostname),
 			strings.ToLower(cfg.AD.DC.Realm),
 			defaultLDAPPort)
+		dcURLs = append(dcURLs, ldapURL)
 	} else {
-		// Fallback to a default connection to localhost
-		ldapURL = fmt.Sprintf("ldaps://localhost:%s", defaultLDAPPort)
+		// Fallback: Default connection to localhost
+		dcURLs = append(dcURLs, fmt.Sprintf("ldaps://localhost:%s", defaultLDAPPort))
 	}
 
 	tlsConfig := &tls.Config{
@@ -170,52 +184,61 @@ func New() (*ADClient, error) {
 		InsecureSkipVerify: true,
 	}
 
-	// Try LDAPS first, then fallback to LDAP if TLS fails
+	// Try connecting to each DC URL until one succeeds
 	var conn *ldap.Conn
-	var err error
+	var connectedURL string
+	var lastErr error
 	maxRetries := 3
 
-	// First, try LDAPS connection with retry
-	for attempt := range maxRetries {
-		if attempt > 0 {
-			// Exponential backoff: 500ms, 1s, 2s, 4s
-			delay := time.Duration(500*(1<<attempt)) * time.Millisecond
-			time.Sleep(delay)
-		}
-
-		conn, err = ldap.DialURL(ldapURL, ldap.DialWithTLSConfig(tlsConfig))
-		if err == nil {
-			break // Connection successful
-		}
-
-		// Check if it's a connection error that might resolve with retry
-		if isConnectionError(err) && attempt < maxRetries-1 {
-			continue
-		}
-
-		// If it's a TLS/certificate error, try fallback to LDAP
-		if strings.Contains(err.Error(), "tls:") || strings.Contains(err.Error(), "x509:") {
-			// Convert LDAPS URL to LDAP URL (port 636 -> 389)
-			fallbackURL := strings.Replace(ldapURL, "ldaps://", "ldap://", 1)
-			fallbackURL = strings.Replace(fallbackURL, ":636", ":389", 1)
-
-			fallbackConn, fallbackErr := ldap.DialURL(fallbackURL)
-			if fallbackErr == nil {
-				// Update ldapURL for potential reconnections
-				ldapURL = fallbackURL
-				conn = fallbackConn
-				err = nil // Clear the error since fallback succeeded
-				break
+	for _, ldapURL := range dcURLs {
+		// Try LDAPS connection with retry for this DC
+		for attempt := range maxRetries {
+			if attempt > 0 {
+				// Exponential backoff: 500ms, 1s, 2s
+				delay := time.Duration(500*(1<<attempt)) * time.Millisecond
+				time.Sleep(delay)
 			}
+
+			conn, lastErr = ldap.DialURL(ldapURL, ldap.DialWithTLSConfig(tlsConfig))
+			if lastErr == nil {
+				connectedURL = ldapURL
+				break // Connection successful
+			}
+
+			// Check if it's a connection error that might resolve with retry
+			if isConnectionError(lastErr) && attempt < maxRetries-1 {
+				continue
+			}
+
+			// If it's a TLS/certificate error, try fallback to LDAP
+			if strings.Contains(lastErr.Error(), "tls:") ||
+				strings.Contains(lastErr.Error(), "x509:") {
+				// Convert LDAPS URL to LDAP URL (port 636 -> 389)
+				fallbackURL := strings.Replace(ldapURL, "ldaps://", "ldap://", 1)
+				fallbackURL = strings.Replace(fallbackURL, ":636", ":389", 1)
+
+				fallbackConn, fallbackErr := ldap.DialURL(fallbackURL)
+				if fallbackErr == nil {
+					conn = fallbackConn
+					connectedURL = fallbackURL
+					lastErr = nil
+					break
+				}
+			}
+
+			// Try next attempt or next DC
+			break
 		}
 
-		// Not a retryable error or max attempts reached
-		return nil, errors.Wrap(err, errors.ADConnectFailed)
+		// If connection succeeded, stop trying other DCs
+		if conn != nil && lastErr == nil {
+			break
+		}
 	}
 
-	// If we still have an error after all attempts, return it
-	if err != nil {
-		return nil, errors.Wrap(err, errors.ADConnectFailed)
+	// If we still have an error after trying all DCs, return it
+	if conn == nil || lastErr != nil {
+		return nil, errors.Wrap(lastErr, errors.ADConnectFailed)
 	}
 
 	// Use the configured Realm to build the baseDN if not explicitly set
@@ -281,7 +304,7 @@ func New() (*ADClient, error) {
 	}
 
 	client := &ADClient{
-		ldapURL:    ldapURL,
+		ldapURL:    connectedURL,
 		realm:      realm,
 		baseDN:     baseDN,
 		userOU:     userOU,

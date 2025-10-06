@@ -36,6 +36,7 @@ type Config struct {
 	} `mapstructure:"health"`
 
 	AD struct {
+		Mode          string `mapstructure:"mode"` // "self-hosted" or "external"
 		AdminPassword string `mapstructure:"adminPassword"`
 		LDAPURL       string `mapstructure:"ldapURL"`
 		Realm         string `mapstructure:"realm"`
@@ -58,9 +59,16 @@ type Config struct {
 			NetworkMode      string `mapstructure:"networkMode"`      // "auto", "host", or "macvlan"
 			ParentInterface  string `mapstructure:"parentInterface"`  // For macvlan: parent interface; For host: dedicated interface
 			IPAddress        string `mapstructure:"ipAddress"`        // Static IP for AD DC (with CIDR for macvlan)
-			Gateway          string `mapstructure:"gateway"`          // Gateway for macvlan mode
+			Gateway          string `mapstructure:"gateway"`          // Gateway for routing (optional, not needed for direct connections)
 			Subnet           string `mapstructure:"subnet"`           // Subnet for macvlan mode (e.g., "172.31.0.0/20")
+			ShimIP           string `mapstructure:"shimIP"`           // IP for macvlan-shim interface (defaults to auto-assigned if empty)
+			AutoJoin         bool   `mapstructure:"autoJoin"`         // Automatically join domain after starting DC
 		} `mapstructure:"dc"`
+		External struct {
+			DomainControllers []string `mapstructure:"domainControllers"` // List of DC servers (IP or FQDN)
+			AdminUser         string   `mapstructure:"adminUser"`         // Admin username (default: "Administrator")
+			AutoJoin          bool     `mapstructure:"autoJoin"`          // Automatically join domain on startup
+		} `mapstructure:"external"`
 	} `mapstructure:"ad"`
 
 	Logs struct {
@@ -175,6 +183,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("logger.sentryDSN", "")
 
 		// Set defaults for AD configuration - use lowercase consistently
+		viper.SetDefault("ad.mode", "self-hosted")
 		viper.SetDefault("ad.adminPassword", "")
 		viper.SetDefault("ad.ldapURL", "")
 		viper.SetDefault("ad.realm", "")
@@ -199,6 +208,13 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("ad.dc.ipAddress", "")
 		viper.SetDefault("ad.dc.gateway", "")
 		viper.SetDefault("ad.dc.subnet", "")
+		viper.SetDefault("ad.dc.shimIP", "")
+		viper.SetDefault("ad.dc.autoJoin", true)
+
+		// Set defaults for external AD configuration
+		viper.SetDefault("ad.external.domainControllers", []string{})
+		viper.SetDefault("ad.external.adminUser", "Administrator")
+		viper.SetDefault("ad.external.autoJoin", false)
 
 		// Set defaults for Toggle configuration
 		viper.SetDefault("toggle.jwt", "")
