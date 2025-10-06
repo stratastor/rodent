@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/stratastor/logger"
 	rodentCfg "github.com/stratastor/rodent/config"
@@ -157,7 +159,33 @@ func (c *Client) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to update configuration before starting: %w", err)
 	}
 
-	return c.dockerSvc.ComposeUp(ctx, c.composeFile, true)
+	// Start the container
+	if err := c.dockerSvc.ComposeUp(ctx, c.composeFile, true); err != nil {
+		return err
+	}
+
+	// Get the current configuration for domain join
+	adDcConfig := c.getConfigFromGlobal()
+
+	// Wait for DC to be ready
+	c.logger.Info("Waiting for AD DC to be ready...")
+	if err := c.waitForDC(ctx, &adDcConfig, 60*time.Second); err != nil {
+		c.logger.Warn("AD DC may not be fully ready", "error", err)
+		// Continue anyway - best effort
+	} else {
+		c.logger.Info("AD DC is ready")
+	}
+
+	// Join the domain
+	c.logger.Info("Joining AD domain...")
+	if err := c.joinDomain(ctx, &adDcConfig); err != nil {
+		c.logger.Warn("Failed to join AD domain", "error", err)
+		// Don't fail completely if domain join fails
+	} else {
+		c.logger.Info("Successfully joined AD domain")
+	}
+
+	return nil
 }
 
 // Stop stops the AD DC service
@@ -170,30 +198,34 @@ func (c *Client) Restart(ctx context.Context) error {
 	return c.dockerSvc.ComposeRestart(ctx, c.composeFile)
 }
 
+// getConfigFromGlobal returns AdDcConfig populated from global config
+func (c *Client) getConfigFromGlobal() AdDcConfig {
+	cfg := rodentCfg.GetConfig()
+	return AdDcConfig{
+		ContainerName:   cfg.AD.DC.ContainerName,
+		Hostname:        cfg.AD.DC.Hostname,
+		Realm:           cfg.AD.DC.Realm,
+		Domain:          cfg.AD.DC.Domain,
+		AdminPassword:   cfg.AD.AdminPassword,
+		DnsForwarder:    cfg.AD.DC.DnsForwarder,
+		EtcVolume:       cfg.AD.DC.EtcVolume,
+		PrivateVolume:   cfg.AD.DC.PrivateVolume,
+		VarVolume:       cfg.AD.DC.VarVolume,
+		NetworkMode:     cfg.AD.DC.NetworkMode,
+		ParentInterface: cfg.AD.DC.ParentInterface,
+		IPAddress:       cfg.AD.DC.IPAddress,
+		Gateway:         cfg.AD.DC.Gateway,
+		Subnet:          cfg.AD.DC.Subnet,
+	}
+}
+
 // UpdateConfig updates the configuration files for AD DC
 // If config is nil, it will use the values from the global config
 func (c *Client) UpdateConfig(ctx context.Context, config *AdDcConfig) error {
 	var adDcConfig AdDcConfig
 
 	if config == nil {
-		// Use config from the global config if none provided
-		cfg := rodentCfg.GetConfig()
-		adDcConfig = AdDcConfig{
-			ContainerName:   cfg.AD.DC.ContainerName,
-			Hostname:        cfg.AD.DC.Hostname,
-			Realm:           cfg.AD.DC.Realm,
-			Domain:          cfg.AD.DC.Domain,
-			AdminPassword:   cfg.AD.AdminPassword,
-			DnsForwarder:    cfg.AD.DC.DnsForwarder,
-			EtcVolume:       cfg.AD.DC.EtcVolume,
-			PrivateVolume:   cfg.AD.DC.PrivateVolume,
-			VarVolume:       cfg.AD.DC.VarVolume,
-			NetworkMode:     cfg.AD.DC.NetworkMode,
-			ParentInterface: cfg.AD.DC.ParentInterface,
-			IPAddress:       cfg.AD.DC.IPAddress,
-			Gateway:         cfg.AD.DC.Gateway,
-			Subnet:          cfg.AD.DC.Subnet,
-		}
+		adDcConfig = c.getConfigFromGlobal()
 	} else {
 		// Use the provided config
 		adDcConfig = *config
@@ -890,6 +922,199 @@ func (c *Client) configureHostDNS(ctx context.Context, cfg *AdDcConfig) error {
 			"domain", realm)
 	}
 
+	return nil
+}
+
+// waitForDC waits for the AD DC to be ready by checking LDAPS connectivity
+func (c *Client) waitForDC(ctx context.Context, cfg *AdDcConfig, timeout time.Duration) error {
+	dcIP := cfg.IPAddress
+	ldapsPort := "636"
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+
+	for time.Now().Before(deadline) {
+		attempt++
+
+		// Try to connect to LDAPS port
+		conn, err := net.DialTimeout("tcp", dcIP+":"+ldapsPort, 2*time.Second)
+		if err == nil {
+			conn.Close()
+			c.logger.Info("AD DC LDAPS port is reachable",
+				"attempts", attempt,
+				"elapsed", time.Since(time.Now().Add(-timeout)).String())
+			return nil
+		}
+
+		c.logger.Debug("Waiting for AD DC LDAPS port",
+			"attempt", attempt,
+			"ip", dcIP,
+			"port", ldapsPort,
+			"error", err)
+
+		// Wait before next attempt
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for DC")
+		case <-time.After(2 * time.Second):
+			// Continue to next attempt
+		}
+	}
+
+	return fmt.Errorf("timeout waiting for AD DC to be ready after %v", timeout)
+}
+
+// joinDomain joins the host to the AD domain
+func (c *Client) joinDomain(ctx context.Context, cfg *AdDcConfig) error {
+	c.logger.Info("Checking if host is already joined to AD domain", "realm", cfg.Realm)
+
+	// Check if already joined by checking if we can get domain info
+	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "net", "ads", "testjoin")
+	if err == nil {
+		c.logger.Info("Host is already joined to AD domain", "realm", cfg.Realm)
+		return nil
+	}
+
+	c.logger.Info("Host not joined to AD domain, joining now", "realm", cfg.Realm)
+
+	// Configure Kerberos
+	if err := c.configureKerberos(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to configure Kerberos: %w", err)
+	}
+
+	// Configure NSS for winbind
+	if err := c.configureNSS(ctx); err != nil {
+		return fmt.Errorf("failed to configure NSS: %w", err)
+	}
+
+	// Join the domain using net ads join
+	c.logger.Info("Joining AD domain", "realm", cfg.Realm, "user", "Administrator")
+
+	// Use --password flag for non-interactive join
+	password := cfg.AdminPassword
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "net", "ads", "join",
+		"-U", "Administrator",
+		"--password="+password)
+	if err != nil {
+		return fmt.Errorf("failed to join AD domain: %w", err)
+	}
+
+	c.logger.Info("Successfully joined AD domain", "realm", cfg.Realm)
+
+	// Restart winbind service to apply domain membership
+	c.logger.Info("Restarting winbind service")
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "systemctl", "restart", "winbind")
+	if err != nil {
+		c.logger.Warn("Failed to restart winbind, continuing", "error", err)
+		// Don't fail completely - winbind might not be installed yet
+	}
+
+	return nil
+}
+
+// configureKerberos writes a minimal Kerberos configuration for AD
+func (c *Client) configureKerberos(ctx context.Context, cfg *AdDcConfig) error {
+	realm := strings.ToUpper(cfg.Realm)
+	domainLower := strings.ToLower(cfg.Realm)
+	dcIP := cfg.IPAddress
+
+	c.logger.Info("Configuring Kerberos", "realm", realm, "kdc", dcIP)
+
+	// Backup existing krb5.conf if it exists
+	krb5Path := "/etc/krb5.conf"
+	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "test", "-f", krb5Path)
+	if err == nil {
+		// File exists, create backup with datetime
+		backupPath := fmt.Sprintf("%s.backup.%s", krb5Path, time.Now().Format("20060102-150405"))
+		c.logger.Info("Backing up existing Kerberos config", "backup", backupPath)
+		_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", krb5Path, backupPath)
+		if err != nil {
+			c.logger.Warn("Failed to backup krb5.conf", "error", err)
+		}
+	}
+
+	krb5Conf := fmt.Sprintf(`[libdefaults]
+    default_realm = %s
+    dns_lookup_realm = false
+    dns_lookup_kdc = true
+    ticket_lifetime = 24h
+    renew_lifetime = 7d
+    forwardable = true
+
+[realms]
+    %s = {
+        kdc = %s
+        admin_server = %s
+        default_domain = %s
+    }
+
+[domain_realm]
+    .%s = %s
+    %s = %s
+`, realm, realm, dcIP, dcIP, domainLower, domainLower, realm, domainLower, realm)
+
+	// Write Kerberos config using sed
+	// Create temp file
+	tmpFile, err := os.CreateTemp("", "rodent-krb5-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file for krb5.conf: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.WriteString(krb5Conf); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write krb5.conf: %w", err)
+	}
+	tmpFile.Close()
+
+	// Copy to /etc/krb5.conf using sudo
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", tmpPath, krb5Path)
+	if err != nil {
+		return fmt.Errorf("failed to copy krb5.conf: %w", err)
+	}
+
+	c.logger.Info("Kerberos configuration written successfully")
+	return nil
+}
+
+// configureNSS updates /etc/nsswitch.conf to use winbind for user/group resolution
+func (c *Client) configureNSS(ctx context.Context) error {
+	c.logger.Info("Configuring NSS for winbind")
+
+	// Check if winbind is already in nsswitch.conf
+	output, err := c.executor.ExecuteWithCombinedOutput(ctx, "grep", "winbind", "/etc/nsswitch.conf")
+	if err == nil && len(output) > 0 {
+		c.logger.Debug("NSS already configured for winbind")
+		return nil
+	}
+
+	// Backup existing nsswitch.conf
+	nssPath := "/etc/nsswitch.conf"
+	backupPath := fmt.Sprintf("%s.backup.%s", nssPath, time.Now().Format("20060102-150405"))
+	c.logger.Info("Backing up existing NSS config", "backup", backupPath)
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "cp", nssPath, backupPath)
+	if err != nil {
+		c.logger.Warn("Failed to backup nsswitch.conf", "error", err)
+	}
+
+	// Update passwd and group lines to add winbind
+	// passwd: files systemd winbind
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "sed", "-i",
+		"s/^passwd:.*/passwd:         files systemd winbind/",
+		nssPath)
+	if err != nil {
+		c.logger.Warn("Failed to update passwd line in nsswitch.conf", "error", err)
+	}
+
+	_, err = c.executor.ExecuteWithCombinedOutput(ctx, "sed", "-i",
+		"s/^group:.*/group:          files systemd winbind/",
+		nssPath)
+	if err != nil {
+		c.logger.Warn("Failed to update group line in nsswitch.conf", "error", err)
+	}
+
+	c.logger.Info("NSS configured for winbind")
 	return nil
 }
 

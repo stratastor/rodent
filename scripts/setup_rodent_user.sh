@@ -188,6 +188,8 @@ CHPASSWD_PATH=$(detect_binary "chpasswd" "/usr/sbin/chpasswd")
 ECHO_PATH=$(detect_binary "echo" "/usr/bin/echo")
 SED_PATH=$(detect_binary "sed" "/usr/bin/sed")
 GREP_PATH=$(detect_binary "grep" "/usr/bin/grep")
+NET_PATH=$(detect_binary "net" "/usr/bin/net")
+TEST_PATH=$(detect_binary "test" "/usr/bin/test")
 
 
 # File operation binaries
@@ -493,7 +495,9 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $CHPASSWD_PATH *, \\
     $ECHO_PATH *, \\
     $SED_PATH *, \\
-    $GREP_PATH *
+    $GREP_PATH *, \\
+    $NET_PATH ads *, \\
+    $TEST_PATH -f *
 
 # Command aliases for file operations
 Cmnd_Alias FILE_OPERATIONS = \\
