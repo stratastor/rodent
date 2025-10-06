@@ -40,7 +40,7 @@ func NewManager(executor *command.CommandExecutor) *Manager {
 func buildVDevArgs(specs []VDevSpec) []string {
 	var args []string
 	for _, spec := range specs {
-		if spec.Type != "" {
+		if spec.Type != "" && spec.Type != "stripe" {
 			args = append(args, spec.Type)
 		}
 		args = append(args, spec.Devices...)
