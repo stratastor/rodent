@@ -28,6 +28,7 @@ const BinSetfacl = "/usr/bin/setfacl"
 type ACLManager struct {
 	logger   logger.Logger
 	adClient *ad.ADClient
+	executor *command.CommandExecutor
 }
 
 func (m *ACLManager) Close() {
@@ -40,6 +41,7 @@ func NewACLManager(logger logger.Logger, adClient *ad.ADClient) *ACLManager {
 	return &ACLManager{
 		logger:   logger,
 		adClient: adClient,
+		executor: command.NewCommandExecutor(true), // Use sudo for ACL operations
 	}
 }
 
@@ -66,7 +68,7 @@ func (m *ACLManager) GetACL(ctx context.Context, cfg ACLListConfig) (ACLListResu
 	args = append(args, cfg.Path)
 
 	// Execute getfacl command
-	out, err := command.ExecCommand(ctx, m.logger, BinGetfacl, args...)
+	out, err := m.executor.ExecuteWithCombinedOutput(ctx, BinGetfacl, args...)
 	if err != nil {
 		return ACLListResult{}, errors.Wrap(err, errors.FACLReadError).
 			WithMetadata("path", cfg.Path)
@@ -253,7 +255,7 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 	args = append(args, cfg.Path)
 
 	// Execute setfacl command
-	out, err := command.ExecCommand(ctx, m.logger, BinSetfacl, args...)
+	out, err := m.executor.ExecuteWithCombinedOutput(ctx, BinSetfacl, args...)
 	if err != nil {
 		return errors.Wrap(err, errors.FACLWriteError).
 			WithMetadata("path", cfg.Path).
@@ -317,7 +319,7 @@ func (m *ACLManager) ModifyACL(ctx context.Context, cfg ACLConfig) error {
 	args = append(args, cfg.Path)
 
 	// Execute setfacl command
-	out, err := command.ExecCommand(ctx, m.logger, BinSetfacl, args...)
+	out, err := m.executor.ExecuteWithCombinedOutput(ctx, BinSetfacl, args...)
 	if err != nil {
 		return errors.Wrap(err, errors.FACLWriteError).
 			WithMetadata("path", cfg.Path).
@@ -410,7 +412,7 @@ func (m *ACLManager) RemoveACL(ctx context.Context, cfg ACLRemoveConfig) error {
 	args = append(args, cfg.Path)
 
 	// Execute setfacl command
-	out, err := command.ExecCommand(ctx, m.logger, BinSetfacl, args...)
+	out, err := m.executor.ExecuteWithCombinedOutput(ctx, BinSetfacl, args...)
 	if err != nil {
 		return errors.Wrap(err, errors.FACLWriteError).
 			WithMetadata("path", cfg.Path).
