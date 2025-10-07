@@ -2,11 +2,88 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package ad provides Active Directory IAM (Identity and Access Management) operations.
+//
+// # Overview
+//
+// This package implements LDAP-based operations for managing users, groups, and computers
+// in Active Directory. It supports both self-hosted Samba AD DC and external enterprise
+// AD environments.
+//
+// # Connection Strategy
+//
+// The ADClient connects to AD domain controllers using the following priority:
+//
+//  1. Explicit LDAPURL (config.AD.LDAPURL):
+//     - Direct LDAP/LDAPS URL specified in configuration
+//     - Takes precedence over all other connection methods
+//
+//  2. External AD Mode (config.AD.Mode = "external"):
+//     - Uses domain controllers from config.AD.External.DomainControllers
+//     - Tries each DC in order until connection succeeds (failover support)
+//     - Example: ["dc1.corp.com", "dc2.corp.com"]
+//
+//  3. Self-Hosted AD Mode (config.AD.Mode = "self-hosted"):
+//     - Connects to the local Samba AD DC container
+//     - Uses config.AD.DC.Hostname and config.AD.DC.Realm
+//     - Example: ldaps://DC1.ad.strata.internal:636
+//
+//  4. Localhost Fallback:
+//     - Defaults to ldaps://localhost:636 if nothing else is configured
+//
+// # DC Failover
+//
+// When multiple domain controllers are configured (external mode), the client
+// implements automatic failover:
+//
+//   - Tries to connect to each DC in the configured order
+//   - Uses exponential backoff (500ms, 1s, 2s) for transient failures
+//   - Falls back from LDAPS (636) to LDAP (389) if TLS fails
+//   - Stores the successful connection URL for reconnection
+//
+// This ensures resilience against individual DC failures in enterprise environments.
+//
+// # LDAP Operations
+//
+// The client provides high-level operations for AD objects:
+//
+//   - Users: Create, Search, List, Update, Delete
+//   - Groups: Create, Search, List, Update, Delete, Manage Members
+//   - Computers: Create, Search, List, Update, Delete
+//   - Organizational Units: Ensure existence, create if missing
+//
+// All operations use connection retry logic (withLDAPRetry) to handle transient
+// network failures and automatically reconnect if the connection is lost.
+//
+// # Organizational Units
+//
+// Objects are organized into OUs for better structure:
+//
+//   - Users: OU=StrataUsers,DC=ad,DC=strata,DC=internal
+//   - Groups: OU=StrataGroups,DC=ad,DC=strata,DC=internal
+//   - Computers: OU=StrataComputers,DC=ad,DC=strata,DC=internal
+//
+// OUs are automatically created if they don't exist when objects are added.
+//
+// # Security
+//
+// The client uses LDAPS (LDAP over TLS) by default for secure communication.
+// Currently uses InsecureSkipVerify for testing - this should be updated to
+// properly validate server certificates in production.
+//
+// Passwords are encoded in UTF-16LE format as required by AD's unicodePwd attribute.
+//
+// See also:
+//   - internal/services/domain for domain membership operations
+//   - internal/services/addc for self-hosted AD DC management
+//
 package ad
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -512,9 +589,92 @@ func (c *ADClient) EnsureOUExists(ouDN string) error {
 	})
 }
 
+// ValidatePassword checks if a password meets AD password policy requirements.
+// Default AD password policy requires:
+//   - Minimum length: 7 characters
+//   - Complexity: Characters from at least 3 of the 4 categories:
+//     * Uppercase letters (A-Z)
+//     * Lowercase letters (a-z)
+//     * Digits (0-9)
+//     * Special characters (!, $, #, %, etc.)
+//   - Must not contain username or parts of user's full name
+func ValidatePassword(password, username, fullName string) error {
+	// Check minimum length
+	if len(password) < 7 {
+		return fmt.Errorf("password must be at least 7 characters long")
+	}
+
+	// Check complexity - count character categories
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, ch := range password {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			hasUpper = true
+		case ch >= 'a' && ch <= 'z':
+			hasLower = true
+		case ch >= '0' && ch <= '9':
+			hasDigit = true
+		case !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')):
+			hasSpecial = true
+		}
+	}
+
+	categories := 0
+	if hasUpper {
+		categories++
+	}
+	if hasLower {
+		categories++
+	}
+	if hasDigit {
+		categories++
+	}
+	if hasSpecial {
+		categories++
+	}
+
+	if categories < 3 {
+		return fmt.Errorf("password must contain characters from at least 3 categories (uppercase, lowercase, digits, special characters)")
+	}
+
+	// Check username restriction (case-insensitive)
+	passwordLower := strings.ToLower(password)
+	usernameLower := strings.ToLower(username)
+
+	// Check if password contains username
+	if usernameLower != "" && strings.Contains(passwordLower, usernameLower) {
+		return fmt.Errorf("password must not contain the username")
+	}
+
+	// Check parts of full name (words longer than 2 characters)
+	if fullName != "" {
+		words := strings.Fields(strings.ToLower(fullName))
+		for _, word := range words {
+			if len(word) > 2 && strings.Contains(passwordLower, word) {
+				return fmt.Errorf("password must not contain parts of the user's full name")
+			}
+		}
+	}
+
+	return nil
+}
+
 // CreateUser adds a new user and sets the password.
 // Password modifications require an encrypted connection.
 func (c *ADClient) CreateUser(user *User) error {
+	// Validate password if provided
+	if user.Password != "" {
+		fullName := user.DisplayName
+		if fullName == "" && user.GivenName != "" && user.Surname != "" {
+			fullName = user.GivenName + " " + user.Surname
+		}
+
+		if err := ValidatePassword(user.Password, user.SAMAccountName, fullName); err != nil {
+			return errors.Wrap(err, errors.ADInvalidPassword).
+				WithMetadata("user_cn", user.CN).
+				WithMetadata("sam_account_name", user.SAMAccountName)
+		}
+	}
 	if err := c.EnsureOUExists(c.userOU); err != nil {
 		return errors.Wrap(err, errors.ADCreateUserFailed).
 			WithMetadata("user_cn", user.CN).
@@ -822,11 +982,218 @@ func (c *ADClient) ListComputers() ([]*ldap.Entry, error) {
 	return entries, nil
 }
 
+// SetUserPassword changes a user's password.
+// For self-hosted Samba AD DC, uses samba-tool (only method that works).
+// For external Microsoft AD, uses LDAP unicodePwd modification.
+//
+// Parameters:
+//   - username: The SAMAccountName of the user
+//   - newPassword: The new password (will be validated against password policy)
+func (c *ADClient) SetUserPassword(username, newPassword string) error {
+	// Validate password
+	if err := ValidatePassword(newPassword, username, ""); err != nil {
+		return errors.Wrap(err, errors.ADInvalidPassword).
+			WithMetadata("username", username)
+	}
+
+	// Check if self-hosted Samba or external AD
+	cfg := config.GetConfig()
+
+	if cfg.AD.Mode == "self-hosted" && cfg.AD.DC.Enabled {
+		// Use samba-tool for self-hosted Samba AD DC
+		return c.setPasswordViaSambaTool(username, newPassword)
+	} else {
+		// Use LDAP for external Microsoft AD
+		userDN := fmt.Sprintf("CN=%s,%s", username, c.userOU)
+		return c.setUserPassword(userDN, newPassword)
+	}
+}
+
+// setPasswordViaSambaTool changes password using samba-tool inside the DC container.
+// This is the only method that works for Samba AD DC, as Samba blocks all LDAP-based
+// password modifications with "Unwilling To Perform" errors.
+//
+// The samba-tool command runs with full privileges inside the DC container, bypassing
+// LDAP security restrictions.
+func (c *ADClient) setPasswordViaSambaTool(username, newPassword string) error {
+	cfg := config.GetConfig()
+	containerName := cfg.AD.DC.ContainerName
+
+	if containerName == "" {
+		return errors.New(errors.ConfigInvalid, "AD DC container name not configured").
+			WithMetadata("username", username)
+	}
+
+	// Execute samba-tool user setpassword inside the container
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "exec", containerName,
+		"samba-tool", "user", "setpassword", username,
+		fmt.Sprintf("--newpassword=%s", newPassword))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrap(err, errors.ADSetPasswordFailed).
+			WithMetadata("username", username).
+			WithMetadata("method", "samba-tool").
+			WithMetadata("container", containerName).
+			WithMetadata("output", string(output))
+	}
+
+	return nil
+}
+
+// setUserPassword is the internal helper that does the actual password modification.
+// For Samba AD DC compatibility, this uses a workaround:
+//   1. Read current account status
+//   2. Disable account (if enabled)
+//   3. Set password via unicodePwd (only works on disabled accounts in Samba)
+//   4. Re-enable account (if it was enabled)
+func (c *ADClient) setUserPassword(userDN, newPassword string) error {
+	// Step 1: Get current userAccountControl to check if account is enabled
+	var wasEnabled bool
+	err := c.withLDAPRetry(func() error {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+
+		searchReq := ldap.NewSearchRequest(
+			userDN,
+			ldap.ScopeBaseObject,
+			ldap.NeverDerefAliases,
+			0, 0, false,
+			"(objectClass=*)",
+			[]string{"userAccountControl"},
+			nil,
+		)
+
+		sr, err := c.conn.Search(searchReq)
+		if err != nil {
+			return err
+		}
+
+		if len(sr.Entries) == 0 {
+			return fmt.Errorf("user not found")
+		}
+
+		uacStr := sr.Entries[0].GetAttributeValue("userAccountControl")
+		if uacStr != "" {
+			// 512 = enabled, 514 = disabled
+			wasEnabled = (uacStr == "512")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return errors.Wrap(err, errors.ADSetPasswordFailed).
+			WithMetadata("user_dn", userDN).
+			WithMetadata("step", "read_account_status")
+	}
+
+	// Step 2: Disable account if it's enabled (Samba requires this for password changes)
+	if wasEnabled {
+		disableReq := ldap.NewModifyRequest(userDN, nil)
+		disableReq.Replace("userAccountControl", []string{"514"}) // 514 = disabled
+
+		err = c.withLDAPRetry(func() error {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			return c.conn.Modify(disableReq)
+		})
+
+		if err != nil {
+			return errors.Wrap(err, errors.ADSetPasswordFailed).
+				WithMetadata("user_dn", userDN).
+				WithMetadata("step", "disable_account")
+		}
+	}
+
+	// Step 3: Set password (works on disabled accounts)
+	encodedPwd, err := encodePassword(newPassword)
+	if err != nil {
+		return errors.Wrap(err, errors.ADEncodePasswordFailed).
+			WithMetadata("user_dn", userDN)
+	}
+
+	modPwdReq := ldap.NewModifyRequest(userDN, nil)
+	modPwdReq.Replace("unicodePwd", []string{encodedPwd})
+
+	err = c.withLDAPRetry(func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.conn.Modify(modPwdReq)
+	})
+
+	if err != nil {
+		// If password change fails, try to re-enable account before returning error
+		if wasEnabled {
+			enableReq := ldap.NewModifyRequest(userDN, nil)
+			enableReq.Replace("userAccountControl", []string{"512"})
+			c.withLDAPRetry(func() error {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				return c.conn.Modify(enableReq)
+			})
+		}
+
+		return errors.Wrap(err, errors.ADSetPasswordFailed).
+			WithMetadata("user_dn", userDN).
+			WithMetadata("step", "set_password")
+	}
+
+	// Step 4: Re-enable account if it was enabled before
+	if wasEnabled {
+		enableReq := ldap.NewModifyRequest(userDN, nil)
+		enableReq.Replace("userAccountControl", []string{"512"}) // 512 = enabled
+
+		err = c.withLDAPRetry(func() error {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			return c.conn.Modify(enableReq)
+		})
+
+		if err != nil {
+			return errors.Wrap(err, errors.ADSetPasswordFailed).
+				WithMetadata("user_dn", userDN).
+				WithMetadata("step", "re_enable_account")
+		}
+	}
+
+	return nil
+}
+
 // UpdateUser updates the attributes of an existing user.
 // Only non-empty fields in the provided User struct will be updated.
+// To update password, provide user.Password - it will be validated and encoded.
 func (c *ADClient) UpdateUser(user *User) error {
+	// Validate password if provided
+	if user.Password != "" {
+		fullName := user.DisplayName
+		if fullName == "" && user.GivenName != "" && user.Surname != "" {
+			fullName = user.GivenName + " " + user.Surname
+		}
+
+		if err := ValidatePassword(user.Password, user.SAMAccountName, fullName); err != nil {
+			return errors.Wrap(err, errors.ADInvalidPassword).
+				WithMetadata("user_cn", user.CN).
+				WithMetadata("sam_account_name", user.SAMAccountName)
+		}
+	}
+
 	userDN := fmt.Sprintf("CN=%s,%s", user.CN, c.userOU)
+
+	// Handle password change separately
+	// For self-hosted Samba: uses samba-tool (only method that works)
+	// For external Microsoft AD: uses LDAP unicodePwd modification
+	if user.Password != "" {
+		if err := c.SetUserPassword(user.SAMAccountName, user.Password); err != nil {
+			return err
+		}
+	}
+
 	modReq := ldap.NewModifyRequest(userDN, nil)
+
 	// Update each attribute only if a new value is provided.
 	if user.GivenName != "" {
 		modReq.Replace("givenName", []string{user.GivenName})

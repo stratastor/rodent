@@ -116,6 +116,7 @@ const (
 	ADInvalidAttribute                 // Invalid attribute
 	ADInvalidGroup                     // Invalid group
 	ADInvalidUser                      // Invalid user
+	ADInvalidPassword                  // Invalid password (policy violation)
 
 	ADCreateUserFailed     // Failed to add user
 	ADUpdateUserFailed     // Failed to update user
@@ -592,6 +593,11 @@ var errorDefinitions = map[ErrorCode]struct {
 	},
 	ADInvalidUser: {
 		"Invalid user",
+		DomainAD,
+		http.StatusBadRequest,
+	},
+	ADInvalidPassword: {
+		"Invalid password - does not meet password policy requirements",
 		DomainAD,
 		http.StatusBadRequest,
 	},

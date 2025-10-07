@@ -2,6 +2,73 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package addc manages the Samba Active Directory Domain Controller service.
+//
+// # Overview
+//
+// This package provides functionality to run a self-hosted Samba AD DC in a Docker container
+// with two networking modes: host and MACVLAN. It handles container lifecycle, network
+// configuration, and automatic domain join for the host system.
+//
+// # Network Modes
+//
+// Host Mode:
+//   - Container shares the host's network namespace
+//   - DC binds to a dedicated physical interface on the host
+//   - Suitable for cloud environments (AWS, GCP, Azure) where MACVLAN is not supported
+//   - Requires proper interface/IP configuration via netplan
+//
+// MACVLAN Mode:
+//   - Container gets its own MAC address and appears as a separate device on the network
+//   - Suitable for physical servers and VMware environments
+//   - Requires a MACVLAN shim interface for host-to-container communication
+//   - Shim interface enables the host to reach the container on the same parent interface
+//
+// # MACVLAN Architecture
+//
+// In MACVLAN mode, the Linux kernel prevents direct communication between the host and
+// MACVLAN containers attached to the same parent interface (security feature). To work
+// around this, we create a "macvlan-shim" interface in bridge mode:
+//
+//	Physical Network
+//	      |
+//	   [eth0] (192.168.100.2)          ← Host's physical interface
+//	      |
+//	      +-- [macvlan-shim] (.253)    ← Bridge-mode MACVLAN for host-container comm
+//	      |
+//	      +-- [DC Container] (.10)     ← AD DC container with its own MAC/IP
+//
+// The shim interface acts as a bridge, allowing:
+//   - Host to reach container (via shim)
+//   - Container to reach host (via shim)
+//   - External devices to reach container (direct via physical network)
+//
+// Configuration:
+//   - ShimIP: Dedicated IP for the shim interface (default: auto-assigned to .253)
+//   - Gateway: Optional - actual network gateway for routing (not needed for direct connections)
+//   - IPAddress: Container's IP address
+//   - Subnet: Network subnet (e.g., 192.168.100.0/24)
+//
+// # Domain Join Flow
+//
+// When autoJoin is enabled, the service automatically joins the host to the AD domain:
+//   1. Start the AD DC container
+//   2. Wait for DC to be ready (check LDAPS port 636)
+//   3. Configure Kerberos (/etc/krb5.conf)
+//   4. Configure NSS (/etc/nsswitch.conf) for winbind
+//   5. Join domain using 'net ads join'
+//   6. Restart winbind service
+//
+// The domain join logic is delegated to the internal/services/domain package for
+// separation of concerns and to support both self-hosted and external AD modes.
+//
+// # External vs Self-Hosted Mode
+//
+// This package handles self-hosted AD DC. For external AD (client organization's DC),
+// the domain service (internal/services/domain) is used directly without starting a container.
+//
+// See also: internal/services/domain for domain membership operations
+//
 package addc
 
 import (
@@ -180,6 +247,9 @@ func (c *Client) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// Get AD DC configuration for password policies
+	adDcConfig := c.getConfigFromGlobal()
+
 	// Get domain configuration
 	domainCfg := domain.GetConfigFromGlobal()
 
@@ -192,6 +262,13 @@ func (c *Client) Start(ctx context.Context) error {
 		} else {
 			c.logger.Info("AD DC is ready")
 		}
+	}
+
+	// Configure password policies in the DC
+	c.logger.Info("Configuring AD password policies...")
+	if err := c.configurePasswordPolicies(ctx, &adDcConfig); err != nil {
+		c.logger.Warn("Failed to configure password policies", "error", err)
+		// Don't fail completely - just log the warning
 	}
 
 	// Join the domain using domain client
@@ -959,6 +1036,24 @@ func (c *Client) configureHostDNS(ctx context.Context, cfg *AdDcConfig) error {
 			"interface", cfg.ParentInterface,
 			"domain", realm)
 	}
+
+	return nil
+}
+
+// configurePasswordPolicies sets password policies in the AD DC
+func (c *Client) configurePasswordPolicies(ctx context.Context, cfg *AdDcConfig) error {
+	c.logger.Info("Setting password policies in AD DC", "container", cfg.ContainerName)
+
+	// Disable password expiration (max-pwd-age=0)
+	// This is useful for lab/dev environments and service accounts
+	_, err := c.executor.ExecuteWithCombinedOutput(ctx, "docker", "exec", cfg.ContainerName,
+		"samba-tool", "domain", "passwordsettings", "set", "--max-pwd-age=0")
+	if err != nil {
+		return fmt.Errorf("failed to disable password expiration: %w", err)
+	}
+
+	c.logger.Info("Successfully configured password policies",
+		"max_password_age", "disabled")
 
 	return nil
 }

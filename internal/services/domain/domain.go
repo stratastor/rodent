@@ -2,6 +2,78 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package domain handles Active Directory domain membership operations.
+//
+// # Overview
+//
+// This package provides functionality to join, leave, and manage Linux host membership
+// in Active Directory domains. It supports both self-hosted Samba AD DC and external
+// enterprise AD environments.
+//
+// # Domain Join Process
+//
+// The domain join process involves several steps to integrate the Linux host with AD:
+//
+//  1. Kerberos Configuration (/etc/krb5.conf):
+//     - Configures realm, KDC servers, and domain mappings
+//     - Enables dns_lookup_kdc for automatic DC discovery
+//     - Required for 'net ads join' to authenticate with the DC
+//
+//  2. NSS Configuration (/etc/nsswitch.conf):
+//     - Adds winbind to passwd and group resolution
+//     - Allows Linux to resolve AD users/groups (e.g., 'id paul0')
+//     - Format: "passwd: files systemd winbind"
+//
+//  3. DNS Configuration (optional):
+//     - Points host DNS to the AD DC for proper name resolution
+//     - Uses resolvectl to configure per-interface DNS
+//     - Critical for AD services like LDAP, Kerberos
+//
+//  4. Domain Join (net ads join):
+//     - Joins the host to the AD domain
+//     - Creates a computer account in AD
+//     - Non-interactive using --password flag
+//
+//  5. Winbind Service:
+//     - Restarted after join to apply domain membership
+//     - Provides user/group enumeration from AD
+//     - Required for SMB shares with AD authentication
+//
+// # Self-Hosted vs External AD
+//
+// Self-Hosted Mode (config.AD.Mode = "self-hosted"):
+//   - Uses the Samba AD DC running in a Docker container
+//   - DC servers populated from config.AD.DC settings
+//   - Automatically triggered when AD DC container starts (if autoJoin enabled)
+//
+// External Mode (config.AD.Mode = "external"):
+//   - Uses client organization's existing AD infrastructure
+//   - DC servers from config.AD.External.DomainControllers
+//   - Can be triggered manually via 'rodent domain join' command
+//   - Supports multiple DCs for failover
+//
+// # DC Failover
+//
+// When multiple domain controllers are configured, the Join() method tries each DC
+// in order until one succeeds. This provides resilience against individual DC failures.
+//
+// # Manual Operations
+//
+// The domain service can also be used directly via CLI:
+//
+//	rodent domain join --realm AD.CORP.COM --dc dc1.corp.com --user Administrator
+//	rodent domain leave
+//	rodent domain status
+//
+// # File Backups
+//
+// Before modifying system files, backups are created with timestamps:
+//   - /etc/krb5.conf.backup.YYYYMMDD-HHMMSS
+//   - /etc/nsswitch.conf.backup.YYYYMMDD-HHMMSS
+//
+// This allows easy restoration if needed.
+//
+// See also: internal/services/addc for self-hosted AD DC management
 package domain
 
 import (
@@ -237,8 +309,8 @@ func (c *Client) configureKerberos(ctx context.Context, cfg *DomainConfig) error
     default_realm = %s
     dns_lookup_realm = false
     dns_lookup_kdc = true
-    ticket_lifetime = 24h
-    renew_lifetime = 7d
+    ticket_lifetime = 30d
+    renew_lifetime = 365d
     forwardable = true
 
 [realms]
@@ -247,10 +319,7 @@ func (c *Client) configureKerberos(ctx context.Context, cfg *DomainConfig) error
         default_domain = %s
     }
 
-[domain_realm]
-    .%s = %s
-    %s = %s
-`, realm, realm, kdcList, cfg.DCServers[0], domainLower, domainLower, realm, domainLower, realm)
+`, realm, realm, kdcList, cfg.DCServers[0], domainLower)
 
 	// Write Kerberos config
 	// Create temp file
@@ -282,7 +351,12 @@ func (c *Client) configureNSS(ctx context.Context) error {
 	c.logger.Info("Configuring NSS for winbind")
 
 	// Check if winbind is already in nsswitch.conf
-	output, err := c.executor.ExecuteWithCombinedOutput(ctx, "grep", "winbind", "/etc/nsswitch.conf")
+	output, err := c.executor.ExecuteWithCombinedOutput(
+		ctx,
+		"grep",
+		"winbind",
+		"/etc/nsswitch.conf",
+	)
 	if err == nil && len(output) > 0 {
 		c.logger.Debug("NSS already configured for winbind")
 		return nil

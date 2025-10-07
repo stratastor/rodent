@@ -115,7 +115,7 @@ func (c *StreamConnection) handleCommandRequest(
 		c.client.Logger.Warn("No handler for command type",
 			"request_id", req.RequestId,
 			"command_type", cmdType,
-			"registered_handlers", fmt.Sprintf("%v", GetRegisteredCommands()))
+		)
 
 		// Create error with unsupported command information
 		errMsg := fmt.Sprintf("Unsupported command type: %s", cmdType)
