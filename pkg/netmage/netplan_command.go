@@ -155,14 +155,18 @@ func (nc *NetplanCommand) GetStatus(
 		args = []string{"status", iface, "--verbose", "-f", "json"}
 	}
 
-	result, err := nc.executor.ExecuteCommand(ctx, "netplan", args...)
+	// Use ExecuteCommandSeparated to prevent stderr warnings (like "Unknown device type: macvlan")
+	// from contaminating the JSON output in stdout
+	result, err := nc.executor.ExecuteCommandSeparated(ctx, "netplan", args...)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NetplanStatusFailed)
 	}
 
 	var status types.NetplanStatus
 	if err := json.Unmarshal([]byte(result.Stdout), &status); err != nil {
-		return nil, errors.Wrap(err, errors.NetplanYAMLParseError)
+		return nil, errors.Wrap(err, errors.NetplanYAMLParseError).
+			WithMetadata("stdout", result.Stdout).
+			WithMetadata("stderr", result.Stderr)
 	}
 
 	return &status, nil
@@ -170,7 +174,8 @@ func (nc *NetplanCommand) GetStatus(
 
 // GetDiff retrieves differences between current state and netplan config
 func (nc *NetplanCommand) GetDiff(ctx context.Context) (*types.NetplanDiff, error) {
-	result, err := nc.executor.ExecuteCommand(
+	// Use ExecuteCommandSeparated to prevent stderr warnings from contaminating JSON output
+	result, err := nc.executor.ExecuteCommandSeparated(
 		ctx,
 		"netplan",
 		"status",
@@ -186,7 +191,9 @@ func (nc *NetplanCommand) GetDiff(ctx context.Context) (*types.NetplanDiff, erro
 
 	var diff types.NetplanDiff
 	if err := json.Unmarshal([]byte(result.Stdout), &diff); err != nil {
-		return nil, errors.Wrap(err, errors.NetplanYAMLParseError)
+		return nil, errors.Wrap(err, errors.NetplanYAMLParseError).
+			WithMetadata("stdout", result.Stdout).
+			WithMetadata("stderr", result.Stderr)
 	}
 
 	return &diff, nil

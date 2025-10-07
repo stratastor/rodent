@@ -78,3 +78,50 @@ func (ce *CommandExecutor) ExecuteCommand(
 	result.Stdout = strings.TrimSpace(string(output))
 	return result, nil
 }
+
+// ExecuteCommandSeparated executes a command with separated stdout and stderr.
+// Use this when you need clean stdout (e.g., parsing JSON) and stderr contains
+// warnings or diagnostic messages that should not contaminate stdout.
+func (ce *CommandExecutor) ExecuteCommandSeparated(
+	ctx context.Context,
+	cmd string,
+	args ...string,
+) (*CommandResult, error) {
+	common.Log.Debug("Executing command with separated output", "cmd", cmd, "args", args)
+
+	// Use Execute() to get separated stdout/stderr
+	output, err := ce.executor.Execute(ctx, cmd, args...)
+
+	result := &CommandResult{
+		Stdout:   strings.TrimSpace(string(output)),
+		Stderr:   "",
+		ExitCode: 0,
+	}
+
+	if err != nil {
+		// Extract exit code and stderr if available from error
+		if rodentErr, ok := err.(*errors.RodentError); ok && rodentErr.Metadata != nil {
+			if exitCodeStr, exists := rodentErr.Metadata["exit_code"]; exists {
+				if exitCode, parseErr := strconv.Atoi(exitCodeStr); parseErr == nil {
+					result.ExitCode = exitCode
+				} else {
+					result.ExitCode = 1
+				}
+			} else {
+				result.ExitCode = 1
+			}
+			if stderr, exists := rodentErr.Metadata["stderr"]; exists {
+				result.Stderr = stderr
+			} else {
+				result.Stderr = err.Error()
+			}
+		} else {
+			result.ExitCode = 1
+			// With Execute(), stderr is in the error message
+			result.Stderr = err.Error()
+		}
+		return result, err
+	}
+
+	return result, nil
+}

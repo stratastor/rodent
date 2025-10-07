@@ -76,7 +76,6 @@
 // See also:
 //   - internal/services/domain for domain membership operations
 //   - internal/services/addc for self-hosted AD DC management
-//
 package ad
 
 import (
@@ -593,10 +592,10 @@ func (c *ADClient) EnsureOUExists(ouDN string) error {
 // Default AD password policy requires:
 //   - Minimum length: 7 characters
 //   - Complexity: Characters from at least 3 of the 4 categories:
-//     * Uppercase letters (A-Z)
-//     * Lowercase letters (a-z)
-//     * Digits (0-9)
-//     * Special characters (!, $, #, %, etc.)
+//   - Uppercase letters (A-Z)
+//   - Lowercase letters (a-z)
+//   - Digits (0-9)
+//   - Special characters (!, $, #, %, etc.)
 //   - Must not contain username or parts of user's full name
 func ValidatePassword(password, username, fullName string) error {
 	// Check minimum length
@@ -634,7 +633,9 @@ func ValidatePassword(password, username, fullName string) error {
 	}
 
 	if categories < 3 {
-		return fmt.Errorf("password must contain characters from at least 3 categories (uppercase, lowercase, digits, special characters)")
+		return fmt.Errorf(
+			"password must contain characters from at least 3 categories (uppercase, lowercase, digits, special characters)",
+		)
 	}
 
 	// Check username restriction (case-insensitive)
@@ -750,8 +751,7 @@ func (c *ADClient) CreateUser(user *User) error {
 
 	// Set password if provided.
 	if user.Password != "" {
-		quotedPwd := fmt.Sprintf("\"%s\"", user.Password)
-		utf16Pwd, err := encodePassword(quotedPwd)
+		utf16Pwd, err := encodePassword(user.Password)
 		if err != nil {
 			return errors.Wrap(err, errors.ADEncodePasswordFailed)
 		}
@@ -1044,120 +1044,31 @@ func (c *ADClient) setPasswordViaSambaTool(username, newPassword string) error {
 	return nil
 }
 
-// setUserPassword is the internal helper that does the actual password modification.
-// For Samba AD DC compatibility, this uses a workaround:
-//   1. Read current account status
-//   2. Disable account (if enabled)
-//   3. Set password via unicodePwd (only works on disabled accounts in Samba)
-//   4. Re-enable account (if it was enabled)
+// setUserPassword is the internal helper that modifies password via LDAP.
+// This method is used for external Microsoft AD only.
+// For self-hosted Samba AD DC, use setPasswordViaSambaTool() instead.
 func (c *ADClient) setUserPassword(userDN, newPassword string) error {
-	// Step 1: Get current userAccountControl to check if account is enabled
-	var wasEnabled bool
-	err := c.withLDAPRetry(func() error {
-		c.mu.RLock()
-		defer c.mu.RUnlock()
-
-		searchReq := ldap.NewSearchRequest(
-			userDN,
-			ldap.ScopeBaseObject,
-			ldap.NeverDerefAliases,
-			0, 0, false,
-			"(objectClass=*)",
-			[]string{"userAccountControl"},
-			nil,
-		)
-
-		sr, err := c.conn.Search(searchReq)
-		if err != nil {
-			return err
-		}
-
-		if len(sr.Entries) == 0 {
-			return fmt.Errorf("user not found")
-		}
-
-		uacStr := sr.Entries[0].GetAttributeValue("userAccountControl")
-		if uacStr != "" {
-			// 512 = enabled, 514 = disabled
-			wasEnabled = (uacStr == "512")
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return errors.Wrap(err, errors.ADSetPasswordFailed).
-			WithMetadata("user_dn", userDN).
-			WithMetadata("step", "read_account_status")
-	}
-
-	// Step 2: Disable account if it's enabled (Samba requires this for password changes)
-	if wasEnabled {
-		disableReq := ldap.NewModifyRequest(userDN, nil)
-		disableReq.Replace("userAccountControl", []string{"514"}) // 514 = disabled
-
-		err = c.withLDAPRetry(func() error {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			return c.conn.Modify(disableReq)
-		})
-
-		if err != nil {
-			return errors.Wrap(err, errors.ADSetPasswordFailed).
-				WithMetadata("user_dn", userDN).
-				WithMetadata("step", "disable_account")
-		}
-	}
-
-	// Step 3: Set password (works on disabled accounts)
+	// Encode password to UTF-16LE format required by unicodePwd attribute
 	encodedPwd, err := encodePassword(newPassword)
 	if err != nil {
 		return errors.Wrap(err, errors.ADEncodePasswordFailed).
 			WithMetadata("user_dn", userDN)
 	}
 
-	modPwdReq := ldap.NewModifyRequest(userDN, nil)
-	modPwdReq.Replace("unicodePwd", []string{encodedPwd})
+	// Modify unicodePwd attribute
+	modReq := ldap.NewModifyRequest(userDN, nil)
+	modReq.Replace("unicodePwd", []string{encodedPwd})
 
 	err = c.withLDAPRetry(func() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		return c.conn.Modify(modPwdReq)
+		return c.conn.Modify(modReq)
 	})
 
 	if err != nil {
-		// If password change fails, try to re-enable account before returning error
-		if wasEnabled {
-			enableReq := ldap.NewModifyRequest(userDN, nil)
-			enableReq.Replace("userAccountControl", []string{"512"})
-			c.withLDAPRetry(func() error {
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				return c.conn.Modify(enableReq)
-			})
-		}
-
 		return errors.Wrap(err, errors.ADSetPasswordFailed).
 			WithMetadata("user_dn", userDN).
-			WithMetadata("step", "set_password")
-	}
-
-	// Step 4: Re-enable account if it was enabled before
-	if wasEnabled {
-		enableReq := ldap.NewModifyRequest(userDN, nil)
-		enableReq.Replace("userAccountControl", []string{"512"}) // 512 = enabled
-
-		err = c.withLDAPRetry(func() error {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			return c.conn.Modify(enableReq)
-		})
-
-		if err != nil {
-			return errors.Wrap(err, errors.ADSetPasswordFailed).
-				WithMetadata("user_dn", userDN).
-				WithMetadata("step", "re_enable_account")
-		}
+			WithMetadata("method", "ldap")
 	}
 
 	return nil
@@ -1563,8 +1474,7 @@ func (c *ADClient) CreateComputer(comp *Computer) error {
 
 	// Set password if provided
 	if comp.Password != "" {
-		quotedPwd := fmt.Sprintf("\"%s\"", comp.Password)
-		utf16Pwd, err := encodePassword(quotedPwd)
+		utf16Pwd, err := encodePassword(comp.Password)
 		if err != nil {
 			return errors.Wrap(err, errors.ADEncodePasswordFailed)
 		}
@@ -1665,8 +1575,12 @@ func (c *ADClient) DeleteComputer(cn string) error {
 // encodePassword converts a plaintext password (with quotes) into a UTF-16LE
 // encoded string, as required by AD's unicodePwd attribute.
 func encodePassword(password string) (string, error) {
+	// AD requires the password to be surrounded by quotes before encoding
+	// See: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/6e803168-f140-4d23-b2d3-c3a8ab5917d2
+	quotedPassword := `"` + password + `"`
+
 	encoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder()
-	utf16Pwd, err := transformString(encoder, password)
+	utf16Pwd, err := transformString(encoder, quotedPassword)
 	if err != nil {
 		return "", err
 	}
