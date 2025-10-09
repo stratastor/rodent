@@ -15,7 +15,11 @@ import (
 )
 
 // InitializeWithClient initializes the event system with a Toggle client
-func InitializeWithClient(ctx context.Context, toggleClient client.ToggleClient, l logger.Logger) error {
+func InitializeWithClient(
+	ctx context.Context,
+	toggleClient client.ToggleClient,
+	l logger.Logger,
+) error {
 	cfg := config.GetConfig()
 
 	if !cfg.StrataSecure {
@@ -59,7 +63,12 @@ func InitializeWithClient(ctx context.Context, toggleClient client.ToggleClient,
 }
 
 // initializeWithProtoClient initializes with a proto client directly
-func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServiceClient, jwt string, l logger.Logger) error {
+func initializeWithProtoClient(
+	ctx context.Context,
+	protoClient proto.RodentServiceClient,
+	jwt string,
+	l logger.Logger,
+) error {
 	globalMu.Lock()
 	defer globalMu.Unlock()
 
@@ -69,16 +78,16 @@ func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServ
 
 	// Create event bus with config from main configuration
 	config := GetEventConfig()
-	globalEventBus = NewEventBus(protoClient, jwt, config, l)
+	GlobalEventBus = NewEventBus(protoClient, jwt, config, l)
 
 	// Start the event bus
-	if err := globalEventBus.Start(ctx); err != nil {
+	if err := GlobalEventBus.Start(ctx); err != nil {
 		return err
 	}
 
 	// Register shutdown hook
 	// TODO: Improve lifecycle package to support context-aware shutdown hooks
-	// 
+	//
 	// Current limitation: The lifecycle.RegisterShutdownHook() only accepts func(),
 	// not func(context.Context), which means shutdown hooks cannot receive a proper
 	// shutdown context with timeout. This forces us to use context.Background().
@@ -93,7 +102,7 @@ func initializeWithProtoClient(ctx context.Context, protoClient proto.RodentServ
 	// but the event bus has internal timeout handling in its Shutdown method.
 	lifecycle.RegisterShutdownHook(func() {
 		shutdownCtx := context.Background() // Use background context for shutdown
-		if err := globalEventBus.Shutdown(shutdownCtx); err != nil {
+		if err := GlobalEventBus.Shutdown(shutdownCtx); err != nil {
 			l.Error("Failed to shutdown event system", "error", err)
 		}
 	})

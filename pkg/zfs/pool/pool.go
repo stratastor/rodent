@@ -385,3 +385,118 @@ func (p *Manager) ReplaceDevice(ctx context.Context, pool, oldDevice, newDevice 
 	}
 	return nil
 }
+
+// IsPoolScrubbing returns true if pool is currently scrubbing
+func (p *Manager) IsPoolScrubbing(ctx context.Context, poolName string) (bool, error) {
+	status, err := p.Status(ctx, poolName)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the specified pool has an active scrub
+	if pool, exists := status.Pools[poolName]; exists {
+		if pool.ScanStats != nil {
+			// Function is uppercase "SCRUB" and state is "SCANNING"
+			if pool.ScanStats.Function == "SCRUB" && pool.ScanStats.State == "SCANNING" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// IsPoolResilvering returns true if pool is currently resilvering
+func (p *Manager) IsPoolResilvering(ctx context.Context, poolName string) (bool, error) {
+	status, err := p.Status(ctx, poolName)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the specified pool has an active resilver
+	if pool, exists := status.Pools[poolName]; exists {
+		if pool.ScanStats != nil {
+			// Function is uppercase "RESILVER" and state is "SCANNING"
+			if pool.ScanStats.Function == "RESILVER" && pool.ScanStats.State == "SCANNING" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// GetPoolForDevice returns the pool name for a device, if any
+func (p *Manager) GetPoolForDevice(ctx context.Context, devicePath string) (string, bool, error) {
+	// List all pools and check their devices
+	poolList, err := p.List(ctx)
+	if err != nil {
+		return "", false, err
+	}
+
+	// Normalize device path for comparison (handle both /dev/sda and /dev/disk/by-id/...)
+	normalizedPath := normalizeDevicePath(devicePath)
+
+	// Iterate through pools and check if device is part of any
+	for poolName := range poolList.Pools {
+		status, err := p.Status(ctx, poolName)
+		if err != nil {
+			continue
+		}
+
+		// Check if devicePath is in the pool's vdev configuration
+		for _, pool := range status.Pools {
+			if containsDevice(pool.VDevs, normalizedPath) {
+				return poolName, true, nil
+			}
+		}
+	}
+
+	// Device not found in any pool
+	return "", false, nil
+}
+
+// containsDevice recursively searches vdev tree for a device path
+func containsDevice(vdevs map[string]*VDev, devicePath string) bool {
+	if vdevs == nil {
+		return false
+	}
+
+	for _, vdev := range vdevs {
+		// Check if this vdev's path matches
+		if vdev.Path != "" {
+			vdevPath := normalizeDevicePath(vdev.Path)
+			if vdevPath == devicePath {
+				return true
+			}
+		}
+
+		// Recursively check nested vdevs
+		if vdev.VDevs != nil && containsDevice(vdev.VDevs, devicePath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// normalizeDevicePath normalizes a device path for comparison
+// Handles /dev/sda, /dev/disk/by-id/..., and partitions
+func normalizeDevicePath(path string) string {
+	// Remove trailing partition numbers if present
+	// This allows matching /dev/sda with /dev/sda1
+	path = strings.TrimSpace(path)
+
+	// If it's a /dev/disk/by-id path, return as-is for exact matching
+	if strings.Contains(path, "/dev/disk/by-id/") {
+		return path
+	}
+
+	// If it's a /dev/disk/by-path, return as-is
+	if strings.Contains(path, "/dev/disk/by-path/") {
+		return path
+	}
+
+	// For /dev/sdX or /dev/nvmeXnY, return as-is
+	return path
+}

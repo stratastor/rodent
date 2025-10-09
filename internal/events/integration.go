@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	globalEventBus *EventBus
+	GlobalEventBus *EventBus
 	globalMu       sync.RWMutex
 	initialized    bool
 )
@@ -38,17 +38,17 @@ func Initialize(ctx context.Context, toggleClient client.ToggleClient, l logger.
 
 	// Create event bus with config from main configuration
 	config := GetEventConfig()
-	
+
 	// Get the underlying proto client
 	protoClient := grpcClient.GetProtoClient()
 	if protoClient == nil {
 		return fmt.Errorf("failed to get proto client from gRPC client")
 	}
 
-	globalEventBus = NewEventBus(protoClient, grpcClient.GetJWT(), config, l)
+	GlobalEventBus = NewEventBus(protoClient, grpcClient.GetJWT(), config, l)
 
 	// Start the event bus
-	if err := globalEventBus.Start(ctx); err != nil {
+	if err := GlobalEventBus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start event bus: %w", err)
 	}
 
@@ -71,11 +71,11 @@ func Shutdown(ctx context.Context) error {
 	globalMu.Lock()
 	defer globalMu.Unlock()
 
-	if !initialized || globalEventBus == nil {
+	if !initialized || GlobalEventBus == nil {
 		return nil
 	}
 
-	err := globalEventBus.Shutdown(ctx)
+	err := GlobalEventBus.Shutdown(ctx)
 	initialized = false
 	return err
 }
@@ -89,7 +89,7 @@ func Shutdown(ctx context.Context) error {
 // GetStats returns event system statistics
 func GetStats() map[string]interface{} {
 	globalMu.RLock()
-	bus := globalEventBus
+	bus := GlobalEventBus
 	globalMu.RUnlock()
 
 	if bus == nil {
@@ -107,5 +107,5 @@ func GetStats() map[string]interface{} {
 func IsInitialized() bool {
 	globalMu.RLock()
 	defer globalMu.RUnlock()
-	return initialized && globalEventBus != nil
+	return initialized && GlobalEventBus != nil
 }

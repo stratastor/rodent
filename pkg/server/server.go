@@ -142,6 +142,18 @@ func Start(ctx context.Context, port int) error {
 		_ = systemHandler // Handler doesn't implement Close() method
 	}
 
+	// Register disk management routes with graceful error handling
+	diskHandler, err := registerDiskRoutes(engine)
+	if err != nil {
+		l.Error(
+			"Failed to register disk routes, continuing without disk management functionality",
+			"error",
+			err,
+		)
+	} else {
+		_ = diskHandler // Handler doesn't implement Close() method yet
+	}
+
 	// Start AD DC service if enabled in config
 	if cfg.AD.DC.Enabled {
 		l.Info("AD DC service is enabled, starting the service...")

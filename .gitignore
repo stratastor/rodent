@@ -42,3 +42,5 @@ strata.yaml
 
 ./scripts/traefik/certs
 ./scripts/traefik/tls
+rodent
+bin/

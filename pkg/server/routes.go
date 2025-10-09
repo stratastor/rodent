@@ -13,10 +13,13 @@ import (
 	"github.com/stratastor/rodent/config"
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/constants"
+	"github.com/stratastor/rodent/internal/events"
 	svcAPI "github.com/stratastor/rodent/internal/services/api"
 	svcManager "github.com/stratastor/rodent/internal/services/manager"
 	"github.com/stratastor/rodent/pkg/ad"
 	"github.com/stratastor/rodent/pkg/ad/handlers"
+	"github.com/stratastor/rodent/pkg/disk"
+	diskAPI "github.com/stratastor/rodent/pkg/disk/api"
 	"github.com/stratastor/rodent/pkg/facl"
 	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
 	sshAPI "github.com/stratastor/rodent/pkg/keys/ssh/api"
@@ -290,4 +293,57 @@ func registerSystemRoutes(engine *gin.Engine) (*systemAPI.SystemHandler, error) 
 	systemAPI.RegisterSystemGRPCHandlers(systemHandler)
 
 	return systemHandler, nil
+}
+
+// registerDiskRoutes registers disk management API routes
+func registerDiskRoutes(engine *gin.Engine) (*diskAPI.DiskHandler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(config.GetConfig()), "disk")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create command executor with sudo support
+	cfg := config.GetConfig()
+	executor := generalCmd.NewCommandExecutor(true)
+
+	// Create ZFS pool manager for conflict detection
+	zfsExecutor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
+	poolManager := pool.NewManager(zfsExecutor)
+
+	// Use global event bus (may be nil if not initialized yet)
+	eventBus := events.GlobalEventBus
+	if eventBus == nil {
+		l.Warn("Global event bus not initialized, disk events will be logged only")
+	}
+
+	// Create disk manager
+	diskManager, err := disk.NewManager(l, executor, eventBus, poolManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create disk manager: %w", err)
+	}
+
+	// Start disk manager
+	ctx := context.Background()
+	if err := diskManager.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start disk manager: %w", err)
+	}
+
+	// Create disk handler
+	diskHandler := diskAPI.NewDiskHandler(diskManager, l)
+
+	// API group with version
+	v1 := engine.Group(constants.APIDisk)
+	{
+		// Register disk routes
+		diskHandler.RegisterRoutes(v1)
+	}
+
+	// Register gRPC handlers
+	diskAPI.RegisterDiskGRPCHandlers(diskHandler)
+
+	return diskHandler, nil
 }

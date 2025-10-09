@@ -318,8 +318,8 @@ func emitStructuredEvent(event *eventspb.Event) {
 	}
 
 	// Send directly to the global event bus
-	if globalEventBus != nil {
-		globalEventBus.EmitStructuredEvent(event)
+	if GlobalEventBus != nil {
+		GlobalEventBus.EmitStructuredEvent(event)
 		common.Log.Debug("Event emitted successfully",
 			"event_id", event.EventId,
 			"category", event.Category.String(),

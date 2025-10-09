@@ -190,6 +190,11 @@ SED_PATH=$(detect_binary "sed" "/usr/bin/sed")
 GREP_PATH=$(detect_binary "grep" "/usr/bin/grep")
 NET_PATH=$(detect_binary "net" "/usr/bin/net")
 TEST_PATH=$(detect_binary "test" "/usr/bin/test")
+LSBLK_PATH=$(detect_binary "lsblk" "/usr/bin/lsblk")
+SMARTCTL_PATH=$(detect_binary "smartctl" "/usr/sbin/smartctl")
+LSSCSI_PATH=$(detect_binary "lsscsi" "/usr/bin/lsscsi")
+UDEVADM_PATH=$(detect_binary "udevadm" "/usr/bin/udevadm")
+SG_SESS_PATH=$(detect_binary "sg_ses" "/usr/bin/sg_ses")
 
 
 # File operation binaries
@@ -497,7 +502,15 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $SED_PATH *, \\
     $GREP_PATH *, \\
     $NET_PATH ads *, \\
-    $TEST_PATH -f *
+    $TEST_PATH -f *, \\
+    $LSBLK_PATH *, \\
+    $SMARTCTL_PATH *, \\
+    $LSSCSI_PATH *, \\
+    $UDEVADM_PATH info *, \\
+    $UDEVADM_PATH settle *, \\
+    $UDEVADM_PATH trigger *, \\
+    $UDEVADM_PATH monitor *, \\
+    $SG_SESS_PATH *
 
 # Command aliases for file operations
 Cmnd_Alias FILE_OPERATIONS = \\
@@ -526,9 +539,11 @@ Cmnd_Alias FILE_OPERATIONS = \\
     $TEST_PATH -e /etc/resolv.conf, \\
     $CAT_PATH /etc/krb5.conf, \\
     $CP_PATH * /etc/krb5.conf, \\
+    $CP_PATH /etc/krb5.conf /etc/krb5.conf.backup.*, \\
     $TEE_PATH /etc/krb5.conf, \\
     $TEE_PATH -a /etc/krb5.conf, \\
     $TEST_PATH -e /etc/krb5.conf, \\
+    $CP_PATH /etc/nsswitch.conf /etc/nsswitch.conf.backup.*, \\
     $CAT_PATH /etc/systemd/network*, \\
     $CP_PATH * /etc/systemd/network*, \\
     $TEE_PATH /etc/systemd/network*, \\
