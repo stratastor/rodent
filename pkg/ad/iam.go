@@ -749,28 +749,11 @@ func (c *ADClient) CreateUser(user *User) error {
 		return err
 	}
 
-	// Set password if provided.
+	// Handle password change separately
+	// For self-hosted Samba: uses samba-tool (only method that works)
+	// For external Microsoft AD: uses LDAP unicodePwd modification
 	if user.Password != "" {
-		utf16Pwd, err := encodePassword(user.Password)
-		if err != nil {
-			return errors.Wrap(err, errors.ADEncodePasswordFailed)
-		}
-
-		modPwdReq := ldap.NewModifyRequest(userDN, nil)
-		modPwdReq.Replace("unicodePwd", []string{utf16Pwd})
-
-		err = c.withLDAPRetry(func() error {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-
-			if err := c.conn.Modify(modPwdReq); err != nil {
-				return errors.Wrap(err, errors.ADSetPasswordFailed).
-					WithMetadata("user_cn", user.CN)
-			}
-			return nil
-		})
-
-		if err != nil {
+		if err := c.SetUserPassword(user.SAMAccountName, user.Password); err != nil {
 			return err
 		}
 	}
