@@ -4,6 +4,13 @@
 
 package constants
 
+// Build-time variables set via ldflags
+var (
+	Version   = "v0.0.1-dev" // Set via -X flag during build
+	CommitSHA = "unknown"    // Set via -X flag during build
+	BuildTime = "unknown"    // Set via -X flag during build
+)
+
 const (
 	RodentVersion     = "v0.0.1"
 	RodentPIDFilePath = "/home/rodent/.rodent/rodent.pid"

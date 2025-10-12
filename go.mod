@@ -1,8 +1,6 @@
 module github.com/stratastor/rodent
 
-go 1.24
-
-toolchain go1.24.0
+go 1.25.2
 
 require (
 	github.com/gin-gonic/gin v1.10.0
@@ -15,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stratastor/logger v0.0.0-20241216073552-0e618b524da8
-	github.com/stratastor/toggle-rodent-proto v0.0.0-00010101000000-000000000000
+	github.com/stratastor/toggle-rodent-proto v0.0.0-20251013043831-91258b337859
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.38.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
@@ -24,8 +22,6 @@ require (
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/stratastor/toggle-rodent-proto => ../toggle-rodent-proto
 
 require (
 	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect

@@ -1,0 +1,47 @@
+server:
+  port: 8042
+  loglevel: info
+  daemonize: false
+health:
+  interval: 30s
+  endpoint: /health
+ad:
+  mode: self-hosted
+  adminpassword: Passw0rd
+  realm: ad.strata.internal
+  dc:
+    enabled: false
+    containerName: dc1
+    hostname: DC1
+    realm: ad.strata.internal
+    domain: AD1
+    autoJoin: true
+    networkMode: host
+    parentInterface: ens6
+    ipAddress: 172.31.7.33
+    gateway:
+    subnet: 172.31.0.0/20
+    shimIP:
+events:
+  batchTimeout: 15
+  flushThreshold: 10
+logger:
+  loglevel: info
+  enablesentry: false
+  sentrydsn: ""
+toggle:
+  jwt:
+  baseurl: https://toggle.strata.foo
+  rpcaddr: tunnel.strata.foo:443
+stratasecure: false
+shares:
+  smb:
+    realm: AD.STRATA.INTERNAL
+    workgroup: AD
+keys:
+  ssh:
+    username: rodent
+    algorithm: ed25519
+development:
+  enabled: false
+environment: dev

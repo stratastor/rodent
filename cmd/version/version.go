@@ -21,16 +21,17 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/stratastor/rodent/internal/constants"
 )
-
-const Version = "v0.0.1"
 
 func NewVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Show Rodent version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Rodent Version:", Version)
+			fmt.Printf("Rodent Version: %s\n", constants.Version)
+			fmt.Printf("Commit: %s\n", constants.CommitSHA)
+			fmt.Printf("Build Time: %s\n", constants.BuildTime)
 		},
 	}
 }

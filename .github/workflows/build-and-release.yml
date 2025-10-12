@@ -1,0 +1,189 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.25.2'
+
+jobs:
+  build:
+    name: Build Rodent
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            VERSION="latest"
+          else
+            VERSION="${GITHUB_REF#refs/heads/}-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT_SHA: ${{ steps.version.outputs.commit }}
+          BUILD_TIME: ${{ steps.version.outputs.build_time }}
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          OUTPUT_DIR: dist
+        run: |
+          chmod +x scripts/build/build.sh
+          ./scripts/build/build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rodent-linux-${{ matrix.goarch }}
+          path: |
+            dist/rodent-linux-${{ matrix.goarch }}
+            dist/rodent-linux-${{ matrix.goarch }}.sha256
+          retention-days: 30
+
+  upload-to-r2:
+    name: Upload to R2
+    needs: [build]
+    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="latest"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare dist directory
+        run: |
+          mkdir -p dist
+          cp artifacts/rodent-linux-amd64/* dist/
+          cp artifacts/rodent-linux-arm64/* dist/
+          ls -lh dist/
+
+      - name: Install/Update AWS CLI
+        run: |
+          if ! command -v aws &> /dev/null; then
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          else
+            echo "AWS CLI already installed: $(aws --version)"
+          fi
+
+      - name: Upload binaries to R2
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.STRATA_CF_ACCOUNT_ID }}
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.STRATA_CF_PUBLIC_OPS_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.STRATA_CF_PUBLIC_OPS_R2_SECRET_ACCESS_KEY }}
+          R2_S3_API: ${{ secrets.STRATA_HOST_R2_S3_API }}
+          VERSION: ${{ steps.version.outputs.version }}
+          UPLOAD_TYPE: binary
+          DIST_DIR: dist
+        run: |
+          chmod +x scripts/build/upload-to-r2.sh
+          ./scripts/build/upload-to-r2.sh
+
+      - name: Prepare scripts for upload
+        run: |
+          mkdir -p dist/scripts
+          cp scripts/install/bootstrap.sh dist/scripts/
+          cp scripts/install/install-rodent.sh dist/scripts/
+          cp scripts/install/uninstall-rodent.sh dist/scripts/
+          cp scripts/setup_rodent_user.sh dist/scripts/
+          cp scripts/rodent.sample.yml dist/scripts/
+          cp scripts/rodent.service dist/scripts/
+
+      - name: Upload scripts to R2
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.STRATA_CF_ACCOUNT_ID }}
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.STRATA_CF_PUBLIC_OPS_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.STRATA_CF_PUBLIC_OPS_R2_SECRET_ACCESS_KEY }}
+          R2_S3_API: ${{ secrets.STRATA_HOST_R2_S3_API }}
+          VERSION: ${{ steps.version.outputs.version }}
+          UPLOAD_TYPE: script
+          DIST_DIR: dist/scripts
+        run: |
+          ./scripts/build/upload-to-r2.sh
+
+  create-release:
+    name: Create GitHub Release
+    needs: [upload-to-r2]
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/rodent-linux-amd64/*
+            artifacts/rodent-linux-arm64/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

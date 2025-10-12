@@ -339,40 +339,36 @@ fi
 CONFIG_FILE="/home/rodent/.rodent/rodent.yml"
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "Creating configuration file..."
-  
-  if [ -f "$SCRIPT_DIR/rodent.config.tmpl" ]; then
-    # Set template variables based on mode
+
+  SAMPLE_CONFIG="$SCRIPT_DIR/rodent.sample.yml"
+
+  if [ -f "$SAMPLE_CONFIG" ]; then
+    # Copy sample config
+    cp "$SAMPLE_CONFIG" "$CONFIG_FILE"
+
+    # Adjust settings based on mode
     if [ "$DEV_MODE" = true ]; then
-      LOG_LEVEL="debug"
-      TOGGLE_BASEURL="http://localhost:8142"
-      TOGGLE_RPCADDR="localhost:8242"
-      DEV_ENABLED="true"
-      ENVIRONMENT="dev"
+      # Update for development mode using awk for precise replacements
+      awk '
+        /^  loglevel:/ { print "  loglevel: debug"; next }
+        /^environment:/ { print "environment: dev"; next }
+        /^development:/ { in_dev=1 }
+        in_dev && /^  enabled:/ { print "  enabled: true"; in_dev=0; next }
+        { print }
+      ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+      echo "Created configuration for development mode"
     else
-      LOG_LEVEL="info"
-      TOGGLE_BASEURL="https://toggle.strata.foo"
-      TOGGLE_RPCADDR="tunnel.strata.foo:443"
-      DEV_ENABLED="false"
-      ENVIRONMENT="prod"
+      echo "Created configuration from sample"
     fi
-    
-    # Replace placeholders in template
-    sed \
-        -e "s|{{LOG_LEVEL}}|$LOG_LEVEL|g" \
-        -e "s|{{TOGGLE_BASEURL}}|$TOGGLE_BASEURL|g" \
-        -e "s|{{TOGGLE_RPCADDR}}|$TOGGLE_RPCADDR|g" \
-        -e "s|{{DEV_ENABLED}}|$DEV_ENABLED|g" \
-        -e "s|{{ENVIRONMENT}}|$ENVIRONMENT|g" \
-        "$SCRIPT_DIR/rodent.config.tmpl" > "$CONFIG_FILE"
-    
-    echo "Generated configuration from template"
   else
-    echo "Error: Configuration template not found at $SCRIPT_DIR/rodent.config.tmpl"
-    exit 1
+    echo "Warning: Sample config not found at $SAMPLE_CONFIG"
+    echo "Skipping configuration file creation"
   fi
-  
-  chown rodent:rodent "$CONFIG_FILE"
-  chmod 600 "$CONFIG_FILE"
+
+  if [ -f "$CONFIG_FILE" ]; then
+    chown rodent:rodent "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+  fi
 else
   echo "Configuration file already exists, keeping existing settings"
 fi
