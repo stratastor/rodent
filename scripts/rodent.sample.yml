@@ -30,10 +30,10 @@ logger:
   enablesentry: false
   sentrydsn: ""
 toggle:
+  enable: true
   jwt:
   baseurl: https://toggle.strata.foo
   rpcaddr: tunnel.strata.foo:443
-stratasecure: false
 shares:
   smb:
     realm: AD.STRATA.INTERNAL

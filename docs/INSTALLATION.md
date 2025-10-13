@@ -2,7 +2,7 @@
 
 ## Overview
 
-Rodent is a StrataSTOR node agent that manages ZFS-based storage systems. This guide covers the installation process for Ubuntu 24.04+ systems.
+Rodent is a Strata node agent that manages ZFS-based storage systems. This guide covers the installation process for Ubuntu 24.04+ systems.
 
 ## Quick Start
 
@@ -151,25 +151,34 @@ The installer performs the following steps:
 
 After successful installation:
 
-### 1. Configure Toggle JWT
+### 1. Obtain JWT Token from Strata
 
-Edit the configuration file:
+Login to [https://strata.foo](https://strata.foo) and create a new Rodent to obtain your JWT token. This token connects your Rodent instance to the Strata platform.
+
+### 2. Configure Rodent
+
+Edit the configuration file as the `rodent` user:
 
 ```bash
-sudo nano /home/rodent/.rodent/rodent.yml
+sudo -u rodent nano /home/rodent/.rodent/rodent.yml
 ```
 
-Add your Toggle JWT:
+Add your JWT token:
 
 ```yaml
+ad:
+  mode: self-hosted
+  adminPassword: Passw0rd
+  dc:
+    enabled: false
 toggle:
-  jwt: your-jwt-token-here
+  enable: true
+  jwt: your-jwt-token-from-strata
   baseurl: https://toggle.strata.foo
   rpcaddr: tunnel.strata.foo:443
-stratasecure: true
 ```
 
-### 2. Start Rodent Service
+### 3. Start Rodent Service
 
 Enable and start the service:
 
@@ -177,7 +186,7 @@ Enable and start the service:
 sudo systemctl enable --now rodent.service
 ```
 
-### 3. Verify Service Status
+### 4. Verify Service Status
 
 Check that the service is running:
 
@@ -185,7 +194,7 @@ Check that the service is running:
 sudo systemctl status rodent.service
 ```
 
-### 4. View Logs
+### 5. View Logs
 
 Monitor service logs in real-time:
 
@@ -198,6 +207,12 @@ Or view installation log:
 ```bash
 sudo cat /var/log/rodent-install.log
 ```
+
+Your Rodent should now appear as active in Strata.
+
+### 6. Configure Active Directory (Optional)
+
+To enable SMB shares with AD authentication, see [Active Directory Configuration Guide](ACTIVE_DIRECTORY.md) for detailed setup instructions for self-hosted or external AD.
 
 ## Directory Structure
 
@@ -383,7 +398,7 @@ curl -fsSL https://utils.strata.host/install.sh | sudo bash -s -- \
 
 ## Support
 
-- **Documentation**: <https://docs.stratastor.com/rodent>
+- **Documentation**: <https://docs.strata.foo/rodent>
 - **Issues**: <https://github.com/stratastor/rodent/issues>
 - **Installation Telemetry**: /var/log/rodent-install-telemetry.json
 

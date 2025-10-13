@@ -11,7 +11,7 @@ VERSION="1.0.0"
 # Colors
 RED='\033[38;2;255;183;178m'
 GREEN='\033[38;2;152;251;152m'
-YELLOW='\033[38;2;255;218;185m'
+YELLOW='\033[38;2;230;230;250m'
 BLUE='\033[38;2;176;224;230m'
 NC='\033[0m'
 
@@ -548,51 +548,18 @@ download_binary() {
 }
 
 setup_rodent_user() {
-    log_step "Setting up Rodent user and directories..."
-
-    if ! id rodent &>/dev/null; then
-        log_info "Creating rodent user..."
-        useradd -m -s /bin/bash -c "StrataSTOR Rodent Service" rodent
-    else
-        log_info "Rodent user already exists"
-    fi
-
-    log_info "Creating directory structure..."
-    mkdir -p /home/rodent/.rodent/{ssh,services,templates/traefik,state,shares/smb,etc/rodent,logs}
-    mkdir -p /home/rodent/.ssh
-    mkdir -p /var/lib/rodent
-    mkdir -p /var/log/rodent
-
-    chown -R rodent:rodent /home/rodent/.rodent
-    chown -R rodent:rodent /home/rodent/.ssh
-    chown -R rodent:rodent /var/lib/rodent
-    chown -R rodent:rodent /var/log/rodent
-
-    chmod 700 /home/rodent/.ssh
-    chmod 700 /home/rodent/.rodent/ssh
-    chmod 755 /var/lib/rodent
-    chmod 755 /var/log/rodent
-
-    if getent group docker > /dev/null 2>&1; then
-        log_info "Adding rodent user to docker group..."
-        usermod -aG docker rodent
-    fi
-
-    log_success "Rodent user and directories configured"
-}
-
-generate_sudoers() {
-    log_step "Configuring sudo permissions..."
+    log_step "Setting up Rodent user, directories, and permissions..."
 
     local setup_script="${SCRIPT_DIR}/setup_rodent_user.sh"
 
     if [ -f "$setup_script" ]; then
-        log_info "Running setup script for sudoers configuration..."
-        bash "$setup_script" $([ "$DEV_MODE" = true ] && echo "--dev") || log_warn "Sudoers setup completed with warnings"
-        log_success "Sudo permissions configured"
+        log_info "Running user setup script..."
+        bash "$setup_script" $([ "$DEV_MODE" = true ] && echo "--dev") || log_warn "User setup completed with warnings"
+        log_success "Rodent user and permissions configured"
     else
-        log_warn "setup_rodent_user.sh not found at $setup_script"
-        log_warn "Sudoers file not configured - manual configuration required"
+        log_error "setup_rodent_user.sh not found at $setup_script"
+        log_error "Cannot proceed without user setup script"
+        exit 1
     fi
 }
 
@@ -733,7 +700,6 @@ main() {
 
     # Setup user and environment
     setup_rodent_user
-    generate_sudoers
     install_service
 
     # Collect telemetry

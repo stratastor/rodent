@@ -132,9 +132,9 @@ func establishStreamConnection(
 func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 	cfg := config.GetConfig()
 
-	if !cfg.StrataSecure {
+	if !cfg.Toggle.Enable {
 		if l != nil {
-			l.Info("StrataSecure is disabled, skipping registration")
+			l.Info("Toggle integration is disabled, skipping registration")
 		}
 		return
 	}

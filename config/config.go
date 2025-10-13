@@ -56,13 +56,13 @@ type Config struct {
 			PrivateVolume string `mapstructure:"privateVolume"`
 			VarVolume     string `mapstructure:"varVolume"`
 			// Network deployment configuration
-			NetworkMode      string `mapstructure:"networkMode"`      // "auto", "host", or "macvlan"
-			ParentInterface  string `mapstructure:"parentInterface"`  // For macvlan: parent interface; For host: dedicated interface
-			IPAddress        string `mapstructure:"ipAddress"`        // Static IP for AD DC (with CIDR for macvlan)
-			Gateway          string `mapstructure:"gateway"`          // Gateway for routing (optional, not needed for direct connections)
-			Subnet           string `mapstructure:"subnet"`           // Subnet for macvlan mode (e.g., "172.31.0.0/20")
-			ShimIP           string `mapstructure:"shimIP"`           // IP for macvlan-shim interface (defaults to auto-assigned if empty)
-			AutoJoin         bool   `mapstructure:"autoJoin"`         // Automatically join domain after starting DC
+			NetworkMode     string `mapstructure:"networkMode"`     // "auto", "host", or "macvlan"
+			ParentInterface string `mapstructure:"parentInterface"` // For macvlan: parent interface; For host: dedicated interface
+			IPAddress       string `mapstructure:"ipAddress"`       // Static IP for AD DC (with CIDR for macvlan)
+			Gateway         string `mapstructure:"gateway"`         // Gateway for routing (optional, not needed for direct connections)
+			Subnet          string `mapstructure:"subnet"`          // Subnet for macvlan mode (e.g., "172.31.0.0/20")
+			ShimIP          string `mapstructure:"shimIP"`          // IP for macvlan-shim interface (defaults to auto-assigned if empty)
+			AutoJoin        bool   `mapstructure:"autoJoin"`        // Automatically join domain after starting DC
 		} `mapstructure:"dc"`
 		External struct {
 			DomainControllers []string `mapstructure:"domainControllers"` // List of DC servers (IP or FQDN)
@@ -84,12 +84,11 @@ type Config struct {
 	} `mapstructure:"logger"`
 
 	Toggle struct {
+		Enable  bool   `mapstructure:"enable"`  // Enable or disable Toggle integration
 		JWT     string `mapstructure:"jwt"`     // JWT for Toggle service authentication
 		BaseURL string `mapstructure:"baseURL"` // Base URL for Toggle REST API service
 		RPCAddr string `mapstructure:"rpcAddr"` // Address for Toggle gRPC service
 	}
-
-	StrataSecure bool `mapstructure:"strataSecure"`
 
 	Shares struct {
 		SMB struct {
@@ -129,7 +128,7 @@ func LoadConfig(configFilePath string) *Config {
 	once.Do(func() {
 		// Setup basic logger for initialization
 		logConfig := logger.Config{
-			LogLevel:     "info",
+			LogLevel:     "debug",
 			EnableSentry: false,
 			SentryDSN:    "",
 		}
@@ -138,6 +137,8 @@ func LoadConfig(configFilePath string) *Config {
 			fmt.Printf("Failed to create logger: %v\n", err)
 			os.Exit(1)
 		}
+
+		debug := os.Getenv("CONFIG_DEBUG") == "true"
 
 		// Reset viper to avoid any potential carryover
 		viper.Reset()
@@ -157,7 +158,9 @@ func LoadConfig(configFilePath string) *Config {
 			configPath = systemConfigPath
 		}
 
-		l.Info("Using config file", "path", configPath)
+		if debug {
+			l.Debug("Using config file", "path", configPath)
+		}
 
 		// Convert to absolute path if possible for consistency
 		absPath, err := filepath.Abs(configPath)
@@ -217,6 +220,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("ad.external.autoJoin", false)
 
 		// Set defaults for Toggle configuration
+		viper.SetDefault("toggle.enable", true)
 		viper.SetDefault("toggle.jwt", "")
 		viper.SetDefault("toggle.baseURL", "")
 
@@ -231,8 +235,6 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("keys.ssh.knownHostsFile", "~/.rodent/ssh/known_hosts")
 		viper.SetDefault("keys.ssh.authorizedKeysFile", "~/.ssh/authorized_keys")
 
-		// Set defaults for StrataSecure
-		viper.SetDefault("strataSecure", true)
 		viper.SetDefault("development.enabled", false)
 
 		// Set defaults for Events configuration
@@ -255,21 +257,27 @@ func LoadConfig(configFilePath string) *Config {
 		if err != nil {
 			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 				// File doesn't exist, create a default one
-				l.Info(
-					"Config file not found, creating default at system path",
-					"path",
-					systemConfigPath,
-				)
+				if debug {
+					l.Debug(
+						"Config file not found, creating default at system path",
+						"path",
+						systemConfigPath,
+					)
+				}
 
 				// Ensure parent directory exists
 				if err := os.MkdirAll(GetConfigDir(), 0755); err != nil {
-					l.Error("Failed to create config directory", "err", err)
+					if debug {
+						l.Error("Failed to create config directory", "err", err)
+					}
 				}
 
 				// Use defaults for now
 				var cfg Config
 				if err := viper.Unmarshal(&cfg); err != nil {
-					l.Error("Failed to unmarshal default configuration", "err", err)
+					if debug {
+						l.Error("Failed to unmarshal default configuration", "err", err)
+					}
 				}
 
 				instance = &cfg
@@ -277,28 +285,38 @@ func LoadConfig(configFilePath string) *Config {
 
 				// Save default config to the system path
 				if err := SaveConfig(systemConfigPath); err != nil {
-					l.Error("Failed to save default configuration", "err", err)
+					if debug {
+						l.Error("Failed to save default configuration", "err", err)
+					}
 				}
 			} else {
 				// Some other error (parse error, etc.)
-				l.Error("Error reading config file", "err", err)
+				if debug {
+					l.Error("Error reading config file", "err", err)
+				}
 
 				// Still use defaults
 				var cfg Config
 				if err := viper.Unmarshal(&cfg); err != nil {
-					l.Error("Failed to unmarshal default configuration", "err", err)
+					if debug {
+						l.Error("Failed to unmarshal default configuration", "err", err)
+					}
 				}
 
 				instance = &cfg
 			}
 		} else {
 			// Successfully loaded config
-			l.Info("Config file loaded successfully", "path", viper.ConfigFileUsed())
+			if debug {
+				l.Info("Config file loaded successfully", "path", viper.ConfigFileUsed())
+			}
 			configPath = viper.ConfigFileUsed()
 
 			var cfg Config
 			if err := viper.Unmarshal(&cfg); err != nil {
-				l.Error("Failed to parse configuration", "err", err)
+				if debug {
+					l.Error("Failed to parse configuration", "err", err)
+				}
 			} else {
 				instance = &cfg
 			}
@@ -306,13 +324,17 @@ func LoadConfig(configFilePath string) *Config {
 
 		// Verify AD password was loaded
 		if instance.AD.AdminPassword == "" {
-			l.Warn("AD admin password is empty, AD operations may fail")
+			if debug {
+				l.Warn("AD admin password is empty, AD operations may fail")
+			}
 		}
 
 		// Log config values for debugging (redact sensitive data)
 		debugCfg := *instance
 		debugCfg.AD.AdminPassword = "[REDACTED]"
-		l.Debug("Loaded configuration", "config", fmt.Sprintf("%+v", debugCfg))
+		if debug {
+			l.Debug("Loaded configuration", "config", fmt.Sprintf("%+v", debugCfg))
+		}
 	})
 
 	return instance

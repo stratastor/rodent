@@ -22,9 +22,9 @@ func InitializeWithClient(
 ) error {
 	cfg := config.GetConfig()
 
-	if !cfg.StrataSecure {
+	if !cfg.Toggle.Enable {
 		if l != nil {
-			l.Info("StrataSecure is disabled, skipping event system initialization")
+			l.Info("Toggle integration is disabled, skipping event system initialization")
 		}
 		return nil
 	}
