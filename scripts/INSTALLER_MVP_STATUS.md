@@ -1,4 +1,4 @@
-# Rodent Installer MVP - Status
+# Rodent Installer
 
 ## Objectives
 
@@ -8,7 +8,7 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ---
 
-## ✅ MVP Complete
+## MVP Complete
 
 ### Core Components
 
@@ -32,21 +32,20 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ### Testing & Validation
 
-- ✅ End-to-end installation on Ubuntu 24.04
-- ✅ ZFS version detection (2.3.4 verified)
-- ✅ Sudoers file creation and permissions
-- ✅ Config file management (preserves existing)
-- ✅ Upgrade scenario (config preservation, binary backup)
-- ✅ Telemetry collection (install_type: fresh/reinstall/upgrade)
-- ✅ GitHub Actions pipeline (binaries + scripts uploaded to R2)
+- End-to-end installation on Ubuntu 24.04
+- ZFS version detection (2.3.4 verified)
+- Sudoers file creation and permissions
+- Config file management (preserves existing)
+- Upgrade scenario (config preservation, binary backup)
+- Telemetry collection (install_type: fresh/reinstall/upgrade)
+- GitHub Actions pipeline (binaries + scripts uploaded to R2)
 
 ---
 
-## 📋 Deferred Items
+## Deferred Items
 
 ### Short-term
 
-- Log rotation configuration (`/etc/logrotate.d/rodent`)
 - Service start validation and common error handling
 
 ### Phase 2 - Enterprise Features
@@ -62,7 +61,7 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ---
 
-## 📝 Key Design Decisions
+## Key Design Decisions
 
 - **R2 over S3:** Cost efficiency and Cloudflare CDN integration
 - **Binary distribution over APT:** Faster iteration for MVP
@@ -75,13 +74,8 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ---
 
-## 🔗 Resources
+## Resources
 
 - **Installation URL:** <https://utils.strata.host/install.sh>
 - **Binaries:** <https://pkg.strata.host/rodent/latest/>
 - **Documentation:** [INSTALLATION.md](../docs/INSTALLATION.md)
-
----
-
-**Status:** MVP Complete
-**Last Updated:** 2025-10-13

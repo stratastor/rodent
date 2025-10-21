@@ -1,47 +1,67 @@
 # Disk Management API - Implementation Plan
 
-**Status**: Planning
-**Last Updated**: 2025-10-10
+**Status**: In Progress
+**Last Updated**: 2025-10-21
 
 ## Overview
 
 This document tracks the implementation status of all disk management API endpoints (REST and gRPC). The API layer exposes disk manager functionality through both REST HTTP endpoints and gRPC commands for Toggle integration.
 
+**Key Principle**: One-to-one correspondence between gRPC commands and REST endpoints.
+
 ## Current Status Summary
 
 | Category | Total | Implemented | Remaining | Progress |
 |----------|-------|-------------|-----------|----------|
-| **gRPC Commands** | 63 | 7 | 56 | 11% |
-| **REST Endpoints** | 35+ | 6 | 29+ | 17% |
+| **gRPC Commands** | 43 | 7 | 36 | 16% |
+| **REST Endpoints** | 43 | 6 | 37 | 14% |
+
+**Note**: Each gRPC command has a corresponding REST endpoint for one-to-one mapping.
 
 ## Proto Command Constants
 
 **Location**: `/Users/raam/lab/code/tshack/strata/toggle-rodent-proto/proto/disk_command_types.go`
 
-**Status**: ✅ Complete (72 constants defined)
+**Status**: ✅ Complete (43 constants defined, lines 8-72)
 
 All command type constants are defined and ready to use. Commands follow the pattern: `disk.{category}.{action}` or `disk.{category}.{subcategory}.{action}`.
+
+### Command Breakdown
+- Inventory & Discovery: 4 commands (list, get, discover, refresh)
+- Health & SMART: 3 commands (health.get, smart.get, smart.refresh)
+- Probe Operations: 5 commands (start, cancel, get, list, history)
+- Probe Schedules: 7 commands (list, get, create, update, delete, enable, disable)
+- Topology: 4 commands (get, refresh, controllers, enclosures)
+- Fault Domains: 2 commands (analyze, get)
+- State Management: 4 commands (state.get, state.set, validate, quarantine)
+- Naming Strategy: 3 commands (get, set, vdev-conf.generate)
+- Metadata: 3 commands (tags.set, tags.delete, notes.set)
+- Statistics & Monitoring: 4 commands (stats.get, stats.global, monitoring.get, monitoring.set)
+- Configuration: 3 commands (config.get, config.update, config.reload)
 
 ## gRPC Command Handlers
 
 **Base File**: `pkg/disk/api/routes_grpc.go`
 
-### Implemented (7/63) ✅
+### Implemented (7/43) ✅
 
 #### Inventory Operations (4/4)
+
 - ✅ `disk.list` - List all disks with optional filter
 - ✅ `disk.get` - Get disk details by device_id
 - ✅ `disk.discover` - Trigger discovery scan
 - ✅ `disk.refresh` - Refresh disk information (alias for discover)
 
 #### Health & SMART Operations (3/3)
+
 - ✅ `disk.health.get` - Get disk health status
 - ✅ `disk.smart.get` - Get SMART data
 - ✅ `disk.smart.refresh` - Trigger health check (refreshes SMART)
 
-### Not Implemented (56/63) ⚠️
+### Not Implemented (36/43) ⚠️
 
-#### Probe Operations (4/7)
+#### Probe Operations (2/5) - Priority 1
+
 - ❌ `disk.probe.start` - Start SMART probe (quick/extensive)
   - **Blocker**: ProbeScheduler.TriggerProbe() not exposed through Manager
   - **Fix**: Add `Manager.TriggerProbe(deviceID, probeType)` method
@@ -58,7 +78,8 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: No history query in StateManager
   - **Fix**: Add `StateManager.GetProbeHistory(deviceID, limit)` method
 
-#### Probe Schedule Operations (0/7)
+#### Probe Schedule Operations (0/7) - Priority 2
+
 - ❌ `disk.probe.schedule.list` - List all schedules
   - **Blocker**: No schedule query in Manager
   - **Fix**: Add `Manager.GetProbeSchedules()` method
@@ -81,7 +102,8 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: Same as enable
   - **Fix**: Same as enable
 
-#### Topology Operations (0/5)
+#### Topology Operations (0/4) - Priority 2
+
 - ❌ `disk.topology.get` - Get complete topology
   - **Blocker**: No topology export method
   - **Fix**: Add `Manager.GetTopology()` method returning all disks with topology
@@ -94,22 +116,33 @@ All command type constants are defined and ready to use. Commands follow the pat
 - ❌ `disk.topology.enclosures` - List enclosures
   - **Blocker**: No enclosure aggregation
   - **Fix**: Add method to extract unique enclosures from disk topology
+
+#### Fault Domain Operations (0/2) - Priority 4
+
 - ❌ `disk.fault-domains.analyze` - Analyze fault domains
   - **Blocker**: Not implemented yet (Phase 3)
   - **Fix**: Implement fault domain analysis logic
+- ❌ `disk.fault-domains.get` - Get fault domain info
+  - **Blocker**: Same as analyze
+  - **Fix**: Same as analyze
 
-#### State Management Operations (0/3)
-- ❌ `disk.state.get` - Get complete state
+#### State Management Operations (0/4) - Priority 1 & 3
+
+- ❌ `disk.state.get` - Get complete state (Priority 1)
   - **Blocker**: StateManager.Get() not exposed
   - **Fix**: Add `Manager.GetState()` method
-- ❌ `disk.state.set` - Set disk state (e.g., quarantine)
+- ❌ `disk.state.set` - Set disk state (Priority 1)
   - **Blocker**: No state setter in Manager
   - **Fix**: Add `Manager.SetDiskState(deviceID, state, reason)` method
-- ❌ `disk.quarantine` - Quarantine a disk
+- ❌ `disk.validate` - Validate a disk (Priority 3)
+  - **Blocker**: No validation logic yet
+  - **Fix**: Add disk validation (check size, SMART status, conflicts, etc.)
+- ❌ `disk.quarantine` - Quarantine a disk (Priority 3)
   - **Blocker**: Same as state.set
   - **Fix**: Add `Manager.QuarantineDisk(deviceID, reason)` convenience method
 
-#### Configuration Operations (0/3)
+#### Configuration Operations (0/3) - Priority 1
+
 - ❌ `disk.config.get` - Get current configuration
   - **Blocker**: ConfigManager not exposed
   - **Fix**: Add `Manager.GetConfig()` method
@@ -120,7 +153,8 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: ConfigManager.Reload() not exposed
   - **Fix**: Add `Manager.ReloadConfig()` method
 
-#### Statistics Operations (0/2)
+#### Statistics Operations (0/2) - Priority 3
+
 - ❌ `disk.stats.get` - Get device statistics
   - **Blocker**: No statistics tracking yet
   - **Fix**: Add statistics tracking to PhysicalDisk (probe count, failure count, etc.)
@@ -128,15 +162,20 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: No global statistics
   - **Fix**: Add DiskManagerState.Statistics with aggregated metrics
 
-#### Naming Strategy Operations (0/2)
+#### Naming Strategy Operations (0/3) - Priority 3 (Depends on Phase 8)
+
 - ❌ `disk.naming-strategy.get` - Get current naming strategy
   - **Blocker**: Naming strategy not implemented (Phase 8)
   - **Fix**: Implement naming strategy module first
 - ❌ `disk.naming-strategy.set` - Set naming strategy
   - **Blocker**: Same as get
   - **Fix**: Same as get
+- ❌ `disk.vdev-conf.generate` - Generate vdev_id.conf
+  - **Blocker**: Phase 8 - Naming Strategy not implemented
+  - **Fix**: Implement vdev_id.conf generator
 
-#### Metadata Operations (0/3)
+#### Metadata Operations (0/3) - Priority 3
+
 - ❌ `disk.tags.set` - Set disk tags
   - **Blocker**: No metadata update methods
   - **Fix**: Add `Manager.SetDiskTags(deviceID, tags)` method
@@ -147,7 +186,8 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: Same as set
   - **Fix**: Add `Manager.SetDiskNotes(deviceID, notes)` method
 
-#### Monitoring Operations (0/2)
+#### Monitoring Operations (0/2) - Priority 3
+
 - ❌ `disk.monitoring.get` - Get monitoring config
   - **Blocker**: Part of config, but no separate endpoint
   - **Fix**: Can use disk.config.get, or add convenience method
@@ -155,18 +195,14 @@ All command type constants are defined and ready to use. Commands follow the pat
   - **Blocker**: Same as get
   - **Fix**: Same as get
 
-#### Validation Operations (0/1)
-- ❌ `disk.validate` - Validate a disk for ZFS use
-  - **Blocker**: No validation logic yet
-  - **Fix**: Add disk validation (check size, SMART status, conflicts, etc.)
+---
 
-#### vdev Configuration Operations (0/1)
-- ❌ `disk.vdev-conf.generate` - Generate vdev_id.conf
-  - **Blocker**: Phase 8 - Naming Strategy not implemented
-  - **Fix**: Implement vdev_id.conf generator
+### Future Enhancements
 
 #### Advanced Operations (Not in proto constants yet)
+
 These are planned but don't have proto constants yet:
+
 - Pool suggestion API (suggest disks for new pool)
 - Redundancy planning (analyze fault domains)
 - Device compatibility check (for mixed pools)
@@ -180,11 +216,13 @@ These are planned but don't have proto constants yet:
 ### Implemented (6/35+) ✅
 
 #### Inventory
+
 - ✅ `GET /inventory` - List all disks
 - ✅ `GET /disks/:device_id` - Get disk details
 - ✅ `POST /discovery/trigger` - Trigger discovery
 
 #### Health
+
 - ✅ `POST /health/check` - Trigger health check
 - ✅ `GET /disks/:device_id/health` - Get disk health
 - ✅ `GET /disks/:device_id/smart` - Get SMART data
@@ -192,6 +230,7 @@ These are planned but don't have proto constants yet:
 ### Not Implemented (29+/35+) ⚠️
 
 #### Probe Operations
+
 - ❌ `POST /disks/:device_id/probes` - Trigger probe (quick/extensive)
 - ❌ `GET /disks/:device_id/probes` - List probes for device
 - ❌ `GET /probes` - List all active probes
@@ -200,6 +239,7 @@ These are planned but don't have proto constants yet:
 - ❌ `GET /disks/:device_id/probe-history` - Get probe history
 
 #### Probe Schedules
+
 - ❌ `GET /probe-schedules` - List all schedules
 - ❌ `POST /probe-schedules` - Create schedule
 - ❌ `GET /probe-schedules/:schedule_id` - Get schedule
@@ -209,6 +249,7 @@ These are planned but don't have proto constants yet:
 - ❌ `POST /probe-schedules/:schedule_id/disable` - Disable schedule
 
 #### Topology
+
 - ❌ `GET /topology` - Get complete topology
 - ❌ `POST /topology/refresh` - Refresh topology
 - ❌ `GET /topology/controllers` - List controllers
@@ -216,6 +257,7 @@ These are planned but don't have proto constants yet:
 - ❌ `GET /topology/fault-domains` - Analyze fault domains
 
 #### Configuration
+
 - ❌ `GET /config` - Get configuration
 - ❌ `PUT /config` - Update configuration
 - ❌ `POST /config/reload` - Reload from file
@@ -223,17 +265,20 @@ These are planned but don't have proto constants yet:
 - ❌ `PUT /config/monitoring` - Update monitoring config
 
 #### State & Statistics
+
 - ❌ `GET /state` - Get manager state
 - ❌ `GET /stats` - Get global statistics
 - ❌ `GET /disks/:device_id/stats` - Get device statistics
 
 #### Metadata
+
 - ❌ `PUT /disks/:device_id/tags` - Set tags
 - ❌ `DELETE /disks/:device_id/tags` - Delete tags
 - ❌ `PUT /disks/:device_id/notes` - Set notes
 - ❌ `POST /disks/:device_id/quarantine` - Quarantine disk
 
 #### Naming Strategy
+
 - ❌ `GET /naming-strategy` - Get current strategy
 - ❌ `PUT /naming-strategy` - Set strategy
 - ❌ `POST /vdev-conf/generate` - Generate vdev_id.conf
@@ -373,18 +418,21 @@ type ProbeSchedule struct {
 ## Testing Strategy
 
 ### Unit Tests
+
 - Test each handler with mock Manager
 - Test request validation
 - Test error handling and error response format
 - Test success response format
 
 ### Integration Tests
+
 - Test with real Manager instance
 - Test end-to-end gRPC command flow
 - Test end-to-end REST endpoint flow
 - Test concurrent operations
 
 ### API Documentation
+
 - Generate OpenAPI spec for REST endpoints
 - Document gRPC command payloads
 - Provide example requests/responses

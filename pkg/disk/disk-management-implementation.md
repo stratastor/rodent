@@ -2,9 +2,10 @@
 
 **Status**: In Development
 **Version**: 1.0.0
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-21
 
 ## Table of Contents
+
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [Configuration Management](#configuration-management)
@@ -22,22 +23,24 @@
 ## Overview
 
 Enterprise-grade disk management service for ZFS-based storage servers, supporting:
+
 - **Scale**: Few directly attached disks (<20) to 100+ disks via JBODs
 - **Platform Agnostic**: Cloud instances, VMs, physical servers
 - **Vendor Agnostic**: Commodity hardware, no vendor lock-in
 - **Production Ready**: Robust error handling, observability, graceful degradation
 
 ### Key Capabilities
-- ✅ Automatic device discovery and physical topology mapping
-- ✅ Multi-protocol health monitoring (SMART, NVMe, iostat)
-- ✅ Scheduled & on-demand SMART probing with conflict prevention
-- ✅ Real-time hotplug detection with reconciliation
-- ✅ Intelligent device naming strategies for ZFS integration
-- ✅ Fault domain analysis and redundancy planning
-- ✅ Event-driven architecture with structured logging
-- ✅ Runtime configuration via REST/gRPC APIs
-- ✅ Persistent YAML configuration + JSON state tracking
-- ✅ Operation tracking with progress monitoring
+
+- Automatic device discovery and physical topology mapping
+- Multi-protocol health monitoring (SMART, NVMe, iostat)
+- Scheduled & on-demand SMART probing with conflict prevention
+- Real-time hotplug detection with reconciliation
+- Intelligent device naming strategies for ZFS integration
+- Fault domain analysis and redundancy planning
+- Event-driven architecture with structured logging
+- Runtime configuration via REST/gRPC APIs
+- Persistent YAML configuration + JSON state tracking
+- Operation tracking with progress monitoring
 
 ---
 
@@ -45,7 +48,7 @@ Enterprise-grade disk management service for ZFS-based storage servers, supporti
 
 ### System Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        API Layer (pkg/disk/api/)                │
 │                      Base: /api/v1/rodent/storage/              │
@@ -90,7 +93,7 @@ Enterprise-grade disk management service for ZFS-based storage servers, supporti
 
 ### Data Flow
 
-```
+```text
 [Hardware Event] → [udev] → [Hotplug Monitor] → [Manager] → [Event Bus] → [Toggle]
                                     ↓
                             [Discovery System]
@@ -123,10 +126,12 @@ Enterprise-grade disk management service for ZFS-based storage servers, supporti
 ### Configuration File Structure
 
 **Location**: Managed via `config/references.go`
+
 - System: `/etc/rodent/disk-manager/config.yaml` (if running as root)
 - User: `~/.rodent/disk-manager/config.yaml` (non-root)
 
 **Full Config Schema** (`DiskManagerConfig`):
+
 ```yaml
 # Disk Manager Configuration
 version: "1.0"
@@ -231,7 +236,8 @@ logging:
 ### Configuration APIs
 
 **REST Endpoints** (Base: `/api/v1/rodent/storage/config`):
-```
+
+```text
 GET    /config                        # Get current configuration
 PUT    /config                        # Update configuration (full replace)
 PATCH  /config                        # Partial configuration update
@@ -251,10 +257,12 @@ GET    /config/path                   # Get config file path
 **Purpose**: Track runtime state, operations, and probe history (separate from config)
 
 **Location**: Managed via `config/references.go`
+
 - System: `/etc/rodent/disk-manager/state.json` (if running as root)
 - User: `~/.rodent/disk-manager/state.json` (non-root)
 
 **State Schema** (`DiskManagerState`):
+
 ```json
 {
   "version": "1.0",
@@ -311,7 +319,8 @@ GET    /config/path                   # Get config file path
 ### State APIs
 
 **REST Endpoints** (Base: `/api/v1/rodent/storage/state`):
-```
+
+```text
 GET    /state                         # Get entire state
 GET    /state/devices                 # All device states
 GET    /state/devices/:device         # Specific device state
@@ -330,6 +339,7 @@ POST   /state/save                    # Force save state file
 ### Probe Strategy
 
 **Terminology**:
+
 - **Quick Probe**: Previously "short test" - quick electrical/component check (2-10 min)
 - **Extensive Probe**: Previously "long test" - full surface scan (2-8 hours)
 
@@ -341,6 +351,7 @@ POST   /state/save                    # Force save state file
 | **Extensive Probe** | `0 3 1 * *` | Monthly on 1st at 3 AM | 2-8 hours | Full surface scan |
 
 **Alternative Schedules**:
+
 ```yaml
 # Conservative (weekly quick probes)
 quick:
@@ -354,6 +365,7 @@ extensive:
 ### Conflict Prevention
 
 **Conflict Types**:
+
 ```go
 type ConflictReason int
 const (
@@ -370,7 +382,7 @@ const (
 
 ### Probe Execution Flow
 
-```
+```text
 ┌─────────────────┐
 │ Trigger Source  │ (Scheduler / API / CLI)
 └────────┬────────┘
@@ -447,7 +459,8 @@ const (
 ### Manual Probe Trigger APIs
 
 **REST Endpoints** (Base: `/api/v1/rodent/storage/probes`):
-```
+
+```text
 POST   /probes/quick                  # Trigger quick probe (all devices)
 POST   /probes/extensive              # Trigger extensive probe (all devices)
 POST   /probes/:device/quick          # Probe specific device (quick)
@@ -463,6 +476,7 @@ PUT    /probes/schedule               # Update probe schedule (updates config)
 **Request/Response Examples**:
 
 **Trigger Quick Probe (Batch)**:
+
 ```bash
 POST /api/v1/rodent/storage/probes/quick
 Content-Type: application/json
@@ -502,7 +516,7 @@ Response 202 Accepted:
 
 ### Complete Package Hierarchy
 
-```
+```text
 pkg/
 ├── disk/
 │   ├── types/                    # Core types (avoid cyclic imports)
@@ -622,6 +636,7 @@ config/
 ## Implementation Status
 
 ### Phase 1: Foundation ✅
+
 - [x] Architecture documentation
 - [x] Core types package (`pkg/disk/types/`) - 8 files
 - [x] Configuration types and defaults
@@ -633,6 +648,7 @@ config/
 - [x] State manager with JSON persistence with debouncing
 
 ### Phase 2: Discovery ✅
+
 - [x] lsblk JSON wrapper and parser
 - [x] smartctl JSON parser
 - [x] udevadm integration for device correlation
@@ -640,6 +656,7 @@ config/
 - [x] Device enrichment (udev + SMART)
 
 ### Phase 3: Topology ✅
+
 - [x] SCSI/SAS topology via lsscsi
 - [x] NVMe topology extraction
 - [x] Enclosure detection via sg_ses (basic)
@@ -647,6 +664,7 @@ config/
 - [ ] Complete SES parsing (fans, PSUs, slot mapping) - TODO in code
 
 ### Phase 4: Health Monitoring ✅
+
 - [x] smartctl executor for attribute reading (JSON format)
 - [x] SMART attribute parser (ATA)
 - [x] NVMe health log parser
@@ -655,6 +673,7 @@ config/
 - [x] Health status caching
 
 ### Phase 5: SMART Probing (Active) ✅
+
 - [x] smartctl probe executor (quick/extensive) - `pkg/disk/probing/executor.go`
 - [x] Probe result parser - Integrated in executor
 - [x] Probe tracker (active probes) - In scheduler with activeProbes map
@@ -669,6 +688,7 @@ config/
 - [ ] Off-peak hour enforcement - Infrastructure ready, not yet implemented
 
 **Key Implementations**:
+
 - ZFS-aware conflict detection (prevents probes during scrub/resilver)
 - DeviceResolver pattern for clean Manager→Scheduler communication
 - Recursive vdev tree traversal for pool membership detection
@@ -676,27 +696,62 @@ config/
 - Comprehensive event emission (started, progress, completed, conflict)
 
 ### Phase 6: State Management ✅
-- [x] State file manager with JSON persistence
-- [x] Device state tracking
-- [x] Operation tracking
-- [x] Probe history management
-- [x] Debounced auto-save mechanism
-- [x] ProbeExecution helper methods (Start, Complete, Fail, Cancel, Timeout)
-- [ ] State query APIs (pending API implementation)
 
-### Phase 7: Hotplug
-- [ ] udev monitor integration
-- [ ] State machine implementation
-- [ ] Configurable reconciliation loop
-- [ ] Event correlation logic
+- [x] State file manager with JSON persistence - `pkg/disk/state/manager.go`
+- [x] Device state tracking - DeviceState type with counters
+- [x] Operation tracking - OperationState with progress
+- [x] Probe history management - ProbeHistory by device
+- [x] Debounced auto-save mechanism - 30s default with SaveDebounced()
+- [x] ProbeExecution helper methods - Start, Complete, Fail, Cancel, Timeout
+- [x] State query APIs - `pkg/disk/state/queries.go` (8 query methods)
+  - GetProbeExecution, GetProbeHistory, GetActiveProbes
+  - GetProbeSchedule, GetProbeSchedules
+  - GetDeviceState, GetOperation, GetActiveOperations
 
-### Phase 8: Naming Strategy
-- [ ] Strategy selector with config override
-- [ ] vdev_id.conf generator
-- [ ] Name resolver
-- [ ] ZFS pool manager integration helpers
+### Phase 7: Hotplug ✅
+
+- [x] udev monitor integration - `pkg/disk/hotplug/monitor.go`
+  - Real-time udev event monitoring via netlink
+  - Event parsing and filtering (block devices only)
+  - Duplicate event detection with correlation window (2s TTL)
+  - Monitoring statistics tracking
+- [x] State machine implementation - `pkg/disk/hotplug/state_machine.go`
+  - Complete state transition definitions for all disk states
+  - Validation of state transitions
+  - Event-based state determination
+- [x] Configurable reconciliation loop - `pkg/disk/hotplug/reconciler.go`
+  - Periodic reconciliation to catch missed events
+  - Differential analysis (added/removed/changed devices)
+  - Configurable interval via `Discovery.ReconcileInterval`
+- [x] Event correlation logic - `pkg/disk/hotplug/handler.go`
+  - Unified event handler coordinating monitor + reconciler
+  - Device addition/removal/change callbacks
+  - Error handling and retry logic
+- [x] Manager integration - `pkg/disk/manager.go`
+  - Hotplug handler initialization in NewManager
+  - Start/stop lifecycle management
+  - Event callbacks: handleDeviceAdded, handleDeviceRemoved, handleDeviceChanged
+  - Automatic discovery trigger on hotplug events
+
+**Design Features**:
+
+- **Hybrid Approach**: udev events (<1s latency) + periodic reconciliation (configurable, default 30s)
+- **Event Deduplication**: 2-second correlation window prevents duplicate processing
+- **State Machine**: Validates all state transitions (11 states, 40+ valid transitions)
+- **Graceful Degradation**: Monitor failures don't stop the manager; reconciliation continues
+- **Zero Configuration**: Enabled automatically when `Discovery.UdevMonitor: true`
+
+### Phase 8: Naming Strategy (Pending)
+
+- [ ] Strategy selector with config override - `pkg/disk/naming/strategy.go`
+- [ ] vdev_id.conf generator - `pkg/disk/naming/vdev_conf.go`
+- [ ] Name resolver - `pkg/disk/naming/resolver.go`
+- [ ] ZFS pool manager integration helpers - `pkg/disk/naming/templates.go`
+
+**Note**: Config structure exists, implementation pending
 
 ### Phase 9: Manager Core ✅
+
 - [x] Manager initialization with config + state - `pkg/disk/manager.go`
 - [x] Inventory management - Device cache with GetInventory/GetDisk
 - [x] Periodic tasks orchestration - Discovery + health checks via gocron
@@ -705,49 +760,91 @@ config/
 - [x] Device resolution for probe scheduling - ResolveDevices() implementation
 - [ ] Runtime reconfiguration - Config reload not yet implemented
 
-### Phase 10: Configuration Management
-- [ ] Config manager implementation
-- [ ] YAML persistence
-- [ ] Validation logic
-- [ ] Config API handlers (REST + gRPC)
-- [ ] Default config generation
-- [ ] Integration with config/references.go
+### Phase 10: Configuration Management ✅
 
-### Phase 11: API Layer (In Progress) 🔨
-- [x] Proto command type constants - `toggle-rodent-proto/proto/disk_command_types.go`
+- [x] Config manager implementation - `pkg/disk/config/manager.go`
+- [x] YAML persistence - Atomic writes with backup
+- [x] Validation logic - Cron expression validation, bounds checking
+- [x] Default config generation - `pkg/disk/config/defaults.go`
+- [x] Integration with config/references.go - GetDiskDir() integration
+- [x] Manager API wrappers - `pkg/disk/config_manager.go` (GetConfig, UpdateConfig, ReloadConfig)
+- [ ] Config API handlers (REST + gRPC) - Pending handler implementation
+
+### Phase 11: API Layer ✅
+
+**Infrastructure** ✅:
+- [x] Proto command type constants (42 commands) - `toggle-rodent-proto/proto/disk_command_types.go`
 - [x] Proto event definitions - `toggle-rodent-proto/proto/events/event_messages.proto` (StorageDisk*)
 - [x] Handler structure - `pkg/disk/api/handler_grpc.go`
 - [x] gRPC routes registration - `pkg/disk/api/routes_grpc.go`
 - [x] REST handler base - `pkg/disk/api/handler.go`
+- [x] REST routes registration - `pkg/disk/api/routes.go`
 - [x] Server integration - `pkg/server/routes.go` registerDiskRoutes()
 - [x] Event bus graceful handling - nil-safe emission in `pkg/disk/events/emitter.go`
 - [x] API base path constant - `constants.APIDisk = "/api/v1/rodent/disk"`
-- [ ] Complete all gRPC command handlers (7/63 implemented)
-- [ ] Complete all REST endpoints (6/30+ implemented)
-- [ ] API documentation
+- [x] Error codes - Added 5 probe schedule error codes to `pkg/errors/disk.go`
 
-**Implemented Commands** (7):
-- Inventory: list, get, discover, refresh
-- Health: health.get, smart.get, smart.refresh
+**Manager Methods** ✅ (All 39 operations have Manager methods):
+- [x] Probe operations (12 methods) - `pkg/disk/probe_manager.go`
+  - TriggerProbe, CancelProbe, GetProbeExecution, GetActiveProbes, GetProbeHistory
+  - GetProbeSchedules, GetProbeSchedule, CreateProbeSchedule, UpdateProbeSchedule
+  - DeleteProbeSchedule, EnableProbeSchedule, DisableProbeSchedule
+- [x] Configuration (3 methods) - `pkg/disk/config_manager.go`
+  - GetConfig, UpdateConfig, ReloadConfig
+- [x] State management (4 methods) - `pkg/disk/state_manager.go`
+  - GetState, SetDiskState, GetDeviceState, QuarantineDisk
+- [x] Topology (4 methods) - `pkg/disk/topology_manager.go`
+  - GetTopology, RefreshTopology, GetControllers, GetEnclosures
+- [x] Metadata (3 methods) - `pkg/disk/metadata_manager.go`
+  - SetDiskTags, DeleteDiskTags, SetDiskNotes
+- [x] Statistics (2 methods) - `pkg/disk/statistics_manager.go`
+  - GetDeviceStatistics, GetGlobalStatistics
+- [x] Monitoring (2 methods) - `pkg/disk/monitoring_manager.go`
+  - GetMonitoringConfig, SetMonitoringConfig
+- [x] Validation (1 method) - `pkg/disk/validation_manager.go`
+  - ValidateDisk
+- [x] State queries (8 methods) - `pkg/disk/state/queries.go`
+  - GetProbeExecution, GetProbeHistory, GetActiveProbes
+  - GetProbeSchedule, GetProbeSchedules
+  - GetDeviceState, GetOperation, GetActiveOperations
 
-**TODO Commands** (56):
-- Probe operations (7): start, cancel, get, list, history
+**API Handlers** ✅ (Completed for implemented phases):
+
+- [x] gRPC handlers (37/42 = 88%) - All handlers for Phases 1-6, 10-11
+- [x] REST endpoints (37/42 = 88%) - One-to-one correspondence with gRPC
+- [x] Complete implementation of all currently available operations
+- [ ] API documentation (pending)
+
+**Implemented Commands** (37/42 = 88%):
+
+- Inventory (4): list, get, discover, refresh
+- Health & SMART (4): health.get, smart.get, smart.refresh, refresh
+- Probe operations (5): start, cancel, get, list, history
 - Probe schedules (7): list, get, create, update, delete, enable, disable
-- Topology (5): get, refresh, controllers, enclosures, fault-domains
-- State management (3): get, set, quarantine
+- Topology (4): get, refresh, controllers, enclosures
+- State management (4): state.get, state.set, validate, quarantine
 - Configuration (3): get, update, reload
-- Naming strategy (2): get, set
 - Metadata (3): tags.set, tags.delete, notes.set
 - Statistics (2): stats.get, stats.global
-- Advanced (18+): validation, ZFS helpers, vdev suggestions, etc.
+- Monitoring (2): monitoring.get, monitoring.set
 
-### Phase 12: ZFS Integration
-- [ ] Pool creation helpers
-- [ ] Device suggestion API
-- [ ] Redundancy planner
-- [ ] vdev layout optimizer
-- [ ] Naming strategy integration
-- [ ] ZFS operation awareness (resilver/scrub)
+**Pending Commands** (5/42 = 12% - awaiting Phase 8 & 9 implementation):
+
+- Fault domains (2): analyze, get - **Requires Phase 9 implementation**
+- Naming strategy (3): get, set, vdev-conf.generate - **Requires Phase 8 implementation**
+
+**Note**: All 37 implemented handlers have one-to-one correspondence between gRPC and REST APIs. The 5 pending commands require implementation of underlying features in Phases 8 (Naming Strategy) and 9 (Fault Domain Analysis).
+
+### Phase 12: ZFS Integration (Partial) 🔨
+
+- [x] ZFS operation awareness (resilver/scrub) - `pkg/zfs/pool/pool.go` conflict detection
+- [x] Device validation - `pkg/disk/validation_manager.go` (ValidateDisk for ZFS use)
+- [x] Topology aggregation - `pkg/disk/topology_manager.go` (controller/enclosure grouping)
+- [ ] Pool creation helpers - Pending implementation
+- [ ] Device suggestion API - Pending implementation
+- [ ] Redundancy planner - Pending implementation
+- [ ] vdev layout optimizer - Pending implementation
+- [ ] Naming strategy integration - Pending Phase 8 completion
 
 ---
 
@@ -758,11 +855,13 @@ config/
 **Decision**: Separate passive monitoring from active probing
 
 **Passive Monitoring** (Read SMART Attributes):
+
 - Interval: 10 minutes (default)
 - Impact: Minimal I/O overhead
 - Purpose: Track attribute trends (reallocated sectors, temperature, etc.)
 
 **Active Probing** (Run SMART Self-Tests):
+
 - Quick: Daily at 2 AM (default)
 - Extensive: Monthly at 3 AM (default)
 - Impact: Moderate I/O, delays user operations
@@ -775,6 +874,7 @@ config/
 **Decision**: Assume HBA in IT mode (passthrough), detect and warn if RAID detected
 
 **Rationale**:
+
 - ZFS requires direct disk access for checksumming and redundancy
 - Modern ZFS deployments use:
   - **HBA IT Mode**: LSI 9300/9400 series in IT firmware
@@ -782,6 +882,7 @@ config/
   - **Software HBA**: virtio-scsi for VMs
 
 **Fault Domains** (Physical, no RAID controllers):
+
 - Controller PCI slot
 - SAS enclosure ID
 - Power domain (if detectable via IPMI)
@@ -791,12 +892,14 @@ config/
 **Decision**: udev events + periodic reconciliation (configurable interval)
 
 **Rationale**:
+
 - **udev events**: Real-time but can be missed during high load
 - **Reconciliation**: Catches missed events, handles race conditions
 - **Best of both**: <1s latency for events, 30s worst-case (configurable)
 
 **State Machine**:
-```
+
+```text
 UNKNOWN → DISCOVERED → IDENTIFYING → HEALTHY ⇄ DEGRADED → FAILED → REMOVED
                           ↓
                     [SMART Check]
@@ -809,6 +912,7 @@ UNKNOWN → DISCOVERED → IDENTIFYING → HEALTHY ⇄ DEGRADED → FAILED → R
 **Decision**: Auto-select based on disk count + manual override via API/config
 
 **Strategy Selection**:
+
 | Disk Count | Default Strategy | Reasoning |
 |------------|------------------|-----------|
 | 1-11       | `/dev/disk/by-id/` | Simple, persistent, human-readable |
@@ -832,6 +936,7 @@ UNKNOWN → DISCOVERED → IDENTIFYING → HEALTHY ⇄ DEGRADED → FAILED → R
 **Decision**: Use existing event bus via `SendEvents` RPC, no new gRPC services needed
 
 **Pattern** (from internal/events/schema.go):
+
 1. Create structured event with `eventspb.Event`
 2. Set appropriate `EventPayload` (oneof: system_event, storage_event, etc.)
 3. Emit via `emitStructuredEvent(event)` which calls `globalEventBus.EmitStructuredEvent(event)`
@@ -844,12 +949,14 @@ UNKNOWN → DISCOVERED → IDENTIFYING → HEALTHY ⇄ DEGRADED → FAILED → R
 ## API Specification
 
 ### Base Path
+
 All disk management APIs use base path: `/api/v1/rodent/storage/`
 
 ### REST Endpoints
 
 #### Disk Management
-```
+
+```text
 GET    /disks                         # List all disks
 GET    /disks/:device                 # Get disk details
 GET    /disks/:device/smart           # Get SMART attributes (passive)
@@ -861,7 +968,8 @@ GET    /topology/controllers          # List controllers
 ```
 
 #### Configuration Management
-```
+
+```text
 GET    /config                        # Get current configuration
 PUT    /config                        # Update configuration (full replace)
 PATCH  /config                        # Partial configuration update
@@ -873,7 +981,8 @@ GET    /config/path                   # Get config file path
 ```
 
 #### State Management
-```
+
+```text
 GET    /state                         # Get entire state
 GET    /state/devices                 # All device states
 GET    /state/devices/:device         # Specific device state
@@ -886,7 +995,8 @@ POST   /state/save                    # Force save state file
 ```
 
 #### SMART Probe Management
-```
+
+```text
 POST   /probes/quick                  # Trigger quick probe (all devices)
 POST   /probes/extensive              # Trigger extensive probe (all devices)
 POST   /probes/:device/quick          # Probe specific device (quick)
@@ -900,7 +1010,8 @@ PUT    /probes/schedule               # Update probe schedule (updates config)
 ```
 
 #### Naming Strategy
-```
+
+```text
 GET    /naming/strategies             # Available naming strategies
 GET    /naming/current                # Current strategy in use
 POST   /naming/strategy               # Change naming strategy
@@ -911,6 +1022,7 @@ GET    /naming/vdev-config            # Get current vdev_id.conf
 ### gRPC Command Handlers
 
 **Pattern** (from pkg/system/api/routes_grpc.go):
+
 ```go
 // Register command handlers with Toggle client
 func RegisterDiskGRPCHandlers(diskHandler *DiskHandler) {
@@ -936,6 +1048,7 @@ func RegisterDiskGRPCHandlers(diskHandler *DiskHandler) {
 ```
 
 **Command Type Constants** (to add to proto/commands.go):
+
 ```go
 // Disk Management Commands
 const (
@@ -1060,6 +1173,7 @@ message StorageDiskProbePayload {
 ### Event Emission Examples
 
 **Disk Discovery Event** (in pkg/disk/manager.go):
+
 ```go
 func (m *Manager) emitDiskEvent(
     level eventspb.EventLevel,
@@ -1092,6 +1206,7 @@ func (m *Manager) emitDiskEvent(
 ```
 
 **SMART Probe Event**:
+
 ```go
 func (m *Manager) emitProbeEvent(
     level eventspb.EventLevel,
@@ -1112,6 +1227,7 @@ func (m *Manager) emitProbeEvent(
 ### 1. Configuration System Integration
 
 **Update config/references.go**:
+
 ```go
 var (
     diskManagerConfigDir string
@@ -1143,12 +1259,14 @@ func EnsureDirectories() error {
 ```
 
 **File Paths**:
+
 - Config: `/etc/rodent/disk-manager/config.yaml`
 - State: `/etc/rodent/disk-manager/state.json`
 
 ### 2. ZFS Pool Manager Integration
 
 **Helper Functions** (`pkg/disk/zfs/integration.go`):
+
 ```go
 // SuggestPoolLayout suggests optimal device layout for pool creation
 func (m *Manager) SuggestPoolLayout(
@@ -1178,6 +1296,7 @@ func (m *Manager) IsDeviceScrubbing(device string) (bool, error)
 ### 3. Event System Integration
 
 **Pattern** (following internal/events/schema.go):
+
 - Use `emitStructuredEvent(event)` helper
 - Relies on global event bus initialized in `internal/events/integration.go`
 - Events batched and sent via existing `SendEvents` RPC
@@ -1186,6 +1305,7 @@ func (m *Manager) IsDeviceScrubbing(device string) (bool, error)
 ### 4. System Package Reuse
 
 **Use existing `pkg/system/` for**:
+
 - System information collection (OS, kernel version)
 - Platform detection (cloud, VM, physical)
 - Privilege checking (sudo requirements)
@@ -1225,6 +1345,7 @@ func (m *Manager) IsDeviceScrubbing(device string) (bool, error)
 ## Operational Considerations
 
 ### Disk Replacement Workflow
+
 1. User detects failing disk (via SMART probe failure event)
 2. User physically replaces disk (hotplug detected)
 3. Disk manager emits `STORAGE_DISK_OPERATION_REMOVED` + `STORAGE_DISK_OPERATION_ADDED`
@@ -1233,6 +1354,7 @@ func (m *Manager) IsDeviceScrubbing(device string) (bool, error)
 6. Resilver completes, disk manager resumes SMART probing
 
 ### Schedule Adjustment Best Practices
+
 - **Quick probes**: Can run during business hours if needed (minimal impact)
 - **Extensive probes**: Always schedule during off-peak hours (2-8 hour duration)
 - **Staggering**: For 50+ drives, consider 2-4 hour stagger intervals

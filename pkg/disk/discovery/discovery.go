@@ -170,11 +170,14 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 			disk.ByPathPath = "/dev/disk/by-path/" + byPath
 		}
 
-		// Device ID - prefer by-id, fallback to serial or device path
-		if disk.ByIDPath != "" {
-			disk.DeviceID = disk.ByIDPath
-		} else if disk.Serial != "" {
+		// Device ID - prefer serial/WWN for true uniqueness
+		// Serial is globally unique and stable across boots/controllers
+		if disk.Serial != "" {
 			disk.DeviceID = disk.Serial
+		} else if disk.WWN != "" {
+			disk.DeviceID = disk.WWN
+		} else if disk.ByIDPath != "" {
+			disk.DeviceID = disk.ByIDPath
 		} else {
 			disk.DeviceID = disk.DevicePath
 		}

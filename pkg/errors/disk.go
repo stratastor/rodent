@@ -49,6 +49,11 @@ const (
 	DiskProbeFailed                       // Probe execution failed
 	DiskProbeConflict                     // Probe conflict detected
 	DiskProbeConcurrencyLimit             // Max concurrent probes reached
+	DiskProbeNotRunning                   // Probe is not running
+	DiskProbeScheduleNotFound             // Probe schedule not found
+	DiskProbeScheduleCreateFailed         // Failed to create probe schedule
+	DiskProbeScheduleUpdateFailed         // Failed to update probe schedule
+	DiskProbeScheduleDeleteFailed         // Failed to delete probe schedule
 
 	// Hotplug Errors (2350-2359)
 	DiskHotplugMonitorFailed = 2350 + iota // Hotplug monitor failed
@@ -253,6 +258,31 @@ func init() {
 			"Maximum concurrent SMART probes reached",
 			DomainSystem,
 			http.StatusTooManyRequests,
+		},
+		DiskProbeNotRunning: {
+			"SMART probe is not running",
+			DomainSystem,
+			http.StatusBadRequest,
+		},
+		DiskProbeScheduleNotFound: {
+			"Probe schedule not found",
+			DomainSystem,
+			http.StatusNotFound,
+		},
+		DiskProbeScheduleCreateFailed: {
+			"Failed to create probe schedule",
+			DomainSystem,
+			http.StatusInternalServerError,
+		},
+		DiskProbeScheduleUpdateFailed: {
+			"Failed to update probe schedule",
+			DomainSystem,
+			http.StatusInternalServerError,
+		},
+		DiskProbeScheduleDeleteFailed: {
+			"Failed to delete probe schedule",
+			DomainSystem,
+			http.StatusInternalServerError,
 		},
 
 		// Hotplug Errors

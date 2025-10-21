@@ -17,6 +17,7 @@ import (
 	"github.com/stratastor/rodent/pkg/disk/discovery"
 	diskevents "github.com/stratastor/rodent/pkg/disk/events"
 	"github.com/stratastor/rodent/pkg/disk/health"
+	"github.com/stratastor/rodent/pkg/disk/hotplug"
 	"github.com/stratastor/rodent/pkg/disk/probing"
 	"github.com/stratastor/rodent/pkg/disk/state"
 	"github.com/stratastor/rodent/pkg/disk/tools"
@@ -40,6 +41,7 @@ type Manager struct {
 	healthMonitor  *health.Monitor
 	probeScheduler *probing.ProbeScheduler
 	eventEmitter   *diskevents.Emitter
+	hotplugHandler *hotplug.EventHandler
 
 	// Background tasks
 	scheduler gocron.Scheduler
@@ -161,6 +163,23 @@ func NewManager(
 		deviceCache:    make(map[string]*types.PhysicalDisk),
 	}
 
+	// Initialize hotplug handler (only if udev monitoring is enabled)
+	if cfg.Discovery.UdevMonitor {
+		hotplugCfg := &hotplug.HandlerConfig{
+			UdevadmPath:       cfg.Tools.UdevadmPath,
+			MonitorSubsystems: []string{"block"},
+			MonitorBufferSize: 100,
+			ReconcileInterval: cfg.Discovery.ReconcileInterval,
+			DiscoveryFunc:     m.discoverDevices,
+			CacheFunc:         m.getDeviceCache,
+			OnDeviceAdded:     m.handleDeviceAdded,
+			OnDeviceRemoved:   m.handleDeviceRemoved,
+			OnDeviceChanged:   m.handleDeviceChanged,
+		}
+
+		m.hotplugHandler = hotplug.NewEventHandler(l, hotplugCfg)
+	}
+
 	// Set device resolver now that Manager is created
 	probeScheduler.SetDeviceResolver(m)
 
@@ -221,6 +240,16 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 	}
 
+	// Start hotplug handler
+	if m.hotplugHandler != nil {
+		if err := m.hotplugHandler.Start(cfg.Tools.UdevadmPath); err != nil {
+			m.logger.Warn("failed to start hotplug handler, continuing without it",
+				"error", err)
+		} else {
+			m.logger.Info("hotplug monitoring enabled")
+		}
+	}
+
 	// Start background scheduler
 	m.scheduler.Start()
 
@@ -243,6 +272,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// Stop probe scheduler
 	if err := m.probeScheduler.Stop(ctx); err != nil {
 		m.logger.Error("error stopping probe scheduler", "error", err)
+	}
+
+	// Stop hotplug handler
+	if m.hotplugHandler != nil {
+		if err := m.hotplugHandler.Stop(); err != nil {
+			m.logger.Error("error stopping hotplug handler", "error", err)
+		}
 	}
 
 	// Cancel context
@@ -437,4 +473,112 @@ func (m *Manager) ResolveDevices(filter *types.DiskFilter) (map[string]string, e
 	}
 
 	return result, nil
+}
+
+// ============================================================================
+// Hotplug Event Handlers
+// ============================================================================
+
+// discoverDevices is a wrapper for discovery used by the reconciler
+func (m *Manager) discoverDevices(ctx context.Context) ([]*types.PhysicalDisk, error) {
+	return m.discoverer.DiscoverAll(ctx)
+}
+
+// getDeviceCache returns a copy of the current device cache
+func (m *Manager) getDeviceCache() map[string]*types.PhysicalDisk {
+	m.cacheMu.RLock()
+	defer m.cacheMu.RUnlock()
+
+	// Return a shallow copy to prevent modification
+	cache := make(map[string]*types.PhysicalDisk, len(m.deviceCache))
+	for k, v := range m.deviceCache {
+		cache[k] = v
+	}
+
+	return cache
+}
+
+// handleDeviceAdded handles a new device being added to the system
+func (m *Manager) handleDeviceAdded(ctx context.Context, deviceID string) error {
+	m.logger.Info("processing device addition", "device_id", deviceID)
+
+	// Trigger discovery to pick up the new device
+	if err := m.runDiscovery(ctx); err != nil {
+		return errors.Wrap(err, errors.DiskDiscoveryFailed).
+			WithMetadata("device_id", deviceID).
+			WithMetadata("event", "device_added")
+	}
+
+	// Emit event for the discovered disk
+	m.cacheMu.RLock()
+	disk, exists := m.deviceCache[deviceID]
+	m.cacheMu.RUnlock()
+
+	if exists {
+		m.eventEmitter.EmitDiskDiscovered(disk)
+	}
+
+	return nil
+}
+
+// handleDeviceRemoved handles a device being removed from the system
+func (m *Manager) handleDeviceRemoved(deviceID string) error {
+	m.logger.Info("processing device removal", "device_id", deviceID)
+
+	// Remove from cache
+	m.cacheMu.Lock()
+	disk, exists := m.deviceCache[deviceID]
+	if exists {
+		delete(m.deviceCache, deviceID)
+	}
+	m.cacheMu.Unlock()
+
+	if !exists {
+		m.logger.Debug("device not in cache", "device_id", deviceID)
+		return nil
+	}
+
+	// Update state
+	m.stateManager.UpdateDeviceState(deviceID, types.DiskStateOffline, types.HealthUnknown)
+
+	// Emit event
+	m.eventEmitter.EmitDiskRemoved(disk)
+
+	return nil
+}
+
+// handleDeviceChanged handles a device change event
+func (m *Manager) handleDeviceChanged(ctx context.Context, deviceID string) error {
+	m.logger.Info("processing device change", "device_id", deviceID)
+
+	// Re-discover to update device information
+	if err := m.runDiscovery(ctx); err != nil {
+		return errors.Wrap(err, errors.DiskDiscoveryFailed).
+			WithMetadata("device_id", deviceID).
+			WithMetadata("event", "device_changed")
+	}
+
+	// Trigger health check for this device
+	m.cacheMu.RLock()
+	disk, exists := m.deviceCache[deviceID]
+	m.cacheMu.RUnlock()
+
+	if exists {
+		m.logger.Debug("triggering health check for changed device",
+			"device_id", deviceID)
+
+		// Queue health check (async)
+		go func() {
+			checkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if _, err := m.healthMonitor.CheckHealth(checkCtx, disk); err != nil {
+				m.logger.Warn("health check failed for changed device",
+					"device_id", deviceID,
+					"error", err)
+			}
+		}()
+	}
+
+	return nil
 }
