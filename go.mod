@@ -9,6 +9,7 @@ require (
 	github.com/go-resty/resty/v2 v2.16.2
 	github.com/google/uuid v1.6.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
+	github.com/pilebones/go-udev v0.9.1
 	github.com/sevlyar/go-daemon v0.1.6
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0

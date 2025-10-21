@@ -773,6 +773,7 @@ config/
 ### Phase 11: API Layer ✅
 
 **Infrastructure** ✅:
+
 - [x] Proto command type constants (42 commands) - `toggle-rodent-proto/proto/disk_command_types.go`
 - [x] Proto event definitions - `toggle-rodent-proto/proto/events/event_messages.proto` (StorageDisk*)
 - [x] Handler structure - `pkg/disk/api/handler_grpc.go`
@@ -785,6 +786,7 @@ config/
 - [x] Error codes - Added 5 probe schedule error codes to `pkg/errors/disk.go`
 
 **Manager Methods** ✅ (All 39 operations have Manager methods):
+
 - [x] Probe operations (12 methods) - `pkg/disk/probe_manager.go`
   - TriggerProbe, CancelProbe, GetProbeExecution, GetActiveProbes, GetProbeHistory
   - GetProbeSchedules, GetProbeSchedule, CreateProbeSchedule, UpdateProbeSchedule
@@ -967,7 +969,7 @@ GET    /topology/enclosures           # List enclosures
 GET    /topology/controllers          # List controllers
 ```
 
-#### Configuration Management
+#### Config Management
 
 ```text
 GET    /config                        # Get current configuration
@@ -980,7 +982,7 @@ POST   /config/validate               # Validate configuration
 GET    /config/path                   # Get config file path
 ```
 
-#### State Management
+#### State management
 
 ```text
 GET    /state                         # Get entire state

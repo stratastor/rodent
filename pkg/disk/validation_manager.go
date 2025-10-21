@@ -41,14 +41,15 @@ func (m *Manager) ValidateDisk(deviceID string) (*ValidationResult, error) {
 	}
 
 	// Check health status
-	if disk.Health == types.HealthFailed || disk.Health == types.HealthCritical {
+	switch disk.Health {
+	case types.HealthFailed, types.HealthCritical:
 		result.Valid = false
 		result.Issues = append(result.Issues, ValidationIssue{
 			Code:     "DISK_FAILING",
 			Severity: "error",
 			Message:  "Disk health is " + string(disk.Health) + ": " + disk.HealthReason,
 		})
-	} else if disk.Health == types.HealthWarning {
+	case types.HealthWarning:
 		result.Warnings = append(result.Warnings, "Disk health is WARNING: "+disk.HealthReason)
 	}
 

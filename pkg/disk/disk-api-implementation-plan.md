@@ -27,6 +27,7 @@ This document tracks the implementation status of all disk management API endpoi
 All command type constants are defined and ready to use. Commands follow the pattern: `disk.{category}.{action}` or `disk.{category}.{subcategory}.{action}`.
 
 ### Command Breakdown
+
 - Inventory & Discovery: 4 commands (list, get, discover, refresh)
 - Health & SMART: 3 commands (health.get, smart.get, smart.refresh)
 - Probe Operations: 5 commands (start, cancel, get, list, history)

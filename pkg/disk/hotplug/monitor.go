@@ -5,24 +5,22 @@
 package hotplug
 
 import (
-	"bufio"
 	"context"
-	"io"
-	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/pilebones/go-udev/netlink"
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
 // Monitor monitors udev events for hotplug disk detection.
 //
-// It runs 'udevadm monitor --subsystem-match=block --property' as a long-running
-// process and parses the event stream in real-time. Events are deduplicated using
-// a correlation map with 2-second TTL to handle duplicate kernel notifications.
+// It connects directly to the kernel's netlink socket (NETLINK_KOBJECT_UEVENT)
+// to receive udev events in real-time with no buffering delays. Events are
+// deduplicated using a correlation map with 2-second TTL to handle duplicate
+// kernel notifications.
 //
 // The monitor runs in its own goroutine and sends parsed events to a buffered
 // channel. It handles context cancellation gracefully and tracks statistics.
@@ -37,6 +35,9 @@ type Monitor struct {
 	// Event channels
 	events chan *UdevEvent
 	errors chan error
+
+	// Netlink connection
+	conn *netlink.UEventConn
 
 	// Correlation tracking
 	correlationMap map[EventCorrelationKey]*CorrelatedEvent
@@ -93,15 +94,22 @@ func NewMonitor(l logger.Logger, subsystems []string, bufferSize int) *Monitor {
 }
 
 // Start begins monitoring udev events
-// This uses udevadm monitor under the hood, which connects to the kernel via netlink
+// This connects directly to the kernel's netlink socket (NETLINK_KOBJECT_UEVENT)
 func (m *Monitor) Start(udevadmPath string) error {
-	m.logger.Info("starting udev monitor", "subsystems", m.subsystems)
+	m.logger.Info("starting udev monitor via netlink", "subsystems", m.subsystems)
+
+	// Create netlink connection
+	m.conn = new(netlink.UEventConn)
+	if err := m.conn.Connect(netlink.UdevEvent); err != nil {
+		return errors.Wrap(err, errors.OperationFailed).
+			WithMetadata("operation", "netlink_connect")
+	}
 
 	// Start the correlation cleanup goroutine
 	go m.correlationCleanup()
 
-	// Start udevadm monitor in a goroutine
-	go m.runMonitor(udevadmPath)
+	// Start netlink monitor in a goroutine
+	go m.runMonitor()
 
 	return nil
 }
@@ -110,6 +118,12 @@ func (m *Monitor) Start(udevadmPath string) error {
 func (m *Monitor) Stop() error {
 	m.logger.Info("stopping udev monitor")
 	m.cancel()
+
+	// Close netlink connection
+	if m.conn != nil {
+		m.conn.Close()
+	}
+
 	close(m.events)
 	close(m.errors)
 	return nil
@@ -132,163 +146,79 @@ func (m *Monitor) GetStats() MonitorStats {
 	return m.stats
 }
 
-// runMonitor runs the udevadm monitor command and processes output
-func (m *Monitor) runMonitor(udevadmPath string) {
-	// Build udevadm command arguments
-	args := []string{"monitor", "--property"}
-	for _, subsystem := range m.subsystems {
-		args = append(args, "--subsystem-match="+subsystem)
-	}
+// runMonitor monitors netlink udev events in real-time
+func (m *Monitor) runMonitor() {
+	m.logger.Info("netlink monitor started successfully")
 
-	// Start udevadm monitor process
-	// Note: We'll need to use exec.CommandContext for this
-	cmd := m.buildMonitorCommand(m.ctx, udevadmPath, args)
+	// Create channels for netlink events
+	queue := make(chan netlink.UEvent)
+	netlinkErrors := make(chan error)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		m.errors <- errors.Wrap(err, errors.OperationFailed).
-			WithMetadata("operation", "udev_monitor_pipe")
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
-		m.errors <- errors.Wrap(err, errors.OperationFailed).
-			WithMetadata("operation", "udev_monitor_start")
-		return
-	}
-
-	m.logger.Info("udev monitor started successfully")
-
-	// Process udevadm output
-	m.processMonitorOutput(stdout)
-
-	// Wait for command to finish
-	if err := cmd.Wait(); err != nil {
-		if m.ctx.Err() == nil {
-			// Only log error if context wasn't cancelled
-			m.errors <- errors.Wrap(err, errors.OperationFailed).
-				WithMetadata("operation", "udev_monitor_wait")
+	// Build matcher for subsystem filtering
+	var matcher *netlink.RuleDefinitions
+	if len(m.subsystems) > 0 {
+		rules := make([]netlink.RuleDefinition, 0, len(m.subsystems))
+		for _, subsystem := range m.subsystems {
+			rules = append(rules, netlink.RuleDefinition{
+				Env: map[string]string{"SUBSYSTEM": subsystem},
+			})
 		}
+		matcher = &netlink.RuleDefinitions{Rules: rules}
 	}
 
-	m.logger.Info("udev monitor stopped")
-}
+	// Start monitoring
+	m.conn.Monitor(queue, netlinkErrors, matcher)
 
-// processMonitorOutput processes the output from udevadm monitor
-func (m *Monitor) processMonitorOutput(r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	var currentEvent *UdevEvent
-	var inEvent bool
-
-	for scanner.Scan() {
+	// Process events
+	for {
 		select {
 		case <-m.ctx.Done():
+			m.logger.Info("netlink monitor stopped")
 			return
-		default:
+
+		case uevent := <-queue:
+			m.processNetlinkEvent(uevent)
+
+		case err := <-netlinkErrors:
+			m.statsMu.Lock()
+			m.stats.Errors++
+			m.statsMu.Unlock()
+			m.errors <- errors.Wrap(err, errors.OperationFailed).
+				WithMetadata("operation", "netlink_monitor")
 		}
-
-		line := scanner.Text()
-
-		// Event separator line
-		// Only process UDEV events (which have all properties after udev rule processing)
-		// Ignore KERNEL events (which arrive before udev processing and lack properties like ID_SERIAL_SHORT)
-		if strings.HasPrefix(line, "UDEV") {
-			// Save previous event if any
-			if currentEvent != nil && m.isRelevantEvent(currentEvent) {
-				m.emitEvent(currentEvent)
-			}
-
-			// Start new event
-			currentEvent = &UdevEvent{
-				Properties: make(map[string]string),
-				Timestamp:  time.Now(),
-			}
-			inEvent = true
-
-			// Parse the header line: "UDEV[12345.678] add /devices/..."
-			m.parseHeaderLine(line, currentEvent)
-			continue
-		}
-
-		// Property lines
-		if inEvent && currentEvent != nil {
-			m.parsePropertyLine(line, currentEvent)
-		}
-	}
-
-	// Save last event
-	if currentEvent != nil && m.isRelevantEvent(currentEvent) {
-		m.emitEvent(currentEvent)
-	}
-
-	if err := scanner.Err(); err != nil {
-		m.statsMu.Lock()
-		m.stats.Errors++
-		m.statsMu.Unlock()
-
-		m.errors <- errors.Wrap(err, errors.OperationFailed).
-			WithMetadata("operation", "udev_monitor_scan")
 	}
 }
 
-// parseHeaderLine parses the udev event header line
-func (m *Monitor) parseHeaderLine(line string, event *UdevEvent) {
-	// Line format: "KERNEL[12345.678] add /devices/pci0000:00/..."
-	// or: "UDEV[12345.678] add /devices/pci0000:00/..."
-
-	parts := strings.SplitN(line, "]", 2)
-	if len(parts) < 2 {
-		return
+// processNetlinkEvent converts a netlink UEvent to our UdevEvent and emits it
+func (m *Monitor) processNetlinkEvent(uevent netlink.UEvent) {
+	// Create our event structure
+	event := &UdevEvent{
+		Action:     UdevAction(uevent.Action),
+		SysPath:    uevent.KObj,
+		Properties: uevent.Env,
+		Timestamp:  time.Now(),
 	}
 
-	// Extract sequence number from [12345.678]
-	seqPart := strings.TrimPrefix(parts[0], "KERNEL[")
-	seqPart = strings.TrimPrefix(seqPart, "UDEV[")
-	if seqNum, err := strconv.ParseFloat(seqPart, 64); err == nil {
-		event.SeqNum = uint64(seqNum * 1000) // Convert to milliseconds
-	}
-
-	// Extract action and path
-	remainder := strings.TrimSpace(parts[1])
-	actionPath := strings.SplitN(remainder, " ", 2)
-	if len(actionPath) >= 1 {
-		event.Action = UdevAction(actionPath[0])
-	}
-	if len(actionPath) >= 2 {
-		event.SysPath = actionPath[1]
-	}
-}
-
-// parsePropertyLine parses a udev property line
-func (m *Monitor) parsePropertyLine(line string, event *UdevEvent) {
-	// Property lines are in KEY=VALUE format
-	if !strings.Contains(line, "=") {
-		return
-	}
-
-	parts := strings.SplitN(line, "=", 2)
-	if len(parts) != 2 {
-		return
-	}
-
-	key := strings.TrimSpace(parts[0])
-	value := strings.TrimSpace(parts[1])
-
-	// Store all properties
-	event.Properties[key] = value
-
-	// Extract important properties into event fields
-	switch key {
-	case "DEVNAME":
-		event.DevPath = value
+	// Extract important properties from the environment map
+	if devname, ok := uevent.Env["DEVNAME"]; ok {
+		event.DevPath = devname
 		// Extract device name from path (e.g., /dev/sda -> sda)
-		if idx := strings.LastIndex(value, "/"); idx >= 0 {
-			event.DevName = value[idx+1:]
+		if idx := strings.LastIndex(devname, "/"); idx >= 0 {
+			event.DevName = devname[idx+1:]
 		}
-	case "DEVTYPE":
-		event.DevType = value
-	case "SUBSYSTEM":
-		event.Subsystem = value
+	}
+
+	if devtype, ok := uevent.Env["DEVTYPE"]; ok {
+		event.DevType = devtype
+	}
+
+	if subsystem, ok := uevent.Env["SUBSYSTEM"]; ok {
+		event.Subsystem = subsystem
+	}
+
+	// Check if relevant and emit
+	if m.isRelevantEvent(event) {
+		m.emitEvent(event)
 	}
 }
 
@@ -416,9 +346,4 @@ func (m *Monitor) cleanupCorrelation() {
 			delete(m.correlationMap, key)
 		}
 	}
-}
-
-// buildMonitorCommand creates the exec.Cmd for udevadm monitor
-func (m *Monitor) buildMonitorCommand(ctx context.Context, path string, args []string) *exec.Cmd {
-	return exec.CommandContext(ctx, path, args...)
 }
