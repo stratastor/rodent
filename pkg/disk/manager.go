@@ -235,23 +235,29 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Start probe scheduler
 	if cfg.Probing.Enabled {
+		m.logger.Debug("about to start probe scheduler")
 		if err := m.probeScheduler.Start(ctx); err != nil {
 			return err
 		}
+		m.logger.Debug("probe scheduler start call returned")
 	}
 
 	// Start hotplug handler
 	if m.hotplugHandler != nil {
+		m.logger.Debug("about to start hotplug handler")
 		if err := m.hotplugHandler.Start(cfg.Tools.UdevadmPath); err != nil {
 			m.logger.Warn("failed to start hotplug handler, continuing without it",
 				"error", err)
 		} else {
 			m.logger.Info("hotplug monitoring enabled")
 		}
+		m.logger.Debug("hotplug handler start call returned")
 	}
 
 	// Start background scheduler
+	m.logger.Debug("about to start scheduler")
 	m.scheduler.Start()
+	m.logger.Debug("scheduler start call returned")
 
 	m.logger.Info("disk manager started",
 		"discovery_interval", cfg.Discovery.Interval,

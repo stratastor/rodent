@@ -149,6 +149,12 @@ func (sm *StateManager) SaveDebounced() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	sm.scheduleSaveUnlocked()
+}
+
+// scheduleSaveUnlocked schedules a save without acquiring the lock
+// Must be called with sm.mu held
+func (sm *StateManager) scheduleSaveUnlocked() {
 	// Cancel existing timer if any
 	if sm.saveTimer != nil {
 		sm.saveTimer.Stop()
@@ -257,7 +263,7 @@ func (sm *StateManager) WithLock(fn func(*types.DiskManagerState)) {
 	defer sm.mu.Unlock()
 
 	fn(sm.state)
-	sm.SaveDebounced()
+	sm.scheduleSaveUnlocked()
 }
 
 // WithRLock executes a function with state read-locked
