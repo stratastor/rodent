@@ -302,8 +302,14 @@ func (h *EventHandler) handleReconciliation(result *ReconciliationResult) {
 // extractDeviceID extracts a device ID from a udev event
 // Must match the priority logic in discovery.go for consistency
 func (h *EventHandler) extractDeviceID(event *UdevEvent) string {
-	// Prefer ID_SERIAL for device ID (globally unique, stable)
-	// This matches disk.Serial in discovery
+	// Prefer ID_SERIAL_SHORT for device ID - this matches lsblk's serial field
+	// which is what discovery uses as the primary DeviceID
+	if serial, ok := event.Properties["ID_SERIAL_SHORT"]; ok && serial != "" {
+		return serial
+	}
+
+	// Fall back to ID_SERIAL (longer format with vendor prefix)
+	// This is less preferred because it doesn't match lsblk serial
 	if serial, ok := event.Properties["ID_SERIAL"]; ok && serial != "" {
 		return serial
 	}
@@ -314,12 +320,8 @@ func (h *EventHandler) extractDeviceID(event *UdevEvent) string {
 		return wwn
 	}
 
-	// Fall back to ID_SERIAL_SHORT if full serial not available
-	if serial, ok := event.Properties["ID_SERIAL_SHORT"]; ok && serial != "" {
-		return serial
-	}
-
 	// Fall back to device name (least reliable, but matches DevicePath fallback)
+	// This is common for removal events where properties are already gone
 	if event.DevName != "" {
 		return event.DevName
 	}

@@ -190,7 +190,9 @@ func (m *Monitor) processMonitorOutput(r io.Reader) {
 		line := scanner.Text()
 
 		// Event separator line
-		if strings.HasPrefix(line, "KERNEL") || strings.HasPrefix(line, "UDEV") {
+		// Only process UDEV events (which have all properties after udev rule processing)
+		// Ignore KERNEL events (which arrive before udev processing and lack properties like ID_SERIAL_SHORT)
+		if strings.HasPrefix(line, "UDEV") {
 			// Save previous event if any
 			if currentEvent != nil && m.isRelevantEvent(currentEvent) {
 				m.emitEvent(currentEvent)
@@ -203,7 +205,7 @@ func (m *Monitor) processMonitorOutput(r io.Reader) {
 			}
 			inEvent = true
 
-			// Parse the header line: "KERNEL[12345.678] add /devices/..."
+			// Parse the header line: "UDEV[12345.678] add /devices/..."
 			m.parseHeaderLine(line, currentEvent)
 			continue
 		}

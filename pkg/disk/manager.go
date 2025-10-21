@@ -48,7 +48,8 @@ type Manager struct {
 	wg        sync.WaitGroup
 
 	// Device cache
-	deviceCache map[string]*types.PhysicalDisk
+	deviceCache map[string]*types.PhysicalDisk // DeviceID (serial) -> PhysicalDisk
+	pathToID    map[string]string               // DevicePath -> DeviceID mapping
 	cacheMu     sync.RWMutex
 }
 
@@ -161,6 +162,7 @@ func NewManager(
 		eventEmitter:   eventEmitter,
 		scheduler:      scheduler,
 		deviceCache:    make(map[string]*types.PhysicalDisk),
+		pathToID:       make(map[string]string),
 	}
 
 	// Initialize hotplug handler (only if udev monitoring is enabled)
@@ -328,8 +330,10 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 	// Update device cache
 	m.cacheMu.Lock()
 	m.deviceCache = make(map[string]*types.PhysicalDisk)
+	m.pathToID = make(map[string]string)
 	for _, disk := range disks {
 		m.deviceCache[disk.DeviceID] = disk
+		m.pathToID[disk.DevicePath] = disk.DeviceID
 	}
 	m.cacheMu.Unlock()
 
@@ -506,46 +510,121 @@ func (m *Manager) getDeviceCache() map[string]*types.PhysicalDisk {
 
 // handleDeviceAdded handles a new device being added to the system
 func (m *Manager) handleDeviceAdded(ctx context.Context, deviceID string) error {
-	m.logger.Info("processing device addition", "device_id", deviceID)
+	m.logger.Info("processing device addition", "lookup_key", deviceID)
 
 	// Trigger discovery to pick up the new device
+	// This ensures we use the same discovery logic (lsblk + udevadm) for consistency
 	if err := m.runDiscovery(ctx); err != nil {
 		return errors.Wrap(err, errors.DiskDiscoveryFailed).
-			WithMetadata("device_id", deviceID).
+			WithMetadata("lookup_key", deviceID).
 			WithMetadata("event", "device_added")
 	}
 
-	// Emit event for the discovered disk
+	// Find the disk using smart multi-key lookup
+	// The deviceID from udev might not match the DeviceID assigned by discovery
 	m.cacheMu.RLock()
-	disk, exists := m.deviceCache[deviceID]
+	disk, actualDeviceID, exists := m.findDiskInCache(deviceID)
 	m.cacheMu.RUnlock()
 
 	if exists {
+		m.logger.Info("device addition completed",
+			"lookup_key", deviceID,
+			"actual_device_id", actualDeviceID,
+			"device_path", disk.DevicePath,
+			"id_source", disk.DeviceIDSource)
 		m.eventEmitter.EmitDiskDiscovered(disk)
+	} else {
+		m.logger.Warn("device not found in cache after discovery",
+			"lookup_key", deviceID)
 	}
 
 	return nil
+}
+
+// findDiskInCache performs intelligent multi-key lookup to find a disk in cache
+// This handles cases where the lookup key might not match the cached DeviceID
+// Returns the disk and its actual DeviceID if found
+func (m *Manager) findDiskInCache(lookupKey string) (*types.PhysicalDisk, string, bool) {
+	// Strategy 1: Direct lookup by DeviceID
+	if disk, ok := m.deviceCache[lookupKey]; ok {
+		m.logger.Debug("found disk by direct DeviceID match",
+			"lookup_key", lookupKey,
+			"device_id", disk.DeviceID,
+			"source", disk.DeviceIDSource)
+		return disk, disk.DeviceID, true
+	}
+
+	// Strategy 2: Lookup by device path (normalize path first)
+	devicePath := lookupKey
+	if len(devicePath) > 0 && devicePath[0] != '/' {
+		devicePath = "/dev/" + devicePath
+	}
+
+	if resolvedID, ok := m.pathToID[devicePath]; ok {
+		if disk, ok := m.deviceCache[resolvedID]; ok {
+			m.logger.Debug("found disk via pathToID mapping",
+				"lookup_key", lookupKey,
+				"normalized_path", devicePath,
+				"resolved_id", resolvedID,
+				"source", disk.DeviceIDSource)
+			return disk, resolvedID, true
+		}
+	}
+
+	// Strategy 3: Scan cache for matching fields (last resort)
+	// Check if lookup key matches Serial, WWN, or DevicePath
+	for cachedID, disk := range m.deviceCache {
+		if disk.Serial == lookupKey || disk.WWN == lookupKey || disk.DevicePath == lookupKey || disk.DevicePath == devicePath {
+			m.logger.Debug("found disk by field scan",
+				"lookup_key", lookupKey,
+				"matched_field", func() string {
+					if disk.Serial == lookupKey {
+						return "serial"
+					} else if disk.WWN == lookupKey {
+						return "wwn"
+					}
+					return "device_path"
+				}(),
+				"device_id", cachedID,
+				"source", disk.DeviceIDSource)
+			return disk, cachedID, true
+		}
+	}
+
+	m.logger.Debug("disk not found in cache after multi-key lookup",
+		"lookup_key", lookupKey,
+		"strategies_tried", []string{"direct_id", "path_mapping", "field_scan"})
+	return nil, "", false
 }
 
 // handleDeviceRemoved handles a device being removed from the system
 func (m *Manager) handleDeviceRemoved(deviceID string) error {
 	m.logger.Info("processing device removal", "device_id", deviceID)
 
-	// Remove from cache
+	// Use smart multi-key lookup to find the disk
 	m.cacheMu.Lock()
-	disk, exists := m.deviceCache[deviceID]
+	disk, actualDeviceID, exists := m.findDiskInCache(deviceID)
+
 	if exists {
-		delete(m.deviceCache, deviceID)
+		// Remove from both caches
+		delete(m.deviceCache, actualDeviceID)
+		delete(m.pathToID, disk.DevicePath)
+		m.logger.Info("removed disk from cache",
+			"lookup_key", deviceID,
+			"actual_device_id", actualDeviceID,
+			"device_path", disk.DevicePath,
+			"id_source", disk.DeviceIDSource)
 	}
 	m.cacheMu.Unlock()
 
 	if !exists {
-		m.logger.Debug("device not in cache", "device_id", deviceID)
+		m.logger.Warn("device not found in cache during removal",
+			"lookup_key", deviceID)
 		return nil
 	}
 
 	// Update state
-	m.stateManager.UpdateDeviceState(deviceID, types.DiskStateOffline, types.HealthUnknown)
+	m.stateManager.UpdateDeviceState(actualDeviceID, types.DiskStateOffline, types.HealthUnknown)
 
 	// Emit event
 	m.eventEmitter.EmitDiskRemoved(disk)
@@ -555,23 +634,28 @@ func (m *Manager) handleDeviceRemoved(deviceID string) error {
 
 // handleDeviceChanged handles a device change event
 func (m *Manager) handleDeviceChanged(ctx context.Context, deviceID string) error {
-	m.logger.Info("processing device change", "device_id", deviceID)
+	m.logger.Info("processing device change", "lookup_key", deviceID)
 
 	// Re-discover to update device information
+	// This ensures we use the same discovery logic (lsblk + udevadm) for consistency
 	if err := m.runDiscovery(ctx); err != nil {
 		return errors.Wrap(err, errors.DiskDiscoveryFailed).
-			WithMetadata("device_id", deviceID).
+			WithMetadata("lookup_key", deviceID).
 			WithMetadata("event", "device_changed")
 	}
 
-	// Trigger health check for this device
+	// Find the disk using smart multi-key lookup
+	// The deviceID from udev might not match the DeviceID assigned by discovery
 	m.cacheMu.RLock()
-	disk, exists := m.deviceCache[deviceID]
+	disk, actualDeviceID, exists := m.findDiskInCache(deviceID)
 	m.cacheMu.RUnlock()
 
 	if exists {
-		m.logger.Debug("triggering health check for changed device",
-			"device_id", deviceID)
+		m.logger.Info("device change completed",
+			"lookup_key", deviceID,
+			"actual_device_id", actualDeviceID,
+			"device_path", disk.DevicePath,
+			"id_source", disk.DeviceIDSource)
 
 		// Queue health check (async)
 		go func() {
@@ -580,10 +664,13 @@ func (m *Manager) handleDeviceChanged(ctx context.Context, deviceID string) erro
 
 			if _, err := m.healthMonitor.CheckHealth(checkCtx, disk); err != nil {
 				m.logger.Warn("health check failed for changed device",
-					"device_id", deviceID,
+					"actual_device_id", actualDeviceID,
 					"error", err)
 			}
 		}()
+	} else {
+		m.logger.Warn("device not found in cache after discovery",
+			"lookup_key", deviceID)
 	}
 
 	return nil

@@ -174,12 +174,16 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 		// Serial is globally unique and stable across boots/controllers
 		if disk.Serial != "" {
 			disk.DeviceID = disk.Serial
+			disk.DeviceIDSource = "serial"
 		} else if disk.WWN != "" {
 			disk.DeviceID = disk.WWN
+			disk.DeviceIDSource = "wwn"
 		} else if disk.ByIDPath != "" {
 			disk.DeviceID = disk.ByIDPath
+			disk.DeviceIDSource = "by-id"
 		} else {
 			disk.DeviceID = disk.DevicePath
+			disk.DeviceIDSource = "path"
 		}
 	}
 }

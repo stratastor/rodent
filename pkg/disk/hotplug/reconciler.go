@@ -205,10 +205,11 @@ func (r *Reconciler) hasChanged(cached, discovered *types.PhysicalDisk) bool {
 		return true
 	}
 
-	// Compare health status
-	if cached.Health != discovered.Health {
-		return true
-	}
+	// Note: We don't compare health status here because:
+	// 1. Health is updated separately by the health monitoring system
+	// 2. Discovery always initializes health to HealthUnknown
+	// 3. This causes false-positive "changed" detections on every reconciliation
+	// Health changes are tracked by the health monitoring subsystem instead.
 
 	return false
 }

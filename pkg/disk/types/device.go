@@ -9,13 +9,14 @@ import "time"
 // PhysicalDisk represents a physical storage device
 type PhysicalDisk struct {
 	// Device identification
-	DeviceID   string `json:"device_id"`   // Unique device ID (e.g., from by-id)
-	DevicePath string `json:"device_path"` // Primary device path (e.g., /dev/sda)
-	WWN        string `json:"wwn"`         // World Wide Name (if available)
-	Serial     string `json:"serial"`      // Device serial number
-	Model      string `json:"model"`       // Device model
-	Vendor     string `json:"vendor"`      // Device vendor
-	Firmware   string `json:"firmware"`    // Firmware version
+	DeviceID       string `json:"device_id"`        // Unique device ID (e.g., from by-id)
+	DeviceIDSource string `json:"device_id_source"` // Source of DeviceID: "serial", "wwn", "by-id", "path"
+	DevicePath     string `json:"device_path"`      // Primary device path (e.g., /dev/sda)
+	WWN            string `json:"wwn"`              // World Wide Name (if available)
+	Serial         string `json:"serial"`           // Device serial number
+	Model          string `json:"model"`            // Device model
+	Vendor         string `json:"vendor"`           // Device vendor
+	Firmware       string `json:"firmware"`         // Firmware version
 
 	// Device properties
 	Type      DeviceType    `json:"type"`       // HDD, SSD, NVMe, etc.
