@@ -6,60 +6,71 @@ import (
 
 // RegisterRoutes registers all disk API routes
 func (h *DiskHandler) RegisterRoutes(router *gin.RouterGroup) {
-	// Inventory routes
-	router.GET("/inventory", h.GetInventory)
-	router.GET("/disks/:device_id", h.GetDisk)
+	// Disk collection and resource routes
+	router.GET("/", h.GetInventory)
+	router.GET("/:device_id", h.GetDisk)
+	router.GET("/:device_id/health", h.GetDiskHealth)
+	router.GET("/:device_id/smart", h.GetSMARTData)
+	router.GET("/:device_id/state", h.GetDeviceState)
+	router.PUT("/:device_id/state", h.SetDeviceState)
+	router.PUT("/:device_id/tags", h.SetDiskTags)
+	router.DELETE("/:device_id/tags", h.DeleteDiskTags)
+	router.PUT("/:device_id/notes", h.SetDiskNotes)
+	router.GET("/:device_id/statistics", h.GetDeviceStatistics)
+	router.POST("/:device_id/validate", h.ValidateDisk)
+	router.POST("/:device_id/quarantine", h.QuarantineDisk)
+	router.GET("/:device_id/probes/history", h.GetProbeHistory)
+
+	// Discovery routes
 	router.POST("/discovery/trigger", h.TriggerDiscovery)
 
 	// Health routes
 	router.POST("/health/check", h.TriggerHealthCheck)
-	router.GET("/disks/:device_id/health", h.GetDiskHealth)
-	router.GET("/disks/:device_id/smart", h.GetSMARTData)
 	router.POST("/smart/refresh", h.RefreshSMART)
 
 	// Probe routes
-	router.POST("/probes/start", h.StartProbe)
-	router.POST("/probes/:probe_id/cancel", h.CancelProbe)
-	router.GET("/probes/:probe_id", h.GetProbe)
-	router.GET("/probes", h.ListProbes)
-	router.GET("/disks/:device_id/probe-history", h.GetProbeHistory)
+	probes := router.Group("/probes")
+	{
+		probes.GET("", h.ListProbes)
+		probes.POST("/start", h.StartProbe)
+		probes.GET("/:probe_id", h.GetProbe)
+		probes.POST("/:probe_id/cancel", h.CancelProbe)
 
-	// Probe schedule routes
-	router.GET("/probe-schedules", h.ListProbeSchedules)
-	router.GET("/probe-schedules/:schedule_id", h.GetProbeSchedule)
-	router.POST("/probe-schedules", h.CreateProbeSchedule)
-	router.PUT("/probe-schedules/:schedule_id", h.UpdateProbeSchedule)
-	router.DELETE("/probe-schedules/:schedule_id", h.DeleteProbeSchedule)
-	router.POST("/probe-schedules/:schedule_id/enable", h.EnableProbeSchedule)
-	router.POST("/probe-schedules/:schedule_id/disable", h.DisableProbeSchedule)
+		// Probe schedules
+		schedules := probes.Group("/schedules")
+		{
+			schedules.GET("", h.ListProbeSchedules)
+			schedules.POST("", h.CreateProbeSchedule)
+			schedules.GET("/:schedule_id", h.GetProbeSchedule)
+			schedules.PUT("/:schedule_id", h.UpdateProbeSchedule)
+			schedules.DELETE("/:schedule_id", h.DeleteProbeSchedule)
+			schedules.POST("/:schedule_id/enable", h.EnableProbeSchedule)
+			schedules.POST("/:schedule_id/disable", h.DisableProbeSchedule)
+		}
+	}
 
 	// Topology routes
-	router.GET("/topology", h.GetTopology)
-	router.POST("/topology/refresh", h.RefreshTopology)
-	router.GET("/topology/controllers", h.GetControllers)
-	router.GET("/topology/enclosures", h.GetEnclosures)
-
-	// State management routes
-	router.GET("/disks/:device_id/state", h.GetDeviceState)
-	router.PUT("/disks/:device_id/state", h.SetDeviceState)
-	router.POST("/disks/:device_id/validate", h.ValidateDisk)
-	router.POST("/disks/:device_id/quarantine", h.QuarantineDisk)
-
-	// Metadata routes
-	router.PUT("/disks/:device_id/tags", h.SetDiskTags)
-	router.DELETE("/disks/:device_id/tags", h.DeleteDiskTags)
-	router.PUT("/disks/:device_id/notes", h.SetDiskNotes)
+	topology := router.Group("/topology")
+	{
+		topology.GET("", h.GetTopology)
+		topology.POST("/refresh", h.RefreshTopology)
+		topology.GET("/controllers", h.GetControllers)
+		topology.GET("/enclosures", h.GetEnclosures)
+	}
 
 	// Statistics routes
-	router.GET("/disks/:device_id/statistics", h.GetDeviceStatistics)
-	router.GET("/statistics/global", h.GetGlobalStatistics)
-
-	// Monitoring routes
-	router.GET("/monitoring/config", h.GetMonitoringConfig)
-	router.PUT("/monitoring/config", h.SetMonitoringConfig)
+	statistics := router.Group("/statistics")
+	{
+		statistics.GET("/global", h.GetGlobalStatistics)
+	}
 
 	// Configuration routes
-	router.GET("/config", h.GetConfiguration)
-	router.PUT("/config", h.UpdateConfiguration)
-	router.POST("/config/reload", h.ReloadConfiguration)
+	config := router.Group("/config")
+	{
+		config.GET("", h.GetConfiguration)
+		config.PUT("", h.UpdateConfiguration)
+		config.POST("/reload", h.ReloadConfiguration)
+		config.GET("/monitoring", h.GetMonitoringConfig)
+		config.PUT("/monitoring", h.SetMonitoringConfig)
+	}
 }

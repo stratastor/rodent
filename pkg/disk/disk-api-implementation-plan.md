@@ -1,7 +1,7 @@
 # Disk Management API - Implementation Plan
 
-**Status**: In Progress
-**Last Updated**: 2025-10-21
+**Status**: Near Complete (Production Ready)
+**Last Updated**: 2025-10-22
 
 ## Overview
 
@@ -13,10 +13,10 @@ This document tracks the implementation status of all disk management API endpoi
 
 | Category | Total | Implemented | Remaining | Progress |
 |----------|-------|-------------|-----------|----------|
-| **gRPC Commands** | 43 | 7 | 36 | 16% |
-| **REST Endpoints** | 43 | 6 | 37 | 14% |
+| **gRPC Commands** | 42 | 37 | 5 | 88% |
+| **REST Endpoints** | 42 | 37 | 5 | 88% |
 
-**Note**: Each gRPC command has a corresponding REST endpoint for one-to-one mapping.
+**Note**: Each gRPC command has a corresponding REST endpoint for one-to-one mapping. The 5 remaining commands require Phase 8 (Naming Strategy) and Phase 9 (Fault Domain Analysis) implementation.
 
 ## Proto Command Constants
 
@@ -42,159 +42,99 @@ All command type constants are defined and ready to use. Commands follow the pat
 
 ## gRPC Command Handlers
 
-**Base File**: `pkg/disk/api/routes_grpc.go`
+**Base File**: `pkg/disk/api/routes_grpc.go` and `pkg/disk/api/handler_grpc.go`
 
-### Implemented (7/43) ✅
+### Implemented (37/42) ✅
 
-#### Inventory Operations (4/4)
+#### Inventory Operations (4/4) ✅
 
 - ✅ `disk.list` - List all disks with optional filter
 - ✅ `disk.get` - Get disk details by device_id
 - ✅ `disk.discover` - Trigger discovery scan
-- ✅ `disk.refresh` - Refresh disk information (alias for discover)
+- ✅ `disk.refresh` - Refresh disk information
 
-#### Health & SMART Operations (3/3)
+#### Health & SMART Operations (4/4) ✅
 
 - ✅ `disk.health.get` - Get disk health status
 - ✅ `disk.smart.get` - Get SMART data
-- ✅ `disk.smart.refresh` - Trigger health check (refreshes SMART)
+- ✅ `disk.smart.refresh` - Trigger health check
+- ✅ `disk.health.check` - Trigger health check (alias)
 
-### Not Implemented (36/43) ⚠️
+#### Probe Operations (5/5) ✅
 
-#### Probe Operations (2/5) - Priority 1
+- ✅ `disk.probe.start` - Start SMART probe (quick/extensive)
+- ✅ `disk.probe.cancel` - Cancel running probe
+- ✅ `disk.probe.get` - Get probe execution details
+- ✅ `disk.probe.list` - List active probes
+- ✅ `disk.probe.history` - Get probe history for device
 
-- ❌ `disk.probe.start` - Start SMART probe (quick/extensive)
-  - **Blocker**: ProbeScheduler.TriggerProbe() not exposed through Manager
-  - **Fix**: Add `Manager.TriggerProbe(deviceID, probeType)` method
-- ❌ `disk.probe.cancel` - Cancel running probe
-  - **Blocker**: No cancel mechanism in ProbeScheduler
-  - **Fix**: Add cancellation support with context.Context
-- ❌ `disk.probe.get` - Get probe execution details
-  - **Blocker**: No state query methods in Manager
-  - **Fix**: Add `Manager.GetProbeExecution(probeID)` method
-- ❌ `disk.probe.list` - List active probes
-  - **Blocker**: ProbeScheduler.GetActiveProbes() not exposed
-  - **Fix**: Add `Manager.GetActiveProbes()` method
-- ❌ `disk.probe.history` - Get probe history for device
-  - **Blocker**: No history query in StateManager
-  - **Fix**: Add `StateManager.GetProbeHistory(deviceID, limit)` method
+#### Probe Schedule Operations (7/7) ✅
 
-#### Probe Schedule Operations (0/7) - Priority 2
+- ✅ `disk.probe.schedule.list` - List all schedules
+- ✅ `disk.probe.schedule.get` - Get schedule details
+- ✅ `disk.probe.schedule.create` - Create new schedule
+- ✅ `disk.probe.schedule.update` - Update schedule
+- ✅ `disk.probe.schedule.delete` - Delete schedule
+- ✅ `disk.probe.schedule.enable` - Enable schedule
+- ✅ `disk.probe.schedule.disable` - Disable schedule
 
-- ❌ `disk.probe.schedule.list` - List all schedules
-  - **Blocker**: No schedule query in Manager
-  - **Fix**: Add `Manager.GetProbeSchedules()` method
-- ❌ `disk.probe.schedule.get` - Get schedule details
-  - **Blocker**: StateManager doesn't expose schedule lookup
-  - **Fix**: Add `StateManager.GetProbeSchedule(scheduleID)` method
-- ❌ `disk.probe.schedule.create` - Create new schedule
-  - **Blocker**: ProbeScheduler.AddSchedule() not exposed
-  - **Fix**: Add `Manager.CreateProbeSchedule(schedule)` method
-- ❌ `disk.probe.schedule.update` - Update schedule
-  - **Blocker**: No update method (currently remove + add)
-  - **Fix**: Add `Manager.UpdateProbeSchedule(scheduleID, schedule)` method
-- ❌ `disk.probe.schedule.delete` - Delete schedule
-  - **Blocker**: ProbeScheduler.RemoveSchedule() not exposed
-  - **Fix**: Add `Manager.DeleteProbeSchedule(scheduleID)` method
-- ❌ `disk.probe.schedule.enable` - Enable schedule
-  - **Blocker**: No enable/disable mechanism
-  - **Fix**: Add `Enabled` field to ProbeSchedule + toggle methods
-- ❌ `disk.probe.schedule.disable` - Disable schedule
-  - **Blocker**: Same as enable
-  - **Fix**: Same as enable
+#### Topology Operations (4/4) ✅
 
-#### Topology Operations (0/4) - Priority 2
+- ✅ `disk.topology.get` - Get complete topology
+- ✅ `disk.topology.refresh` - Refresh topology
+- ✅ `disk.topology.controllers` - List controllers
+- ✅ `disk.topology.enclosures` - List enclosures
 
-- ❌ `disk.topology.get` - Get complete topology
-  - **Blocker**: No topology export method
-  - **Fix**: Add `Manager.GetTopology()` method returning all disks with topology
-- ❌ `disk.topology.refresh` - Refresh topology
-  - **Blocker**: No topology refresh trigger
-  - **Fix**: Add `Manager.RefreshTopology()` method
-- ❌ `disk.topology.controllers` - List controllers
-  - **Blocker**: No controller aggregation
-  - **Fix**: Add method to extract unique controllers from disk topology
-- ❌ `disk.topology.enclosures` - List enclosures
-  - **Blocker**: No enclosure aggregation
-  - **Fix**: Add method to extract unique enclosures from disk topology
+#### State Management Operations (4/4) ✅
 
-#### Fault Domain Operations (0/2) - Priority 4
+- ✅ `disk.state.get` - Get complete state
+- ✅ `disk.state.set` - Set disk state
+- ✅ `disk.validate` - Validate a disk
+- ✅ `disk.quarantine` - Quarantine a disk
+
+#### Configuration Operations (3/3) ✅
+
+- ✅ `disk.config.get` - Get current configuration
+- ✅ `disk.config.update` - Update configuration
+- ✅ `disk.config.reload` - Reload config from file
+
+#### Metadata Operations (3/3) ✅
+
+- ✅ `disk.tags.set` - Set disk tags
+- ✅ `disk.tags.delete` - Delete disk tags
+- ✅ `disk.notes.set` - Set disk notes
+
+#### Statistics & Monitoring Operations (4/4) ✅
+
+- ✅ `disk.stats.get` - Get device statistics
+- ✅ `disk.stats.global` - Get global statistics
+- ✅ `disk.monitoring.get` - Get monitoring config
+- ✅ `disk.monitoring.set` - Set monitoring config
+
+### Not Implemented (5/42) ⚠️
+
+These 5 commands require Phase 8 (Naming Strategy) and Phase 9 (Fault Domain Analysis) to be implemented first:
+
+#### Fault Domain Operations (2/2) - Requires Phase 9
 
 - ❌ `disk.fault-domains.analyze` - Analyze fault domains
-  - **Blocker**: Not implemented yet (Phase 3)
-  - **Fix**: Implement fault domain analysis logic
+  - **Blocker**: Phase 9 not implemented
+  - **Status**: Planned for future release
 - ❌ `disk.fault-domains.get` - Get fault domain info
-  - **Blocker**: Same as analyze
-  - **Fix**: Same as analyze
+  - **Blocker**: Phase 9 not implemented
+  - **Status**: Planned for future release
 
-#### State Management Operations (0/4) - Priority 1 & 3
-
-- ❌ `disk.state.get` - Get complete state (Priority 1)
-  - **Blocker**: StateManager.Get() not exposed
-  - **Fix**: Add `Manager.GetState()` method
-- ❌ `disk.state.set` - Set disk state (Priority 1)
-  - **Blocker**: No state setter in Manager
-  - **Fix**: Add `Manager.SetDiskState(deviceID, state, reason)` method
-- ❌ `disk.validate` - Validate a disk (Priority 3)
-  - **Blocker**: No validation logic yet
-  - **Fix**: Add disk validation (check size, SMART status, conflicts, etc.)
-- ❌ `disk.quarantine` - Quarantine a disk (Priority 3)
-  - **Blocker**: Same as state.set
-  - **Fix**: Add `Manager.QuarantineDisk(deviceID, reason)` convenience method
-
-#### Configuration Operations (0/3) - Priority 1
-
-- ❌ `disk.config.get` - Get current configuration
-  - **Blocker**: ConfigManager not exposed
-  - **Fix**: Add `Manager.GetConfig()` method
-- ❌ `disk.config.update` - Update configuration
-  - **Blocker**: ConfigManager.Update() not exposed
-  - **Fix**: Add `Manager.UpdateConfig(config)` method with validation
-- ❌ `disk.config.reload` - Reload config from file
-  - **Blocker**: ConfigManager.Reload() not exposed
-  - **Fix**: Add `Manager.ReloadConfig()` method
-
-#### Statistics Operations (0/2) - Priority 3
-
-- ❌ `disk.stats.get` - Get device statistics
-  - **Blocker**: No statistics tracking yet
-  - **Fix**: Add statistics tracking to PhysicalDisk (probe count, failure count, etc.)
-- ❌ `disk.stats.global` - Get global statistics
-  - **Blocker**: No global statistics
-  - **Fix**: Add DiskManagerState.Statistics with aggregated metrics
-
-#### Naming Strategy Operations (0/3) - Priority 3 (Depends on Phase 8)
+#### Naming Strategy Operations (3/3) - Requires Phase 8
 
 - ❌ `disk.naming-strategy.get` - Get current naming strategy
-  - **Blocker**: Naming strategy not implemented (Phase 8)
-  - **Fix**: Implement naming strategy module first
+  - **Blocker**: Phase 8 - Naming Strategy not implemented
+  - **Status**: Planned for future release
 - ❌ `disk.naming-strategy.set` - Set naming strategy
-  - **Blocker**: Same as get
-  - **Fix**: Same as get
+  - **Blocker**: Phase 8 - Naming Strategy not implemented
+  - **Status**: Planned for future release
 - ❌ `disk.vdev-conf.generate` - Generate vdev_id.conf
   - **Blocker**: Phase 8 - Naming Strategy not implemented
-  - **Fix**: Implement vdev_id.conf generator
-
-#### Metadata Operations (0/3) - Priority 3
-
-- ❌ `disk.tags.set` - Set disk tags
-  - **Blocker**: No metadata update methods
-  - **Fix**: Add `Manager.SetDiskTags(deviceID, tags)` method
-- ❌ `disk.tags.delete` - Delete disk tags
-  - **Blocker**: Same as set
-  - **Fix**: Add `Manager.DeleteDiskTags(deviceID, tagKeys)` method
-- ❌ `disk.notes.set` - Set disk notes
-  - **Blocker**: Same as set
-  - **Fix**: Add `Manager.SetDiskNotes(deviceID, notes)` method
-
-#### Monitoring Operations (0/2) - Priority 3
-
-- ❌ `disk.monitoring.get` - Get monitoring config
-  - **Blocker**: Part of config, but no separate endpoint
-  - **Fix**: Can use disk.config.get, or add convenience method
-- ❌ `disk.monitoring.set` - Set monitoring config
-  - **Blocker**: Same as get
-  - **Fix**: Same as get
+  - **Status**: Planned for future release
 
 ---
 
