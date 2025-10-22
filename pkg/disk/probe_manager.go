@@ -6,6 +6,7 @@ package disk
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/disk/types"
@@ -26,6 +27,16 @@ func (m *Manager) TriggerProbe(
 	if !exists {
 		return "", errors.New(errors.DiskNotFound, "device not found").
 			WithMetadata("device_id", deviceID)
+	}
+
+	// Check if device supports SMART self-tests
+	if !disk.SMARTTestsSupported {
+		return "", errors.New(errors.DiskProbeNotSupported,
+			"SMART self-tests not supported on this device").
+			WithMetadata("device_id", deviceID).
+			WithMetadata("reason", "virtual_device_or_platform_limitation").
+			WithMetadata("smart_available", fmt.Sprintf("%t", disk.SMARTAvailable)).
+			WithMetadata("smart_enabled", fmt.Sprintf("%t", disk.SMARTEnabled))
 	}
 
 	// Trigger probe via scheduler

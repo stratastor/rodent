@@ -6,6 +6,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/stratastor/logger"
@@ -84,4 +85,32 @@ func (s *SmartctlExecutor) Scan(ctx context.Context) ([]byte, error) {
 func (s *SmartctlExecutor) ScanOpen(ctx context.Context) ([]byte, error) {
 	s.logger.Debug("scanning for devices (open)")
 	return s.executor.ExecuteWithCombinedOutput(ctx, s.path, "--json", "--scan-open")
+}
+
+// CanRunSelfTests checks if the device supports SMART self-tests
+// Returns true if the device reports self-test capability
+// Note: This is a best-effort check - environment detection should be the primary
+// indicator for cloud platforms where self-tests don't work
+func (s *SmartctlExecutor) CanRunSelfTests(ctx context.Context, device string) (bool, error) {
+	s.logger.Debug("checking SMART self-test capabilities", "device", device)
+
+	// Try to get all SMART data which includes self-test capabilities
+	output, err := s.executor.ExecuteWithCombinedOutput(ctx, s.path, "--json", "--all", device)
+	if err != nil {
+		// If we can't get SMART data, assume tests are not supported
+		s.logger.Debug("failed to get SMART data for capability check",
+			"device", device,
+			"error", err)
+		return false, nil
+	}
+
+	// Simple string check for self-test capability indicators
+	// This is a heuristic - the environment check is more reliable
+	outputStr := strings.ToLower(string(output))
+	hasTestCapability := strings.Contains(outputStr, "self_test") ||
+		strings.Contains(outputStr, "selftest") ||
+		strings.Contains(outputStr, "short_test") ||
+		strings.Contains(outputStr, "long_test")
+
+	return hasTestCapability, nil
 }

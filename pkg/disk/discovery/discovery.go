@@ -15,6 +15,7 @@ import (
 	"github.com/stratastor/rodent/pkg/disk/tools"
 	"github.com/stratastor/rodent/pkg/disk/types"
 	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/system"
 )
 
 // ZFSPoolManager interface for ZFS pool operations (minimal subset needed for discovery)
@@ -31,6 +32,7 @@ type Discoverer struct {
 	udevadm        *tools.UdevadmExecutor
 	toolChecker    *tools.ToolChecker
 	zfsPoolManager ZFSPoolManager
+	envDetector    *system.EnvironmentDetector
 	mu             sync.RWMutex
 	lastScan       time.Time
 	deviceCache    map[string]*types.PhysicalDisk // Keyed by device path
@@ -44,6 +46,7 @@ func NewDiscoverer(
 	udevadm *tools.UdevadmExecutor,
 	toolChecker *tools.ToolChecker,
 	zfsPoolManager ZFSPoolManager,
+	envDetector *system.EnvironmentDetector,
 ) *Discoverer {
 	return &Discoverer{
 		logger:         l,
@@ -52,6 +55,7 @@ func NewDiscoverer(
 		udevadm:        udevadm,
 		toolChecker:    toolChecker,
 		zfsPoolManager: zfsPoolManager,
+		envDetector:    envDetector,
 		deviceCache:    make(map[string]*types.PhysicalDisk),
 	}
 }
@@ -206,14 +210,27 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 
 // enrichWithSMART enriches disk information with SMART data
 func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.PhysicalDisk) {
+	// 1. Detect virtualization environment first (used for self-test capability check)
+	var envInfo *system.EnvironmentInfo
+	var err error
+	if d.envDetector != nil {
+		envInfo, err = d.envDetector.DetectEnvironment(ctx)
+		if err != nil {
+			d.logger.Warn("failed to detect environment", "error", err)
+			// Continue with nil envInfo - will assume self-tests might work
+		}
+	}
+
 	for _, disk := range disks {
-		// Get SMART info
+		// 2. Try to get SMART info (always try, even on cloud platforms)
 		output, err := d.smartctl.GetInfo(ctx, disk.DevicePath)
 		if err != nil {
 			d.logger.Debug("failed to get SMART info (may not support SMART)",
 				"device", disk.DevicePath,
 				"error", err)
 			disk.SMARTAvailable = false
+			disk.SMARTEnabled = false
+			disk.SMARTTestsSupported = false
 			continue
 		}
 
@@ -223,16 +240,42 @@ func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.Physica
 			d.logger.Warn("failed to parse SMART info",
 				"device", disk.DevicePath,
 				"error", err)
+			disk.SMARTAvailable = false
+			disk.SMARTEnabled = false
+			disk.SMARTTestsSupported = false
 			continue
 		}
 
+		disk.SMARTInfo = smartInfo
 		disk.SMARTAvailable = smartInfo.Available
 		disk.SMARTEnabled = smartInfo.Enabled
-		disk.SMARTInfo = smartInfo
 
 		// Update device type if detected from SMART
 		if smartInfo.DeviceType != types.DeviceTypeUnknown {
 			disk.Type = smartInfo.DeviceType
+		}
+
+		// 3. Check if self-tests are actually supported
+		// Use environment detection to skip the check on known unsupported platforms
+		if disk.SMARTAvailable {
+			if envInfo != nil && d.shouldSkipSMARTTests(envInfo, disk) {
+				d.logger.Debug("SMART info available but self-tests not supported on this platform",
+					"device", disk.DevicePath,
+					"hypervisor", envInfo.Hypervisor)
+				disk.SMARTTestsSupported = false
+			} else {
+				// Try to check if self-tests are supported
+				canRunTests, err := d.smartctl.CanRunSelfTests(ctx, disk.DevicePath)
+				if err != nil || !canRunTests {
+					d.logger.Debug("SMART info available but self-tests not supported",
+						"device", disk.DevicePath)
+					disk.SMARTTestsSupported = false
+				} else {
+					disk.SMARTTestsSupported = true
+				}
+			}
+		} else {
+			disk.SMARTTestsSupported = false
 		}
 	}
 }
@@ -255,6 +298,36 @@ func (d *Discoverer) enrichWithPoolMembership(ctx context.Context, disks []*type
 				"pool", poolName)
 		}
 	}
+}
+
+// shouldSkipSMARTTests determines if SMART self-tests should be skipped for a device
+// based on the environment and device characteristics
+// Note: This is ONLY for self-tests, not for reading SMART info
+func (d *Discoverer) shouldSkipSMARTTests(envInfo *system.EnvironmentInfo, disk *types.PhysicalDisk) bool {
+	if !envInfo.IsVirtualized {
+		return false // Physical hardware - self-tests should work
+	}
+
+	// Known platforms where SMART self-tests don't work
+	unsupportedHypervisors := map[string]bool{
+		"amazon": true, // AWS EBS
+		"google": true, // Google Cloud persistent disks
+		"azure":  true, // Azure managed disks
+	}
+
+	if unsupportedHypervisors[envInfo.Hypervisor] {
+		return true
+	}
+
+	// Check if it's a cloud block storage device based on model name
+	model := strings.ToLower(disk.Model)
+	if strings.Contains(model, "amazon elastic block store") ||
+		strings.Contains(model, "google persistentdisk") ||
+		strings.Contains(model, "virtual disk") {
+		return true
+	}
+
+	return false
 }
 
 // parseUdevProperties parses udev property output into a map

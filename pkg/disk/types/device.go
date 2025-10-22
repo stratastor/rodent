@@ -32,9 +32,10 @@ type PhysicalDisk struct {
 	Topology *DiskTopology `json:"topology,omitempty"`
 
 	// SMART capability
-	SMARTAvailable bool        `json:"smart_available"` // Whether SMART is supported
-	SMARTEnabled   bool        `json:"smart_enabled"`   // Whether SMART is enabled
-	SMARTInfo      *SMARTInfo  `json:"smart_info,omitempty"` // Latest SMART data
+	SMARTAvailable      bool       `json:"smart_available"`       // Whether SMART is supported
+	SMARTEnabled        bool       `json:"smart_enabled"`         // Whether SMART is enabled
+	SMARTTestsSupported bool       `json:"smart_tests_supported"` // Whether SMART self-tests can be run
+	SMARTInfo           *SMARTInfo `json:"smart_info,omitempty"`  // Latest SMART data
 
 	// Health and state
 	State        DiskState    `json:"state"`         // Current lifecycle state

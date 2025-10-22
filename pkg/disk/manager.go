@@ -24,6 +24,7 @@ import (
 	"github.com/stratastor/rodent/pkg/disk/topology"
 	"github.com/stratastor/rodent/pkg/disk/types"
 	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/system"
 )
 
 // Manager is the main disk management service
@@ -111,8 +112,11 @@ func NewManager(
 		sgses = tools.NewSgSesExecutor(l, cfg.Tools.SgSesPath, true)
 	}
 
-	// Initialize discoverer (with ZFS pool manager for pool membership detection)
-	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, toolChecker, poolManager)
+	// Initialize environment detector for SMART capability detection
+	envDetector := system.NewEnvironmentDetector(l)
+
+	// Initialize discoverer (with ZFS pool manager and environment detector)
+	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, toolChecker, poolManager, envDetector)
 
 	// Initialize topology mapper
 	topoMapper := topology.NewMapper(l, lsscsi, sgses, toolChecker)

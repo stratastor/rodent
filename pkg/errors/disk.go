@@ -50,6 +50,7 @@ const (
 	DiskProbeConflict                     // Probe conflict detected
 	DiskProbeConcurrencyLimit             // Max concurrent probes reached
 	DiskProbeNotRunning                   // Probe is not running
+	DiskProbeNotSupported                 // SMART self-tests not supported on device
 	DiskProbeScheduleNotFound             // Probe schedule not found
 	DiskProbeScheduleCreateFailed         // Failed to create probe schedule
 	DiskProbeScheduleUpdateFailed         // Failed to update probe schedule
@@ -261,6 +262,11 @@ func init() {
 		},
 		DiskProbeNotRunning: {
 			"SMART probe is not running",
+			DomainSystem,
+			http.StatusBadRequest,
+		},
+		DiskProbeNotSupported: {
+			"SMART self-tests not supported on this device",
 			DomainSystem,
 			http.StatusBadRequest,
 		},
