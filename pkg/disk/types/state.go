@@ -197,6 +197,25 @@ func (s *DiskManagerState) AddProbeExecution(execution *ProbeExecution) {
 		}
 	}
 
+	// Update global statistics when probe completes or fails
+	if execution.Status == ProbeStatusCompleted || execution.Status == ProbeStatusFailed {
+		s.Statistics.TotalProbes++
+		if execution.Type == ProbeTypeQuick {
+			s.Statistics.TotalQuickProbes++
+		} else if execution.Type == ProbeTypeExtensive {
+			s.Statistics.TotalExtensiveProbes++
+		}
+		if execution.CompletedAt != nil {
+			s.Statistics.LastProbeAt = *execution.CompletedAt
+		}
+		if execution.Status == ProbeStatusCompleted {
+			s.Statistics.SuccessfulProbes++
+		} else {
+			s.Statistics.FailedProbes++
+		}
+		s.Statistics.UpdatedAt = time.Now()
+	}
+
 	// Update probe history
 	if _, exists := s.ProbeHistory[execution.DeviceID]; !exists {
 		s.ProbeHistory[execution.DeviceID] = &ProbeHistory{

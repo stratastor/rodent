@@ -241,6 +241,131 @@ func (sm *StateManager) UpdateStatistics() {
 	sm.SaveDebounced()
 }
 
+// RecordDiscoveryCompleted updates discovery statistics in real-time
+func (sm *StateManager) RecordDiscoveryCompleted(devicesFound int) {
+	sm.mu.Lock()
+	sm.state.Statistics.TotalDiscoveries++
+	sm.state.Statistics.LastDiscoveryAt = time.Now()
+	sm.state.Statistics.TotalDevicesFound += devicesFound
+	sm.state.Statistics.UpdatedAt = time.Now()
+	sm.mu.Unlock()
+
+	sm.SaveDebounced()
+}
+
+// RecordProbeCompleted updates probe statistics in real-time
+func (sm *StateManager) RecordProbeCompleted(probeType string, success bool) {
+	sm.mu.Lock()
+	sm.state.Statistics.TotalProbes++
+	if probeType == "quick" {
+		sm.state.Statistics.TotalQuickProbes++
+	} else if probeType == "extensive" {
+		sm.state.Statistics.TotalExtensiveProbes++
+	}
+	sm.state.Statistics.LastProbeAt = time.Now()
+	if success {
+		sm.state.Statistics.SuccessfulProbes++
+	} else {
+		sm.state.Statistics.FailedProbes++
+	}
+	sm.state.Statistics.UpdatedAt = time.Now()
+	sm.mu.Unlock()
+
+	sm.SaveDebounced()
+}
+
+// RecordProbeConflict updates conflict statistics in real-time
+func (sm *StateManager) RecordProbeConflict() {
+	sm.mu.Lock()
+	sm.state.Statistics.ConflictedProbes++
+	sm.state.Statistics.UpdatedAt = time.Now()
+	sm.mu.Unlock()
+
+	sm.SaveDebounced()
+}
+
+// RecordError updates error statistics in real-time
+func (sm *StateManager) RecordError(errorMessage string) {
+	sm.mu.Lock()
+	sm.state.Statistics.TotalErrors++
+	sm.state.Statistics.LastErrorAt = time.Now()
+	sm.state.Statistics.LastErrorMessage = errorMessage
+	sm.state.Statistics.UpdatedAt = time.Now()
+	sm.mu.Unlock()
+
+	sm.SaveDebounced()
+}
+
+// CalculateStatistics calculates statistics on-demand
+// This recalculates device state/health distributions from current device states
+func (sm *StateManager) CalculateStatistics() *types.GlobalStatistics {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	// Clone the statistics to avoid external modification
+	stats := &types.GlobalStatistics{
+		TotalDiscoveries:     sm.state.Statistics.TotalDiscoveries,
+		LastDiscoveryAt:      sm.state.Statistics.LastDiscoveryAt,
+		TotalDevicesFound:    sm.state.Statistics.TotalDevicesFound,
+		TotalProbes:          sm.state.Statistics.TotalProbes,
+		TotalQuickProbes:     sm.state.Statistics.TotalQuickProbes,
+		TotalExtensiveProbes: sm.state.Statistics.TotalExtensiveProbes,
+		LastProbeAt:          sm.state.Statistics.LastProbeAt,
+		SuccessfulProbes:     sm.state.Statistics.SuccessfulProbes,
+		FailedProbes:         sm.state.Statistics.FailedProbes,
+		ConflictedProbes:     sm.state.Statistics.ConflictedProbes,
+		TotalErrors:          sm.state.Statistics.TotalErrors,
+		LastErrorAt:          sm.state.Statistics.LastErrorAt,
+		LastErrorMessage:     sm.state.Statistics.LastErrorMessage,
+		ManagerStartedAt:     sm.state.Statistics.ManagerStartedAt,
+		UpdatedAt:            time.Now(),
+	}
+
+	// Recalculate current uptime
+	stats.Uptime = time.Since(stats.ManagerStartedAt)
+
+	// Recalculate device state distributions
+	stats.CurrentDeviceCount = len(sm.state.Devices)
+	stats.AvailableDevices = 0
+	stats.InUseDevices = 0
+	stats.FaultedDevices = 0
+	stats.OfflineDevices = 0
+
+	for _, device := range sm.state.Devices {
+		switch device.State {
+		case types.DiskStateAvailable:
+			stats.AvailableDevices++
+		case types.DiskStateInUse:
+			stats.InUseDevices++
+		case types.DiskStateFaulted:
+			stats.FaultedDevices++
+		case types.DiskStateOffline:
+			stats.OfflineDevices++
+		}
+	}
+
+	// Recalculate device health distributions
+	stats.HealthyDevices = 0
+	stats.WarningDevices = 0
+	stats.CriticalDevices = 0
+	stats.FailedDevices = 0
+
+	for _, device := range sm.state.Devices {
+		switch device.Health {
+		case types.HealthHealthy:
+			stats.HealthyDevices++
+		case types.HealthWarning:
+			stats.WarningDevices++
+		case types.HealthCritical:
+			stats.CriticalDevices++
+		case types.HealthFailed:
+			stats.FailedDevices++
+		}
+	}
+
+	return stats
+}
+
 // CleanupOldExecutions removes old probe executions
 func (sm *StateManager) CleanupOldExecutions(retentionPeriod time.Duration) int {
 	sm.mu.Lock()

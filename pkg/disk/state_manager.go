@@ -14,6 +14,11 @@ func (m *Manager) GetState() *types.DiskManagerState {
 	return m.stateManager.Get()
 }
 
+// GetStatistics returns calculated statistics on-demand
+func (m *Manager) GetStatistics() *types.GlobalStatistics {
+	return m.stateManager.CalculateStatistics()
+}
+
 // SetDiskState sets the state for a specific disk
 func (m *Manager) SetDiskState(deviceID string, state types.DiskState, reason string) error {
 	// Verify disk exists

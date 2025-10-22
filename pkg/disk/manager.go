@@ -337,6 +337,9 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 	}
 	m.cacheMu.Unlock()
 
+	// Track new devices discovered
+	newDevices := 0
+
 	// Update state with device info
 	m.stateManager.WithLock(func(s *types.DiskManagerState) {
 		if s.Devices == nil {
@@ -351,6 +354,7 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 				existing.LastSeenAt = time.Now()
 			} else {
 				// New device discovered
+				newDevices++
 				s.Devices[disk.DeviceID] = &types.DeviceState{
 					DeviceID:    disk.DeviceID,
 					State:       types.DiskStateDiscovered,
@@ -362,14 +366,10 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 				m.eventEmitter.EmitDiskDiscovered(disk)
 			}
 		}
-
-		// Update statistics
-		s.Statistics.TotalDiscoveries++
-		s.Statistics.LastDiscoveryAt = time.Now()
-		s.Statistics.CurrentDeviceCount = len(disks)
 	})
 
-	m.stateManager.SaveDebounced()
+	// Record discovery completion with real-time counter update
+	m.stateManager.RecordDiscoveryCompleted(newDevices)
 
 	return nil
 }

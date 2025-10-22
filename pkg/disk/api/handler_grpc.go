@@ -603,7 +603,7 @@ func handleDiskStatsGet(h *DiskHandler) client.CommandHandler {
 
 func handleDiskStatsGlobal(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		stats := h.manager.GetGlobalStatistics()
+		stats := h.manager.GetStatistics()
 		return successResponse(req.RequestId, "Global statistics retrieved", stats)
 	}
 }

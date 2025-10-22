@@ -652,7 +652,7 @@ func (h *DiskHandler) GetDeviceStatistics(c *gin.Context) {
 }
 
 func (h *DiskHandler) GetGlobalStatistics(c *gin.Context) {
-	stats := h.manager.GetGlobalStatistics()
+	stats := h.manager.GetStatistics()
 	h.sendSuccess(c, http.StatusOK, stats)
 }
 
