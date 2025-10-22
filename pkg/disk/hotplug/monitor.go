@@ -6,24 +6,21 @@ package hotplug
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/pilebones/go-udev/netlink"
 	"github.com/stratastor/logger"
-	"github.com/stratastor/rodent/pkg/errors"
 )
 
 // Monitor monitors udev events for hotplug disk detection.
 //
-// It connects directly to the kernel's netlink socket (NETLINK_KOBJECT_UEVENT)
-// to receive udev events in real-time with no buffering delays. Events are
-// deduplicated using a correlation map with 2-second TTL to handle duplicate
-// kernel notifications.
+// On Linux: Connects directly to the kernel's netlink socket (NETLINK_KOBJECT_UEVENT)
+// to receive udev events in real-time with no buffering delays.
 //
-// The monitor runs in its own goroutine and sends parsed events to a buffered
-// channel. It handles context cancellation gracefully and tracks statistics.
+// On Darwin/Mac: Stub implementation that relies solely on reconciliation loop.
+//
+// Events are deduplicated using a correlation map with 2-second TTL to handle
+// duplicate kernel notifications.
 //
 // Thread-safety: Safe for concurrent use. Statistics and correlation map use
 // read-write mutexes for efficient concurrent access.
@@ -35,9 +32,6 @@ type Monitor struct {
 	// Event channels
 	events chan *UdevEvent
 	errors chan error
-
-	// Netlink connection
-	conn *netlink.UEventConn
 
 	// Correlation tracking
 	correlationMap map[EventCorrelationKey]*CorrelatedEvent
@@ -51,6 +45,9 @@ type Monitor struct {
 	// Configuration
 	subsystems []string // Subsystems to monitor (default: block)
 	bufferSize int      // Event buffer size
+
+	// Platform-specific fields (only used on Linux)
+	conn interface{} // netlink.UEventConn on Linux, nil on Darwin
 }
 
 // MonitorStats tracks monitoring statistics
@@ -84,49 +81,13 @@ func NewMonitor(l logger.Logger, subsystems []string, bufferSize int) *Monitor {
 		events:         make(chan *UdevEvent, bufferSize),
 		errors:         make(chan error, 10),
 		correlationMap: make(map[EventCorrelationKey]*CorrelatedEvent),
-		correlationTTL: 2 * time.Second, // Deduplicate events within 2 seconds
+		correlationTTL: 2 * time.Second,
 		subsystems:     subsystems,
 		bufferSize:     bufferSize,
 		stats: MonitorStats{
 			StartTime: time.Now(),
 		},
 	}
-}
-
-// Start begins monitoring udev events
-// This connects directly to the kernel's netlink socket (NETLINK_KOBJECT_UEVENT)
-func (m *Monitor) Start(udevadmPath string) error {
-	m.logger.Info("starting udev monitor via netlink", "subsystems", m.subsystems)
-
-	// Create netlink connection
-	m.conn = new(netlink.UEventConn)
-	if err := m.conn.Connect(netlink.UdevEvent); err != nil {
-		return errors.Wrap(err, errors.OperationFailed).
-			WithMetadata("operation", "netlink_connect")
-	}
-
-	// Start the correlation cleanup goroutine
-	go m.correlationCleanup()
-
-	// Start netlink monitor in a goroutine
-	go m.runMonitor()
-
-	return nil
-}
-
-// Stop stops the udev monitor
-func (m *Monitor) Stop() error {
-	m.logger.Info("stopping udev monitor")
-	m.cancel()
-
-	// Close netlink connection
-	if m.conn != nil {
-		m.conn.Close()
-	}
-
-	close(m.events)
-	close(m.errors)
-	return nil
 }
 
 // Events returns the event channel
@@ -144,82 +105,6 @@ func (m *Monitor) GetStats() MonitorStats {
 	m.statsMu.RLock()
 	defer m.statsMu.RUnlock()
 	return m.stats
-}
-
-// runMonitor monitors netlink udev events in real-time
-func (m *Monitor) runMonitor() {
-	m.logger.Info("netlink monitor started successfully")
-
-	// Create channels for netlink events
-	queue := make(chan netlink.UEvent)
-	netlinkErrors := make(chan error)
-
-	// Build matcher for subsystem filtering
-	var matcher *netlink.RuleDefinitions
-	if len(m.subsystems) > 0 {
-		rules := make([]netlink.RuleDefinition, 0, len(m.subsystems))
-		for _, subsystem := range m.subsystems {
-			rules = append(rules, netlink.RuleDefinition{
-				Env: map[string]string{"SUBSYSTEM": subsystem},
-			})
-		}
-		matcher = &netlink.RuleDefinitions{Rules: rules}
-	}
-
-	// Start monitoring
-	m.conn.Monitor(queue, netlinkErrors, matcher)
-
-	// Process events
-	for {
-		select {
-		case <-m.ctx.Done():
-			m.logger.Info("netlink monitor stopped")
-			return
-
-		case uevent := <-queue:
-			m.processNetlinkEvent(uevent)
-
-		case err := <-netlinkErrors:
-			m.statsMu.Lock()
-			m.stats.Errors++
-			m.statsMu.Unlock()
-			m.errors <- errors.Wrap(err, errors.OperationFailed).
-				WithMetadata("operation", "netlink_monitor")
-		}
-	}
-}
-
-// processNetlinkEvent converts a netlink UEvent to our UdevEvent and emits it
-func (m *Monitor) processNetlinkEvent(uevent netlink.UEvent) {
-	// Create our event structure
-	event := &UdevEvent{
-		Action:     UdevAction(uevent.Action),
-		SysPath:    uevent.KObj,
-		Properties: uevent.Env,
-		Timestamp:  time.Now(),
-	}
-
-	// Extract important properties from the environment map
-	if devname, ok := uevent.Env["DEVNAME"]; ok {
-		event.DevPath = devname
-		// Extract device name from path (e.g., /dev/sda -> sda)
-		if idx := strings.LastIndex(devname, "/"); idx >= 0 {
-			event.DevName = devname[idx+1:]
-		}
-	}
-
-	if devtype, ok := uevent.Env["DEVTYPE"]; ok {
-		event.DevType = devtype
-	}
-
-	if subsystem, ok := uevent.Env["SUBSYSTEM"]; ok {
-		event.Subsystem = subsystem
-	}
-
-	// Check if relevant and emit
-	if m.isRelevantEvent(event) {
-		m.emitEvent(event)
-	}
 }
 
 // isRelevantEvent checks if an event should be processed
