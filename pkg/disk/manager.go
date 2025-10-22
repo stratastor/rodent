@@ -429,32 +429,72 @@ func (m *Manager) runHealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// GetInventory returns the current disk inventory
+// GetInventory returns the current disk inventory, enriched with managed state
 func (m *Manager) GetInventory(filter *types.DiskFilter) []*types.PhysicalDisk {
 	m.cacheMu.RLock()
-	defer m.cacheMu.RUnlock()
-
-	disks := make([]*types.PhysicalDisk, 0, len(m.deviceCache))
+	cachedDisks := make([]*types.PhysicalDisk, 0, len(m.deviceCache))
 	for _, disk := range m.deviceCache {
 		if filter == nil || disk.MatchesFilter(filter) {
-			disks = append(disks, disk)
+			cachedDisks = append(cachedDisks, disk)
 		}
 	}
+	m.cacheMu.RUnlock()
 
-	return disks
-}
+	// Enrich each disk with managed state
+	enrichedDisks := make([]*types.PhysicalDisk, 0, len(cachedDisks))
+	for _, disk := range cachedDisks {
+		// Create a copy to avoid modifying the cached disk
+		enrichedDisk := *disk
 
-// GetDisk returns a specific disk by ID
-func (m *Manager) GetDisk(deviceID string) (*types.PhysicalDisk, error) {
-	m.cacheMu.RLock()
-	defer m.cacheMu.RUnlock()
+		// Enrich with managed state from DeviceState
+		deviceState, err := m.stateManager.GetDeviceState(disk.DeviceID)
+		if err == nil {
+			enrichedDisk.State = deviceState.State
+			enrichedDisk.Health = deviceState.Health
+			enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
+			enrichedDisk.LastSeenAt = deviceState.LastSeenAt
+		}
 
-	if disk, ok := m.deviceCache[deviceID]; ok {
-		return disk, nil
+		// TODO: Enrich with ZFS pool membership info
+		// This will be implemented in Phase 2
+
+		enrichedDisks = append(enrichedDisks, &enrichedDisk)
 	}
 
-	return nil, errors.New(errors.DiskNotFound, "disk not found").
-		WithMetadata("device_id", deviceID)
+	return enrichedDisks
+}
+
+// GetDisk returns a specific disk by ID, enriched with managed state
+func (m *Manager) GetDisk(deviceID string) (*types.PhysicalDisk, error) {
+	m.cacheMu.RLock()
+	disk, ok := m.deviceCache[deviceID]
+	m.cacheMu.RUnlock()
+
+	if !ok {
+		return nil, errors.New(errors.DiskNotFound, "disk not found").
+			WithMetadata("device_id", deviceID)
+	}
+
+	// Create a copy to avoid modifying the cached disk
+	enrichedDisk := *disk
+
+	// Enrich with managed state from DeviceState
+	deviceState, err := m.stateManager.GetDeviceState(deviceID)
+	if err == nil {
+		enrichedDisk.State = deviceState.State
+		enrichedDisk.Health = deviceState.Health
+		enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
+		enrichedDisk.LastSeenAt = deviceState.LastSeenAt
+	} else {
+		// If no managed state exists, use defaults
+		m.logger.Debug("no device state found, using defaults",
+			"device_id", deviceID)
+	}
+
+	// TODO: Enrich with ZFS pool membership info
+	// This will be implemented in Phase 2
+
+	return &enrichedDisk, nil
 }
 
 // TriggerDiscovery manually triggers a discovery scan

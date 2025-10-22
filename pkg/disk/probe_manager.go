@@ -12,12 +12,12 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
-// ============================================================================
-// Probe Operations (Priority 1 API)
-// ============================================================================
-
 // TriggerProbe manually triggers a SMART probe on a specific device
-func (m *Manager) TriggerProbe(ctx context.Context, deviceID string, probeType types.ProbeType) (string, error) {
+func (m *Manager) TriggerProbe(
+	ctx context.Context,
+	deviceID string,
+	probeType types.ProbeType,
+) (string, error) {
 	// Get device from cache to retrieve device path
 	m.cacheMu.RLock()
 	disk, exists := m.deviceCache[deviceID]
@@ -103,10 +103,6 @@ func (m *Manager) GetProbeHistory(deviceID string, limit int) ([]*types.ProbeExe
 
 	return history, nil
 }
-
-// ============================================================================
-// Probe Schedule Operations (Priority 2 API)
-// ============================================================================
 
 // GetProbeSchedules returns all probe schedules
 func (m *Manager) GetProbeSchedules() []*types.ProbeSchedule {

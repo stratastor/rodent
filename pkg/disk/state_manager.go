@@ -9,10 +9,6 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
-// ============================================================================
-// State Management Operations (Priority 1 API)
-// ============================================================================
-
 // GetState returns the current disk manager state
 func (m *Manager) GetState() *types.DiskManagerState {
 	return m.stateManager.Get()
