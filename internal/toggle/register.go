@@ -132,7 +132,7 @@ func establishStreamConnection(
 func StartRegistrationProcess(ctx context.Context, l logger.Logger) {
 	cfg := config.GetConfig()
 
-	if !cfg.Toggle.Enable {
+	if !cfg.Toggle.Enabled {
 		if l != nil {
 			l.Info("Toggle integration is disabled, skipping registration")
 		}

@@ -84,7 +84,7 @@ type Config struct {
 	} `mapstructure:"logger"`
 
 	Toggle struct {
-		Enable  bool   `mapstructure:"enable"`  // Enable or disable Toggle integration
+		Enabled bool   `mapstructure:"enabled"` // Enable or disable Toggle integration
 		JWT     string `mapstructure:"jwt"`     // JWT for Toggle service authentication
 		BaseURL string `mapstructure:"baseURL"` // Base URL for Toggle REST API service
 		RPCAddr string `mapstructure:"rpcAddr"` // Address for Toggle gRPC service
@@ -220,7 +220,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("ad.external.autoJoin", false)
 
 		// Set defaults for Toggle configuration
-		viper.SetDefault("toggle.enable", true)
+		viper.SetDefault("toggle.enabled", true)
 		viper.SetDefault("toggle.jwt", "")
 		viper.SetDefault("toggle.baseURL", "")
 

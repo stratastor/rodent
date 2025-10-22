@@ -22,7 +22,7 @@ func InitializeWithClient(
 ) error {
 	cfg := config.GetConfig()
 
-	if !cfg.Toggle.Enable {
+	if !cfg.Toggle.Enabled {
 		if l != nil {
 			l.Info("Toggle integration is disabled, skipping event system initialization")
 		}
