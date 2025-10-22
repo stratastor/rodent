@@ -111,8 +111,8 @@ func NewManager(
 		sgses = tools.NewSgSesExecutor(l, cfg.Tools.SgSesPath, true)
 	}
 
-	// Initialize discoverer
-	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, toolChecker)
+	// Initialize discoverer (with ZFS pool manager for pool membership detection)
+	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, toolChecker, poolManager)
 
 	// Initialize topology mapper
 	topoMapper := topology.NewMapper(l, lsscsi, sgses, toolChecker)
@@ -455,8 +455,8 @@ func (m *Manager) GetInventory(filter *types.DiskFilter) []*types.PhysicalDisk {
 			enrichedDisk.LastSeenAt = deviceState.LastSeenAt
 		}
 
-		// TODO: Enrich with ZFS pool membership info
-		// This will be implemented in Phase 2
+		// Enrich with ZFS pool membership (pool membership is already set during discovery)
+		// No additional work needed here as enrichWithPoolMembership in Discoverer already sets PoolName
 
 		enrichedDisks = append(enrichedDisks, &enrichedDisk)
 	}
@@ -491,8 +491,8 @@ func (m *Manager) GetDisk(deviceID string) (*types.PhysicalDisk, error) {
 			"device_id", deviceID)
 	}
 
-	// TODO: Enrich with ZFS pool membership info
-	// This will be implemented in Phase 2
+	// Enrich with ZFS pool membership (pool membership is already set during discovery)
+	// No additional work needed here as enrichWithPoolMembership in Discoverer already sets PoolName
 
 	return &enrichedDisk, nil
 }

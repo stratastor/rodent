@@ -17,16 +17,23 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
+// ZFSPoolManager interface for ZFS pool operations (minimal subset needed for discovery)
+type ZFSPoolManager interface {
+	// GetPoolForDevice returns the pool name for a device, if any
+	GetPoolForDevice(ctx context.Context, devicePath string) (string, bool, error)
+}
+
 // Discoverer handles disk discovery operations
 type Discoverer struct {
-	logger       logger.Logger
-	lsblk        *tools.LsblkExecutor
-	smartctl     *tools.SmartctlExecutor
-	udevadm      *tools.UdevadmExecutor
-	toolChecker  *tools.ToolChecker
-	mu           sync.RWMutex
-	lastScan     time.Time
-	deviceCache  map[string]*types.PhysicalDisk // Keyed by device path
+	logger         logger.Logger
+	lsblk          *tools.LsblkExecutor
+	smartctl       *tools.SmartctlExecutor
+	udevadm        *tools.UdevadmExecutor
+	toolChecker    *tools.ToolChecker
+	zfsPoolManager ZFSPoolManager
+	mu             sync.RWMutex
+	lastScan       time.Time
+	deviceCache    map[string]*types.PhysicalDisk // Keyed by device path
 }
 
 // NewDiscoverer creates a new disk discoverer
@@ -36,14 +43,16 @@ func NewDiscoverer(
 	smartctl *tools.SmartctlExecutor,
 	udevadm *tools.UdevadmExecutor,
 	toolChecker *tools.ToolChecker,
+	zfsPoolManager ZFSPoolManager,
 ) *Discoverer {
 	return &Discoverer{
-		logger:      l,
-		lsblk:       lsblk,
-		smartctl:    smartctl,
-		udevadm:     udevadm,
-		toolChecker: toolChecker,
-		deviceCache: make(map[string]*types.PhysicalDisk),
+		logger:         l,
+		lsblk:          lsblk,
+		smartctl:       smartctl,
+		udevadm:        udevadm,
+		toolChecker:    toolChecker,
+		zfsPoolManager: zfsPoolManager,
+		deviceCache:    make(map[string]*types.PhysicalDisk),
 	}
 }
 
@@ -73,6 +82,13 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 		d.enrichWithSMART(ctx, devices)
 	} else {
 		d.logger.Warn("smartctl not available, skipping SMART enrichment")
+	}
+
+	// Enrich with ZFS pool membership (if ZFS pool manager available)
+	if d.zfsPoolManager != nil {
+		d.enrichWithPoolMembership(ctx, devices)
+	} else {
+		d.logger.Debug("ZFS pool manager not available, skipping pool membership check")
 	}
 
 	// Update cache
@@ -217,6 +233,26 @@ func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.Physica
 		// Update device type if detected from SMART
 		if smartInfo.DeviceType != types.DeviceTypeUnknown {
 			disk.Type = smartInfo.DeviceType
+		}
+	}
+}
+
+// enrichWithPoolMembership enriches disk information with ZFS pool membership
+func (d *Discoverer) enrichWithPoolMembership(ctx context.Context, disks []*types.PhysicalDisk) {
+	for _, disk := range disks {
+		poolName, inPool, err := d.zfsPoolManager.GetPoolForDevice(ctx, disk.DevicePath)
+		if err != nil {
+			d.logger.Warn("failed to check pool membership",
+				"device", disk.DevicePath,
+				"error", err)
+			continue
+		}
+
+		if inPool {
+			disk.PoolName = poolName
+			d.logger.Debug("device is in ZFS pool",
+				"device", disk.DevicePath,
+				"pool", poolName)
 		}
 	}
 }
