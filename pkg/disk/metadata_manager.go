@@ -23,13 +23,13 @@ func (m *Manager) SetDiskTags(deviceID string, tags map[string]string) error {
 			WithMetadata("device_id", deviceID)
 	}
 
-	if disk.Metadata == nil {
-		disk.Metadata = make(map[string]string)
+	if disk.Tags == nil {
+		disk.Tags = make(map[string]string)
 	}
 
 	// Merge tags
 	for k, v := range tags {
-		disk.Metadata[k] = v
+		disk.Tags[k] = v
 	}
 
 	m.stateManager.SaveDebounced()
@@ -49,9 +49,9 @@ func (m *Manager) DeleteDiskTags(deviceID string, tagKeys []string) error {
 			WithMetadata("device_id", deviceID)
 	}
 
-	if disk.Metadata != nil {
+	if disk.Tags != nil {
 		for _, key := range tagKeys {
-			delete(disk.Metadata, key)
+			delete(disk.Tags, key)
 		}
 	}
 
@@ -72,11 +72,7 @@ func (m *Manager) SetDiskNotes(deviceID string, notes string) error {
 			WithMetadata("device_id", deviceID)
 	}
 
-	if disk.Metadata == nil {
-		disk.Metadata = make(map[string]string)
-	}
-
-	disk.Metadata["notes"] = notes
+	disk.Notes = notes
 
 	m.stateManager.SaveDebounced()
 	m.logger.Info("disk notes updated", "device_id", deviceID)

@@ -40,24 +40,25 @@ echo "--------------------------------------------------------------------------
 echo "TEST: PUT /disks/config/monitoring - Update Monitoring Configuration"
 echo "--------------------------------------------------------------------------------"
 echo "REQUEST: PUT $API_BASE/config/monitoring"
+echo "NOTE: Boldly changing temperature thresholds to test API robustness"
 echo "BODY:"
 cat <<EOF | jq '.'
 {
   "enabled": true,
   "interval": 300000000000,
   "thresholds": {
-    "temperature_warning": 50,
-    "temperature_critical": 60,
-    "reallocated_sectors_warning": 10,
-    "reallocated_sectors_critical": 50,
-    "pending_sectors_warning": 5,
-    "pending_sectors_critical": 20,
-    "power_on_hours_warning": 43800,
-    "power_on_hours_critical": 52560,
-    "nvme_percent_used_warning": 80,
-    "nvme_percent_used_critical": 90,
-    "media_errors_warning": 10,
-    "media_errors_critical": 50
+    "temp_warning": 55,
+    "temp_critical": 65,
+    "reallocated_sectors_warning": 15,
+    "reallocated_sectors_critical": 60,
+    "pending_sectors_warning": 8,
+    "pending_sectors_critical": 25,
+    "power_on_hours_warning": 50000,
+    "power_on_hours_critical": 60000,
+    "nvme_percent_used_warning": 85,
+    "nvme_percent_used_critical": 95,
+    "media_errors_warning": 15,
+    "media_errors_critical": 60
   },
   "metric_retention": 2592000000000000,
   "alert_on_warning": true,
@@ -67,12 +68,20 @@ EOF
 echo ""
 curl -s -X PUT "$API_BASE/config/monitoring" \
   -H "Content-Type: application/json" \
-  -d '{"enabled":true,"interval":300000000000,"thresholds":{"temperature_warning":50,"temperature_critical":60,"reallocated_sectors_warning":10,"reallocated_sectors_critical":50,"pending_sectors_warning":5,"pending_sectors_critical":20,"power_on_hours_warning":43800,"power_on_hours_critical":52560,"nvme_percent_used_warning":80,"nvme_percent_used_critical":90,"media_errors_warning":10,"media_errors_critical":50},"metric_retention":2592000000000000,"alert_on_warning":true,"alert_on_critical":true}' | jq '.'
+  -d '{"enabled":true,"interval":300000000000,"thresholds":{"temp_warning":55,"temp_critical":65,"reallocated_sectors_warning":15,"reallocated_sectors_critical":60,"pending_sectors_warning":8,"pending_sectors_critical":25,"power_on_hours_warning":50000,"power_on_hours_critical":60000,"nvme_percent_used_warning":85,"nvme_percent_used_critical":95,"media_errors_warning":15,"media_errors_critical":60},"metric_retention":2592000000000000,"alert_on_warning":true,"alert_on_critical":true}' | jq '.'
 echo ""
 
 # Verify monitoring config update
-echo "Verifying monitoring config update..."
-curl -s -X GET "$API_BASE/config/monitoring" | jq '.'
+echo "Verifying monitoring config update (should show new threshold values)..."
+UPDATED_CONFIG=$(curl -s -X GET "$API_BASE/config/monitoring")
+echo "$UPDATED_CONFIG" | jq '.'
+echo ""
+
+# Verify specific threshold changes
+echo "Confirming threshold updates:"
+echo "  temp_warning: $(echo "$UPDATED_CONFIG" | jq -r '.result.thresholds.temp_warning') (expected: 55)"
+echo "  temp_critical: $(echo "$UPDATED_CONFIG" | jq -r '.result.thresholds.temp_critical') (expected: 65)"
+echo "  nvme_percent_used_warning: $(echo "$UPDATED_CONFIG" | jq -r '.result.thresholds.nvme_percent_used_warning') (expected: 85)"
 echo ""
 
 # PUT /disks/config - Update full configuration

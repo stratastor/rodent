@@ -615,7 +615,7 @@ func (h *DiskHandler) SetDiskNotes(c *gin.Context) {
 	}
 
 	var request struct {
-		Notes string `json:"notes" binding:"required"`
+		Notes string `json:"notes"` // Allow empty string for cleanup
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {

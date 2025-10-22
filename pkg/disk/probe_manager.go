@@ -7,6 +7,7 @@ package disk
 import (
 	"context"
 
+	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/disk/types"
 	"github.com/stratastor/rodent/pkg/errors"
 )
@@ -125,9 +126,9 @@ func (m *Manager) GetProbeSchedule(scheduleID string) (*types.ProbeSchedule, err
 
 // CreateProbeSchedule creates a new probe schedule
 func (m *Manager) CreateProbeSchedule(schedule *types.ProbeSchedule) error {
-	// Validate schedule
+	// Generate ID if not provided
 	if schedule.ID == "" {
-		return errors.New(errors.ServerRequestValidation, "schedule_id is required")
+		schedule.ID = common.UUID7()
 	}
 
 	if schedule.CronExpression == "" {
@@ -181,8 +182,8 @@ func (m *Manager) UpdateProbeSchedule(scheduleID string, schedule *types.ProbeSc
 func (m *Manager) DeleteProbeSchedule(scheduleID string) error {
 	// Remove schedule from scheduler
 	if err := m.probeScheduler.RemoveSchedule(m.ctx, scheduleID); err != nil {
-		return errors.Wrap(err, errors.DiskProbeScheduleDeleteFailed).
-			WithMetadata("schedule_id", scheduleID)
+		// Don't add schedule_id again - RemoveSchedule already includes it
+		return errors.Wrap(err, errors.DiskProbeScheduleDeleteFailed)
 	}
 
 	m.logger.Info("probe schedule deleted", "schedule_id", scheduleID)

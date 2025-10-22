@@ -89,8 +89,14 @@ curl -s -X PUT "$API_BASE/$DISK_ID/tags" \
 echo ""
 
 # Verify tags
-echo "Verifying tags..."
-curl -s -X GET "$API_BASE/$DISK_ID" | jq '.result.tags'
+echo "Verifying tags by fetching disk..."
+echo "REQUEST: GET $API_BASE/$DISK_ID"
+echo ""
+DISK_RESPONSE=$(curl -s -X GET "$API_BASE/$DISK_ID")
+echo "$DISK_RESPONSE" | jq '.'
+echo ""
+echo "Extracted tags:"
+echo "$DISK_RESPONSE" | jq '.result.tags'
 echo ""
 
 # PUT /disks/:device_id/notes - Set disk notes
@@ -111,8 +117,14 @@ curl -s -X PUT "$API_BASE/$DISK_ID/notes" \
 echo ""
 
 # Verify notes
-echo "Verifying notes..."
-curl -s -X GET "$API_BASE/$DISK_ID" | jq '.result.notes'
+echo "Verifying notes by fetching disk..."
+echo "REQUEST: GET $API_BASE/$DISK_ID"
+echo ""
+DISK_RESPONSE=$(curl -s -X GET "$API_BASE/$DISK_ID")
+echo "$DISK_RESPONSE" | jq '.'
+echo ""
+echo "Extracted notes:"
+echo "$DISK_RESPONSE" | jq '.result.notes'
 echo ""
 
 # POST /disks/:device_id/validate - Validate disk
