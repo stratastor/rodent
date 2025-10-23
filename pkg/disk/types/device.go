@@ -48,9 +48,9 @@ type PhysicalDisk struct {
 	VdevGUID string `json:"vdev_guid,omitempty"` // ZFS vdev GUID if in use
 
 	// Timestamps
-	DiscoveredAt time.Time  `json:"discovered_at"` // When first discovered
-	LastSeenAt   time.Time  `json:"last_seen_at"`  // Last seen during discovery
-	UpdatedAt    time.Time  `json:"updated_at"`    // Last updated timestamp
+	DiscoveredAt time.Time  `json:"discovered_at"`        // When first discovered
+	LastSeenAt   time.Time  `json:"last_seen_at"`         // Last seen during discovery
+	UpdatedAt    time.Time  `json:"updated_at"`           // Last updated timestamp
 	RemovedAt    *time.Time `json:"removed_at,omitempty"` // When removed/offline
 
 	// Metadata
@@ -67,10 +67,10 @@ type DiskTopology struct {
 	ControllerPCI  string `json:"controller_pci"`  // PCI address (e.g., 0000:05:00.0)
 
 	// Enclosure information (for SAS/SCSI)
-	EnclosureID     string `json:"enclosure_id,omitempty"`      // Enclosure identifier
-	EnclosureVendor string `json:"enclosure_vendor,omitempty"`  // Enclosure vendor
-	EnclosureModel  string `json:"enclosure_model,omitempty"`   // Enclosure model
-	EnclosureSerial string `json:"enclosure_serial,omitempty"`  // Enclosure serial
+	EnclosureID     string `json:"enclosure_id,omitempty"`     // Enclosure identifier
+	EnclosureVendor string `json:"enclosure_vendor,omitempty"` // Enclosure vendor
+	EnclosureModel  string `json:"enclosure_model,omitempty"`  // Enclosure model
+	EnclosureSerial string `json:"enclosure_serial,omitempty"` // Enclosure serial
 
 	// Slot information
 	SlotNumber int    `json:"slot_number,omitempty"` // Physical slot number
@@ -97,15 +97,15 @@ type DiskInventory struct {
 
 // DiskFilter represents criteria for filtering disks
 type DiskFilter struct {
-	States     []DiskState      `json:"states,omitempty"`
-	HealthOnly []HealthStatus   `json:"health_only,omitempty"`
-	Types      []DeviceType     `json:"types,omitempty"`
-	Interfaces []InterfaceType  `json:"interfaces,omitempty"`
-	PoolName   string           `json:"pool_name,omitempty"`   // Filter by pool membership
-	Available  *bool            `json:"available,omitempty"`   // Filter available disks only
-	MinSize    uint64           `json:"min_size,omitempty"`    // Minimum size in bytes
-	MaxSize    uint64           `json:"max_size,omitempty"`    // Maximum size in bytes
-	Tags       map[string]string `json:"tags,omitempty"`       // Filter by tags
+	States     []DiskState       `json:"states,omitempty"`
+	HealthOnly []HealthStatus    `json:"health_only,omitempty"`
+	Types      []DeviceType      `json:"types,omitempty"`
+	Interfaces []InterfaceType   `json:"interfaces,omitempty"`
+	PoolName   string            `json:"pool_name,omitempty"` // Filter by pool membership
+	Available  *bool             `json:"available,omitempty"` // Filter available disks only
+	MinSize    uint64            `json:"min_size,omitempty"`  // Minimum size in bytes
+	MaxSize    uint64            `json:"max_size,omitempty"`  // Maximum size in bytes
+	Tags       map[string]string `json:"tags,omitempty"`      // Filter by tags
 }
 
 // NewPhysicalDisk creates a new PhysicalDisk with defaults
@@ -131,9 +131,9 @@ func (d *PhysicalDisk) IsAvailable() bool {
 	return d.State == DiskStateAvailable && d.Health != HealthFailed && d.Health != HealthCritical
 }
 
-// IsInUse returns true if disk is currently in use by a pool
-func (d *PhysicalDisk) IsInUse() bool {
-	return d.State == DiskStateInUse && d.PoolName != ""
+// IsOnline returns true if disk is currently in use by a pool
+func (d *PhysicalDisk) IsOnline() bool {
+	return d.State == DiskStateOnline && d.PoolName != ""
 }
 
 // IsFaulted returns true if disk has hardware faults

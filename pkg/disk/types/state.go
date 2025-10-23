@@ -95,7 +95,7 @@ type GlobalStatistics struct {
 
 	// State stats
 	AvailableDevices int `json:"available_devices"`
-	InUseDevices     int `json:"in_use_devices"`
+	OnlineDevices    int `json:"online_devices"`
 	FaultedDevices   int `json:"faulted_devices"`
 	OfflineDevices   int `json:"offline_devices"`
 
@@ -284,7 +284,7 @@ func (s *DiskManagerState) UpdateStatistics() {
 
 	// Count devices by state
 	stats.AvailableDevices = 0
-	stats.InUseDevices = 0
+	stats.OnlineDevices = 0
 	stats.FaultedDevices = 0
 	stats.OfflineDevices = 0
 	stats.CurrentDeviceCount = len(s.Devices)
@@ -293,8 +293,8 @@ func (s *DiskManagerState) UpdateStatistics() {
 		switch ds.State {
 		case DiskStateAvailable:
 			stats.AvailableDevices++
-		case DiskStateInUse:
-			stats.InUseDevices++
+		case DiskStateOnline:
+			stats.OnlineDevices++
 		case DiskStateFaulted:
 			stats.FaultedDevices++
 		case DiskStateOffline:

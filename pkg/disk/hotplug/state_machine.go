@@ -17,7 +17,7 @@ import (
 //
 // It validates that state transitions are valid according to the disk lifecycle:
 //
-//	UNKNOWN → DISCOVERED → VALIDATING → AVAILABLE → IN_USE
+//	UNKNOWN → DISCOVERED → VALIDATING → AVAILABLE → ONLINE
 //	                           ↓            ↓          ↓
 //	                       QUARANTINED  DEGRADED  FAULTED
 //	                           ↓            ↓          ↓
@@ -80,11 +80,11 @@ func (sm *StateMachine) defineTransitions() {
 		types.DiskStateFaulted,
 		types.DiskStateQuarantined,
 		types.DiskStateOffline,
-		types.DiskStateInUse,
+		types.DiskStateOnline,
 	}
 
-	// From IN_USE state
-	sm.transitions[types.DiskStateInUse] = []types.DiskState{
+	// From ONLINE state
+	sm.transitions[types.DiskStateOnline] = []types.DiskState{
 		types.DiskStateAvailable,
 		types.DiskStateDegraded,
 		types.DiskStateFaulted,

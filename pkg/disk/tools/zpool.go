@@ -47,6 +47,7 @@ type Pool struct {
 // VDev represents a virtual device in the pool
 type VDev struct {
 	Name  string            `json:"name"`
+	State string            `json:"state"` // ONLINE, DEGRADED, FAULTED, UNAVAIL, OFFLINE
 	Path  string            `json:"path,omitempty"`
 	VDevs map[string]*VDev `json:"vdevs,omitempty"` // Nested vdevs
 }

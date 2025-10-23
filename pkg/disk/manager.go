@@ -375,13 +375,15 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 		for _, disk := range disks {
 			if existing, ok := s.Devices[disk.DeviceID]; ok {
 				// Update existing device
+				existing.State = disk.State         // Update state from discovery (pool state or AVAILABLE)
 				existing.Health = disk.Health
-				existing.PoolName = disk.PoolName // Update pool membership from discovery
+				existing.PoolName = disk.PoolName   // Update pool membership from discovery
 				existing.LastSeenAt = time.Now()
 			} else {
 				// New device discovered
 				newDevices++
 				deviceState := types.NewDeviceState(disk.DeviceID)
+				deviceState.State = disk.State      // Set initial state from discovery
 				deviceState.Health = disk.Health
 				deviceState.PoolName = disk.PoolName // Store pool membership
 				s.Devices[disk.DeviceID] = deviceState

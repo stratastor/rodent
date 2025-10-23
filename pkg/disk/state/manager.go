@@ -332,7 +332,7 @@ func (sm *StateManager) CalculateStatistics() *types.GlobalStatistics {
 	// Recalculate device state distributions
 	stats.CurrentDeviceCount = len(sm.state.Devices)
 	stats.AvailableDevices = 0
-	stats.InUseDevices = 0
+	stats.OnlineDevices = 0
 	stats.FaultedDevices = 0
 	stats.OfflineDevices = 0
 
@@ -340,8 +340,8 @@ func (sm *StateManager) CalculateStatistics() *types.GlobalStatistics {
 		switch device.State {
 		case types.DiskStateAvailable:
 			stats.AvailableDevices++
-		case types.DiskStateInUse:
-			stats.InUseDevices++
+		case types.DiskStateOnline:
+			stats.OnlineDevices++
 		case types.DiskStateFaulted:
 			stats.FaultedDevices++
 		case types.DiskStateOffline:
