@@ -179,7 +179,11 @@ func (sm *StateManager) Get() *types.DiskManagerState {
 }
 
 // UpdateDeviceState updates device state and saves
-func (sm *StateManager) UpdateDeviceState(deviceID string, state types.DiskState, health types.HealthStatus) {
+func (sm *StateManager) UpdateDeviceState(
+	deviceID string,
+	state types.DiskState,
+	health types.HealthStatus,
+) {
 	sm.mu.Lock()
 	sm.state.UpdateDeviceState(deviceID, state, health)
 	sm.mu.Unlock()
@@ -257,9 +261,10 @@ func (sm *StateManager) RecordDiscoveryCompleted(devicesFound int) {
 func (sm *StateManager) RecordProbeCompleted(probeType string, success bool) {
 	sm.mu.Lock()
 	sm.state.Statistics.TotalProbes++
-	if probeType == "quick" {
+	switch probeType {
+	case "quick":
 		sm.state.Statistics.TotalQuickProbes++
-	} else if probeType == "extensive" {
+	case "extensive":
 		sm.state.Statistics.TotalExtensiveProbes++
 	}
 	sm.state.Statistics.LastProbeAt = time.Now()

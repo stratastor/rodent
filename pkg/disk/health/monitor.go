@@ -107,10 +107,6 @@ func (m *Monitor) CheckAllHealth(ctx context.Context, disks []*types.PhysicalDis
 	semaphore := make(chan struct{}, 4) // Max 4 concurrent checks
 
 	for _, disk := range disks {
-		if !disk.SMARTAvailable {
-			continue
-		}
-
 		wg.Add(1)
 		go func(d *types.PhysicalDisk) {
 			defer wg.Done()

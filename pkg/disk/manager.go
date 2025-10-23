@@ -205,6 +205,14 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
+	// Initial health check (run after discovery to populate health status immediately)
+	if cfg.Monitoring.Enabled {
+		if err := m.runHealthCheck(ctx); err != nil {
+			m.logger.Warn("initial health check failed", "error", err)
+			// Don't return error - health check failures shouldn't prevent startup
+		}
+	}
+
 	// Schedule periodic discovery
 	if cfg.Discovery.Enabled && cfg.Discovery.Interval > 0 {
 		_, err := m.scheduler.NewJob(
@@ -359,13 +367,9 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 			} else {
 				// New device discovered
 				newDevices++
-				s.Devices[disk.DeviceID] = &types.DeviceState{
-					DeviceID:    disk.DeviceID,
-					State:       types.DiskStateDiscovered,
-					Health:      disk.Health,
-					FirstSeenAt: time.Now(),
-					LastSeenAt:  time.Now(),
-				}
+				deviceState := types.NewDeviceState(disk.DeviceID)
+				deviceState.Health = disk.Health
+				s.Devices[disk.DeviceID] = deviceState
 				// Emit discovery event
 				m.eventEmitter.EmitDiskDiscovered(disk)
 			}
@@ -408,6 +412,7 @@ func (m *Manager) runHealthCheck(ctx context.Context) error {
 		if disk, ok := m.deviceCache[status.DeviceID]; ok {
 			oldHealth := disk.Health
 			disk.Health = status.Health
+			disk.HealthReason = status.HealthReason
 			disk.SMARTInfo = status.SMARTInfo
 
 			// Emit health change event if changed
@@ -424,6 +429,7 @@ func (m *Manager) runHealthCheck(ctx context.Context) error {
 					deviceState.Health = status.Health
 					deviceState.HealthChanges++
 				}
+				deviceState.HealthReason = status.HealthReason
 			}
 		})
 	}
@@ -455,6 +461,7 @@ func (m *Manager) GetInventory(filter *types.DiskFilter) []*types.PhysicalDisk {
 		if err == nil {
 			enrichedDisk.State = deviceState.State
 			enrichedDisk.Health = deviceState.Health
+			enrichedDisk.HealthReason = deviceState.HealthReason
 			enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
 			enrichedDisk.LastSeenAt = deviceState.LastSeenAt
 		}
@@ -487,6 +494,7 @@ func (m *Manager) GetDisk(deviceID string) (*types.PhysicalDisk, error) {
 	if err == nil {
 		enrichedDisk.State = deviceState.State
 		enrichedDisk.Health = deviceState.Health
+		enrichedDisk.HealthReason = deviceState.HealthReason
 		enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
 		enrichedDisk.LastSeenAt = deviceState.LastSeenAt
 	} else {

@@ -210,19 +210,29 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 
 // enrichWithSMART enriches disk information with SMART data
 func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.PhysicalDisk) {
-	// 1. Detect virtualization environment first (used for self-test capability check)
+	// 1. Detect virtualization environment first
 	var envInfo *system.EnvironmentInfo
 	var err error
 	if d.envDetector != nil {
 		envInfo, err = d.envDetector.DetectEnvironment(ctx)
 		if err != nil {
 			d.logger.Warn("failed to detect environment", "error", err)
-			// Continue with nil envInfo - will assume self-tests might work
 		}
 	}
 
 	for _, disk := range disks {
-		// 2. Try to get SMART info (always try, even on cloud platforms)
+		// 2. Skip SMART on known unsupported platforms (performance optimization)
+		if envInfo != nil && d.shouldSkipSMART(envInfo, disk) {
+			d.logger.Debug("skipping SMART for virtual/unsupported device",
+				"device", disk.DevicePath,
+				"hypervisor", envInfo.Hypervisor)
+			disk.SMARTAvailable = false
+			disk.SMARTEnabled = false
+			disk.SMARTTestsSupported = false
+			continue
+		}
+
+		// 3. Try to get SMART info
 		output, err := d.smartctl.GetInfo(ctx, disk.DevicePath)
 		if err != nil {
 			d.logger.Debug("failed to get SMART info (may not support SMART)",
@@ -255,24 +265,15 @@ func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.Physica
 			disk.Type = smartInfo.DeviceType
 		}
 
-		// 3. Check if self-tests are actually supported
-		// Use environment detection to skip the check on known unsupported platforms
+		// 4. Check if self-tests are actually supported
 		if disk.SMARTAvailable {
-			if envInfo != nil && d.shouldSkipSMARTTests(envInfo, disk) {
-				d.logger.Debug("SMART info available but self-tests not supported on this platform",
-					"device", disk.DevicePath,
-					"hypervisor", envInfo.Hypervisor)
+			canRunTests, err := d.smartctl.CanRunSelfTests(ctx, disk.DevicePath)
+			if err != nil || !canRunTests {
+				d.logger.Debug("SMART info available but self-tests not supported",
+					"device", disk.DevicePath)
 				disk.SMARTTestsSupported = false
 			} else {
-				// Try to check if self-tests are supported
-				canRunTests, err := d.smartctl.CanRunSelfTests(ctx, disk.DevicePath)
-				if err != nil || !canRunTests {
-					d.logger.Debug("SMART info available but self-tests not supported",
-						"device", disk.DevicePath)
-					disk.SMARTTestsSupported = false
-				} else {
-					disk.SMARTTestsSupported = true
-				}
+				disk.SMARTTestsSupported = true
 			}
 		} else {
 			disk.SMARTTestsSupported = false
@@ -300,15 +301,14 @@ func (d *Discoverer) enrichWithPoolMembership(ctx context.Context, disks []*type
 	}
 }
 
-// shouldSkipSMARTTests determines if SMART self-tests should be skipped for a device
+// shouldSkipSMART determines if SMART should be skipped entirely for a device
 // based on the environment and device characteristics
-// Note: This is ONLY for self-tests, not for reading SMART info
-func (d *Discoverer) shouldSkipSMARTTests(envInfo *system.EnvironmentInfo, disk *types.PhysicalDisk) bool {
+func (d *Discoverer) shouldSkipSMART(envInfo *system.EnvironmentInfo, disk *types.PhysicalDisk) bool {
 	if !envInfo.IsVirtualized {
-		return false // Physical hardware - self-tests should work
+		return false // Physical hardware - always check SMART
 	}
 
-	// Known platforms where SMART self-tests don't work
+	// Known platforms where SMART doesn't work or provides minimal value
 	unsupportedHypervisors := map[string]bool{
 		"amazon": true, // AWS EBS
 		"google": true, // Google Cloud persistent disks

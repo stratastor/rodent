@@ -28,6 +28,9 @@ __*
 *.log
 _gitignore/
 
+# Claude local instructions (development context)
+CLAUDE.local.md
+
 # app config
 .env
 config.yml

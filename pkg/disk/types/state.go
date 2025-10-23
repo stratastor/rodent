@@ -29,15 +29,16 @@ type DiskManagerState struct {
 
 // DeviceState represents the persistent state of a single device
 type DeviceState struct {
-	DeviceID string    `json:"device_id"`
-	State    DiskState `json:"state"`
-	Health   HealthStatus `json:"health"`
+	DeviceID     string       `json:"device_id"`
+	State        DiskState    `json:"state"`
+	Health       HealthStatus `json:"health"`
+	HealthReason string       `json:"health_reason,omitempty"` // Explanation for health status
 
 	// Timestamps
-	FirstSeenAt  time.Time  `json:"first_seen_at"`
-	LastSeenAt   time.Time  `json:"last_seen_at"`
-	LastProbeAt  *time.Time `json:"last_probe_at,omitempty"`
-	StateChangedAt time.Time `json:"state_changed_at"`
+	FirstSeenAt    time.Time  `json:"first_seen_at"`
+	LastSeenAt     time.Time  `json:"last_seen_at"`
+	LastProbeAt    *time.Time `json:"last_probe_at,omitempty"`
+	StateChangedAt time.Time  `json:"state_changed_at"`
 
 	// Counters
 	ProbeCount       int `json:"probe_count"`
@@ -45,7 +46,7 @@ type DeviceState struct {
 	HealthChanges    int `json:"health_changes"`
 
 	// Last known values
-	LastTemperature int    `json:"last_temperature"`
+	LastTemperature  int    `json:"last_temperature"`
 	LastPowerOnHours uint64 `json:"last_power_on_hours"`
 
 	// Metadata
@@ -54,16 +55,16 @@ type DeviceState struct {
 
 // OperationState represents the state of an ongoing or completed operation
 type OperationState struct {
-	ID          string        `json:"id"`           // Operation ID
-	Type        OperationType `json:"type"`         // Operation type
-	Status      string        `json:"status"`       // Status (running, completed, failed)
-	DeviceID    string        `json:"device_id"`    // Target device (if applicable)
-	StartedAt   time.Time     `json:"started_at"`   // Start time
-	CompletedAt *time.Time    `json:"completed_at,omitempty"` // Completion time
-	Progress    int           `json:"progress"`     // Progress percentage
-	Message     string        `json:"message"`      // Status message
-	Error       string        `json:"error,omitempty"` // Error message if failed
-	Metadata    map[string]string `json:"metadata,omitempty"` // Additional metadata
+	ID          string            `json:"id"`                     // Operation ID
+	Type        OperationType     `json:"type"`                   // Operation type
+	Status      string            `json:"status"`                 // Status (running, completed, failed)
+	DeviceID    string            `json:"device_id"`              // Target device (if applicable)
+	StartedAt   time.Time         `json:"started_at"`             // Start time
+	CompletedAt *time.Time        `json:"completed_at,omitempty"` // Completion time
+	Progress    int               `json:"progress"`               // Progress percentage
+	Message     string            `json:"message"`                // Status message
+	Error       string            `json:"error,omitempty"`        // Error message if failed
+	Metadata    map[string]string `json:"metadata,omitempty"`     // Additional metadata
 }
 
 // GlobalStatistics represents global disk manager statistics
@@ -75,13 +76,13 @@ type GlobalStatistics struct {
 	CurrentDeviceCount int       `json:"current_device_count"`
 
 	// Probe stats
-	TotalProbes         int       `json:"total_probes"`
-	TotalQuickProbes    int       `json:"total_quick_probes"`
-	TotalExtensiveProbes int      `json:"total_extensive_probes"`
-	LastProbeAt         time.Time `json:"last_probe_at"`
-	SuccessfulProbes    int       `json:"successful_probes"`
-	FailedProbes        int       `json:"failed_probes"`
-	ConflictedProbes    int       `json:"conflicted_probes"`
+	TotalProbes          int       `json:"total_probes"`
+	TotalQuickProbes     int       `json:"total_quick_probes"`
+	TotalExtensiveProbes int       `json:"total_extensive_probes"`
+	LastProbeAt          time.Time `json:"last_probe_at"`
+	SuccessfulProbes     int       `json:"successful_probes"`
+	FailedProbes         int       `json:"failed_probes"`
+	ConflictedProbes     int       `json:"conflicted_probes"`
 
 	// Health stats
 	HealthyDevices  int `json:"healthy_devices"`
@@ -96,9 +97,9 @@ type GlobalStatistics struct {
 	OfflineDevices   int `json:"offline_devices"`
 
 	// Error stats
-	TotalErrors     int       `json:"total_errors"`
-	LastErrorAt     time.Time `json:"last_error_at"`
-	LastErrorMessage string   `json:"last_error_message,omitempty"`
+	TotalErrors      int       `json:"total_errors"`
+	LastErrorAt      time.Time `json:"last_error_at"`
+	LastErrorMessage string    `json:"last_error_message,omitempty"`
 
 	// Uptime
 	ManagerStartedAt time.Time     `json:"manager_started_at"`
@@ -159,7 +160,11 @@ func NewGlobalStatistics() *GlobalStatistics {
 }
 
 // UpdateDeviceState updates or creates device state
-func (s *DiskManagerState) UpdateDeviceState(deviceID string, state DiskState, health HealthStatus) {
+func (s *DiskManagerState) UpdateDeviceState(
+	deviceID string,
+	state DiskState,
+	health HealthStatus,
+) {
 	ds, exists := s.Devices[deviceID]
 	if !exists {
 		ds = NewDeviceState(deviceID)
@@ -200,9 +205,10 @@ func (s *DiskManagerState) AddProbeExecution(execution *ProbeExecution) {
 	// Update global statistics when probe completes or fails
 	if execution.Status == ProbeStatusCompleted || execution.Status == ProbeStatusFailed {
 		s.Statistics.TotalProbes++
-		if execution.Type == ProbeTypeQuick {
+		switch execution.Type {
+		case ProbeTypeQuick:
 			s.Statistics.TotalQuickProbes++
-		} else if execution.Type == ProbeTypeExtensive {
+		case ProbeTypeExtensive:
 			s.Statistics.TotalExtensiveProbes++
 		}
 		if execution.CompletedAt != nil {

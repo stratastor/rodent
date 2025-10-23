@@ -37,7 +37,7 @@ func (l *LsblkExecutor) ListAll(ctx context.Context) ([]byte, error) {
 	l.logger.Debug("listing all block devices")
 	return l.executor.ExecuteWithCombinedOutput(ctx, l.path,
 		"--json",
-		"--output", "NAME,PATH,TYPE,SIZE,VENDOR,MODEL,SERIAL,WWN,STATE,MOUNTPOINT,FSTYPE,PHY-SEC,LOG-SEC,ROTA,DISC-GRAN,DISC-MAX",
+		"--output", "NAME,PATH,TYPE,SIZE,VENDOR,MODEL,SERIAL,WWN,STATE,MOUNTPOINT,FSTYPE,PHY-SEC,LOG-SEC,ROTA,DISC-GRAN,DISC-MAX,TRAN,HCTL",
 		"--bytes",
 		"--paths",
 	)
@@ -48,7 +48,7 @@ func (l *LsblkExecutor) ListDisks(ctx context.Context) ([]byte, error) {
 	l.logger.Debug("listing disk devices")
 	return l.executor.ExecuteWithCombinedOutput(ctx, l.path,
 		"--json",
-		"--output", "NAME,PATH,TYPE,SIZE,VENDOR,MODEL,SERIAL,WWN,STATE,ROTA,PHY-SEC,LOG-SEC",
+		"--output", "NAME,PATH,TYPE,SIZE,VENDOR,MODEL,SERIAL,WWN,STATE,ROTA,PHY-SEC,LOG-SEC,TRAN,HCTL",
 		"--bytes",
 		"--paths",
 		"--nodeps", // No dependencies (partitions)
