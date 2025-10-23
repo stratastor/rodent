@@ -14,15 +14,15 @@ import (
 )
 
 // ZFSPoolManager interface for ZFS pool operations
+// NOTE: Pool membership (GetPoolForDevice) is determined during disk discovery
+// via pkg/disk/discovery using DEVLINKS matching. This interface only includes
+// operations that require real-time ZFS pool status checks.
 type ZFSPoolManager interface {
 	// IsPoolScrubbing returns true if pool is currently scrubbing
 	IsPoolScrubbing(ctx context.Context, poolName string) (bool, error)
 
 	// IsPoolResilvering returns true if pool is currently resilvering
 	IsPoolResilvering(ctx context.Context, poolName string) (bool, error)
-
-	// GetPoolForDevice returns the pool name for a device, if any
-	GetPoolForDevice(ctx context.Context, devicePath string) (string, bool, error)
 }
 
 // ZFSConflictChecker checks for ZFS operation conflicts
@@ -52,21 +52,23 @@ func (zcc *ZFSConflictChecker) CheckConflicts(
 	devicePath string,
 	probeType types.ProbeType,
 ) (bool, string, error) {
-	// Check if device is in ZFS pool
-	poolName, inPool, err := zcc.poolManager.GetPoolForDevice(ctx, devicePath)
+	// Get device state to check pool membership
+	// Pool membership is determined during discovery via DEVLINKS matching
+	deviceState, err := zcc.stateManager.GetDeviceState(deviceID)
 	if err != nil {
-		zcc.logger.Warn("failed to check pool membership",
+		zcc.logger.Warn("failed to get device state",
 			"device_id", deviceID,
-			"device_path", devicePath,
 			"error", err)
-		// Don't fail the probe if we can't check pool membership
+		// Don't fail the probe if we can't check state
 		return false, "", nil
 	}
 
-	if !inPool {
+	if deviceState.PoolName == "" {
 		// Device not in pool, no ZFS conflicts possible
 		return false, "", nil
 	}
+
+	poolName := deviceState.PoolName
 
 	// Check for scrub operation
 	scrubbing, err := zcc.poolManager.IsPoolScrubbing(ctx, poolName)

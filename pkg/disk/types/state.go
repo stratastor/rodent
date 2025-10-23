@@ -49,6 +49,9 @@ type DeviceState struct {
 	LastTemperature  int    `json:"last_temperature"`
 	LastPowerOnHours uint64 `json:"last_power_on_hours"`
 
+	// Pool membership (populated during discovery)
+	PoolName string `json:"pool_name,omitempty"` // ZFS pool name (if member of a pool)
+
 	// Metadata
 	Metadata map[string]string `json:"metadata,omitempty"`
 }

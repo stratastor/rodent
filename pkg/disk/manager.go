@@ -376,12 +376,14 @@ func (m *Manager) runDiscovery(ctx context.Context) error {
 			if existing, ok := s.Devices[disk.DeviceID]; ok {
 				// Update existing device
 				existing.Health = disk.Health
+				existing.PoolName = disk.PoolName // Update pool membership from discovery
 				existing.LastSeenAt = time.Now()
 			} else {
 				// New device discovered
 				newDevices++
 				deviceState := types.NewDeviceState(disk.DeviceID)
 				deviceState.Health = disk.Health
+				deviceState.PoolName = disk.PoolName // Store pool membership
 				s.Devices[disk.DeviceID] = deviceState
 				// Emit discovery event
 				m.eventEmitter.EmitDiskDiscovered(disk)
@@ -477,10 +479,8 @@ func (m *Manager) GetInventory(filter *types.DiskFilter) []*types.PhysicalDisk {
 			enrichedDisk.HealthReason = deviceState.HealthReason
 			enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
 			enrichedDisk.LastSeenAt = deviceState.LastSeenAt
+			enrichedDisk.PoolName = deviceState.PoolName // Enrich from persistent state
 		}
-
-		// Enrich with ZFS pool membership (pool membership is already set during discovery)
-		// No additional work needed here as enrichWithPoolMembership in Discoverer already sets PoolName
 
 		enrichedDisks = append(enrichedDisks, &enrichedDisk)
 	}
@@ -510,14 +510,12 @@ func (m *Manager) GetDisk(deviceID string) (*types.PhysicalDisk, error) {
 		enrichedDisk.HealthReason = deviceState.HealthReason
 		enrichedDisk.DiscoveredAt = deviceState.FirstSeenAt
 		enrichedDisk.LastSeenAt = deviceState.LastSeenAt
+		enrichedDisk.PoolName = deviceState.PoolName // Enrich from persistent state
 	} else {
 		// If no managed state exists, use defaults
 		m.logger.Debug("no device state found, using defaults",
 			"device_id", deviceID)
 	}
-
-	// Enrich with ZFS pool membership (pool membership is already set during discovery)
-	// No additional work needed here as enrichWithPoolMembership in Discoverer already sets PoolName
 
 	return &enrichedDisk, nil
 }
