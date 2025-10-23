@@ -59,8 +59,8 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 	d.logger.Info("starting disk discovery")
 	startTime := time.Now()
 
-	// Get all block devices using lsblk
-	devices, err := d.discoverBlockDevices(ctx)
+	// Get all block devices using lsblk (with partition/mount info)
+	devices, blockDeviceMap, err := d.discoverBlockDevices(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.DiskDiscoveryFailed).
 			WithMetadata("operation", "discover_block_devices")
@@ -75,6 +75,10 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 		d.logger.Warn("udevadm not available, skipping udev enrichment")
 	}
 
+	// Enrich with system usage (check for mounted partitions)
+	// This must run BEFORE pool enrichment to set SYSTEM state for boot/system disks
+	d.enrichWithSystemUsage(devices, blockDeviceMap)
+
 	// Enrich with SMART information (if available)
 	if d.toolChecker.IsAvailable("smartctl") {
 		d.enrichWithSMART(ctx, devices)
@@ -83,6 +87,7 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 	}
 
 	// Enrich with ZFS pool membership (if zpool tool available)
+	// This runs AFTER system usage check - pool state overrides AVAILABLE but not SYSTEM
 	if d.zpool != nil && d.toolChecker.IsAvailable("zpool") {
 		d.enrichWithPoolMembership(ctx, devices)
 	} else {
@@ -106,34 +111,40 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 }
 
 // discoverBlockDevices discovers block devices using lsblk
-func (d *Discoverer) discoverBlockDevices(ctx context.Context) ([]*types.PhysicalDisk, error) {
-	// Execute lsblk
-	output, err := d.lsblk.ListDisks(ctx)
+func (d *Discoverer) discoverBlockDevices(ctx context.Context) ([]*types.PhysicalDisk, map[string]*parsers.BlockDevice, error) {
+	// Execute lsblk WITH children to get partition/mount info
+	output, err := d.lsblk.ListDisksWithChildren(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, errors.DiskDiscoveryFailed).
+		return nil, nil, errors.Wrap(err, errors.DiskDiscoveryFailed).
 			WithMetadata("tool", "lsblk")
 	}
 
 	// Parse lsblk output
 	blockDevices, err := parsers.ParseLsblkJSON(output)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Filter only physical disks
 	physicalDevices := parsers.FilterPhysicalDisks(blockDevices)
 
+	// Build mapping of device path -> BlockDevice (for checking children/mounts later)
+	blockDeviceMap := make(map[string]*parsers.BlockDevice)
+	for _, bd := range physicalDevices {
+		blockDeviceMap[bd.Path] = bd
+	}
+
 	// Convert to PhysicalDisk types
 	var disks []*types.PhysicalDisk
 	for _, bd := range physicalDevices {
 		disk := bd.ToPhysicalDisk()
-		// Initial state - will be updated by enrichWithPoolMembership if in pool
-		disk.State = types.DiskStateAvailable // Available for use (not in pool yet)
+		// Initial state - will be updated by enrichWithSystemUsage and enrichWithPoolMembership
+		disk.State = types.DiskStateAvailable // Default: available (not in pool/system yet)
 		disk.Health = types.HealthUnknown
 		disks = append(disks, disk)
 	}
 
-	return disks, nil
+	return disks, blockDeviceMap, nil
 }
 
 // enrichWithUdev enriches disk information with udev data
@@ -201,6 +212,45 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 		} else {
 			disk.DeviceID = disk.DevicePath
 			disk.DeviceIDSource = "path"
+		}
+	}
+}
+
+// enrichWithSystemUsage checks if disks have mounted partitions (system/boot disks)
+// Disks with mounted partitions are marked as SYSTEM state
+func (d *Discoverer) enrichWithSystemUsage(disks []*types.PhysicalDisk, blockDeviceMap map[string]*parsers.BlockDevice) {
+	for _, disk := range disks {
+		// Skip if disk is already in a known state (e.g., will be set by pool membership later)
+		// We only check AVAILABLE disks here
+		if disk.State != types.DiskStateAvailable {
+			continue
+		}
+
+		// Get the BlockDevice for this disk to check its children (partitions)
+		blockDevice, ok := blockDeviceMap[disk.DevicePath]
+		if !ok {
+			continue
+		}
+
+		// Check if any child partition is mounted
+		hasMountedPartition := false
+		for _, child := range blockDevice.Children {
+			if child.Mountpoint != nil && *child.Mountpoint != "" {
+				hasMountedPartition = true
+				d.logger.Debug("disk has mounted partition",
+					"device", disk.DevicePath,
+					"partition", child.Path,
+					"mountpoint", *child.Mountpoint)
+				break
+			}
+		}
+
+		// If disk has mounted partitions, mark as SYSTEM (in use by OS)
+		if hasMountedPartition {
+			disk.State = types.DiskStateSystem
+			d.logger.Debug("disk marked as SYSTEM (has mounted partitions)",
+				"device", disk.DevicePath,
+				"device_id", disk.DeviceID)
 		}
 	}
 }

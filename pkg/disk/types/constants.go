@@ -14,11 +14,12 @@ const (
 	DiskStateDiscovered   DiskState = "DISCOVERED"   // Newly discovered, not yet validated
 	DiskStateValidating   DiskState = "VALIDATING"   // Running validation checks
 	DiskStateAvailable    DiskState = "AVAILABLE"    // Ready for use in pools
-	DiskStateOnline       DiskState = "ONLINE"       // Currently part of a ZFS pool
-	DiskStateFaulted      DiskState = "FAULTED"      // Hardware fault detected
-	DiskStateDegraded     DiskState = "DEGRADED"     // Degraded performance or errors
-	DiskStateOffline      DiskState = "OFFLINE"      // Disk offline or removed
-	DiskStateUnavail      DiskState = "UNAVAIL"      //  Means the device cannot be opened
+	DiskStateSystem       DiskState = "SYSTEM"       // In use by system (mounted partitions, boot disk, etc.)
+	DiskStateOnline       DiskState = "ONLINE"       // Currently part of a ZFS pool (ONLINE state)
+	DiskStateFaulted      DiskState = "FAULTED"      // Hardware fault detected (ZFS FAULTED state)
+	DiskStateDegraded     DiskState = "DEGRADED"     // Degraded performance or errors (ZFS DEGRADED state)
+	DiskStateOffline      DiskState = "OFFLINE"      // Disk offline or removed (ZFS OFFLINE state)
+	DiskStateUnavail      DiskState = "UNAVAIL"      // Device cannot be opened (ZFS UNAVAIL state)
 	DiskStateRemoving     DiskState = "REMOVING"     // Being removed from pool
 	DiskStateRetired      DiskState = "RETIRED"      // Decommissioned/marked for replacement
 	DiskStateQuarantined  DiskState = "QUARANTINED"  // Isolated due to errors

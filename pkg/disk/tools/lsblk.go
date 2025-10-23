@@ -56,6 +56,20 @@ func (l *LsblkExecutor) ListDisks(ctx context.Context) ([]byte, error) {
 	)
 }
 
+// ListDisksWithChildren lists disk devices WITH their partitions and mount information
+// Used for detecting system disks (disks with mounted partitions)
+func (l *LsblkExecutor) ListDisksWithChildren(ctx context.Context) ([]byte, error) {
+	l.logger.Debug("listing disk devices with children")
+	return l.executor.ExecuteWithCombinedOutput(ctx, l.path,
+		"--json",
+		"--output", "NAME,PATH,TYPE,SIZE,VENDOR,MODEL,SERIAL,WWN,STATE,MOUNTPOINT,FSTYPE,ROTA,PHY-SEC,LOG-SEC,TRAN,HCTL",
+		"--bytes",
+		"--paths",
+		// NO --nodeps flag, so we get children (partitions)
+		"--exclude", "7,11", // Exclude loop and optical devices
+	)
+}
+
 // GetDevice gets detailed information about a specific device
 func (l *LsblkExecutor) GetDevice(ctx context.Context, device string) ([]byte, error) {
 	l.logger.Debug("getting device info", "device", device)
