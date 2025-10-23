@@ -307,12 +307,7 @@ func registerDiskRoutes(engine *gin.Engine) (*diskAPI.DiskHandler, error) {
 	}
 
 	// Create command executor with sudo support
-	cfg := config.GetConfig()
 	executor := generalCmd.NewCommandExecutor(true)
-
-	// Create ZFS pool manager for conflict detection
-	zfsExecutor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
-	poolManager := pool.NewManager(zfsExecutor)
 
 	// Use global event bus (may be nil if not initialized yet)
 	eventBus := events.GlobalEventBus
@@ -320,8 +315,8 @@ func registerDiskRoutes(engine *gin.Engine) (*diskAPI.DiskHandler, error) {
 		l.Warn("Global event bus not initialized, disk events will be logged only")
 	}
 
-	// Create disk manager
-	diskManager, err := disk.NewManager(l, executor, eventBus, poolManager)
+	// Create disk manager (manages its own zpool executor for conflict detection)
+	diskManager, err := disk.NewManager(l, executor, eventBus)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create disk manager: %w", err)
 	}

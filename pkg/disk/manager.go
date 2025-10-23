@@ -59,7 +59,6 @@ func NewManager(
 	l logger.Logger,
 	executor *command.CommandExecutor,
 	eventBus *events.EventBus,
-	poolManager probing.ZFSPoolManager,
 ) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -137,8 +136,8 @@ func NewManager(
 	// Initialize health monitor
 	healthMonitor := health.NewMonitor(l, smartctl, cfg.Monitoring.Thresholds)
 
-	// Initialize conflict checker
-	conflictChecker := probing.NewZFSConflictChecker(l, stateMgr, poolManager)
+	// Initialize conflict checker (using zpool executor for pool status checks)
+	conflictChecker := probing.NewZFSConflictChecker(l, stateMgr, zpool)
 
 	// Initialize probe scheduler
 	probeScheduler, err := probing.NewProbeScheduler(

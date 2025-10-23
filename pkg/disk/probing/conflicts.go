@@ -17,6 +17,10 @@ import (
 // NOTE: Pool membership (GetPoolForDevice) is determined during disk discovery
 // via pkg/disk/discovery using DEVLINKS matching. This interface only includes
 // operations that require real-time ZFS pool status checks.
+//
+// This interface is implemented by:
+// - pkg/disk/tools.ZpoolExecutor (used by disk manager for conflict detection)
+// - pkg/zfs/pool.Manager (used by ZFS pool management API)
 type ZFSPoolManager interface {
 	// IsPoolScrubbing returns true if pool is currently scrubbing
 	IsPoolScrubbing(ctx context.Context, poolName string) (bool, error)

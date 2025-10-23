@@ -40,8 +40,15 @@ type PoolStatus struct {
 
 // Pool represents a ZFS pool from status output
 type Pool struct {
-	Name  string            `json:"name"`
-	VDevs map[string]*VDev `json:"vdevs"`
+	Name      string            `json:"name"`
+	VDevs     map[string]*VDev `json:"vdevs"`
+	ScanStats *ScanStats        `json:"scan_stats,omitempty"`
+}
+
+// ScanStats represents scan statistics from pool status
+type ScanStats struct {
+	Function string `json:"function"` // SCRUB, RESILVER, etc.
+	State    string `json:"state"`    // SCANNING, FINISHED, etc.
 }
 
 // VDev represents a virtual device in the pool
@@ -75,4 +82,44 @@ func (z *ZpoolExecutor) GetPoolStatus(ctx context.Context) (*PoolStatus, error) 
 	}
 
 	return &status, nil
+}
+
+// IsPoolScrubbing returns true if pool is currently scrubbing
+func (z *ZpoolExecutor) IsPoolScrubbing(ctx context.Context, poolName string) (bool, error) {
+	status, err := z.GetPoolStatus(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the specified pool has an active scrub
+	if pool, exists := status.Pools[poolName]; exists {
+		if pool.ScanStats != nil {
+			// Function is uppercase "SCRUB" and state is "SCANNING"
+			if pool.ScanStats.Function == "SCRUB" && pool.ScanStats.State == "SCANNING" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// IsPoolResilvering returns true if pool is currently resilvering
+func (z *ZpoolExecutor) IsPoolResilvering(ctx context.Context, poolName string) (bool, error) {
+	status, err := z.GetPoolStatus(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the specified pool has an active resilver
+	if pool, exists := status.Pools[poolName]; exists {
+		if pool.ScanStats != nil {
+			// Function is uppercase "RESILVER" and state is "SCANNING"
+			if pool.ScanStats.Function == "RESILVER" && pool.ScanStats.State == "SCANNING" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
