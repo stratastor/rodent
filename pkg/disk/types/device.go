@@ -24,9 +24,10 @@ type PhysicalDisk struct {
 	SizeBytes uint64        `json:"size_bytes"` // Total device size in bytes
 
 	// Alternative device paths
-	ByIDPath   string `json:"by_id_path"`   // /dev/disk/by-id path
-	ByPathPath string `json:"by_path_path"` // /dev/disk/by-path path
-	ByVdevPath string `json:"by_vdev_path"` // /dev/disk/by-vdev path (if configured)
+	ByIDPath   string   `json:"by_id_path"`   // /dev/disk/by-id path (first one found)
+	ByPathPath string   `json:"by_path_path"` // /dev/disk/by-path path
+	ByVdevPath string   `json:"by_vdev_path"` // /dev/disk/by-vdev path (if configured)
+	DevLinks   []string `json:"dev_links"`    // All device symlinks from udev (for matching)
 
 	// Physical topology (optional, filled by topology discovery)
 	Topology *DiskTopology `json:"topology,omitempty"`

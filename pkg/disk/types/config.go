@@ -97,6 +97,7 @@ type ToolsConfig struct {
 	LsscsiPath    string            `yaml:"lsscsi_path" json:"lsscsi_path"`
 	UdevadmPath   string            `yaml:"udevadm_path" json:"udevadm_path"`
 	SgSesPath     string            `yaml:"sg_ses_path" json:"sg_ses_path"`
+	ZpoolPath     string            `yaml:"zpool_path" json:"zpool_path"`
 	CheckVersions bool              `yaml:"check_versions" json:"check_versions"` // Check tool versions on startup
 	RequiredTools []string          `yaml:"required_tools" json:"required_tools"` // Required tools (fail if missing)
 	OptionalTools []string          `yaml:"optional_tools" json:"optional_tools"` // Optional tools (warn if missing)
@@ -171,9 +172,10 @@ func DefaultDiskManagerConfig() *DiskManagerConfig {
 			LsscsiPath:    DefaultLsscsiPath,
 			UdevadmPath:   DefaultUdevadmPath,
 			SgSesPath:     DefaultSgSesPath,
+			ZpoolPath:     DefaultZpoolPath,
 			CheckVersions: true,
 			RequiredTools: []string{"smartctl", "lsblk"},
-			OptionalTools: []string{"lsscsi", "sg_ses"},
+			OptionalTools: []string{"lsscsi", "sg_ses", "zpool"},
 			Metadata:      make(map[string]string),
 		},
 		Performance: PerformanceConfig{

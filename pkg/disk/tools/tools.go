@@ -54,6 +54,7 @@ func NewToolChecker(l logger.Logger, config *types.ToolsConfig) *ToolChecker {
 	tc.toolPaths["lsscsi"] = config.LsscsiPath
 	tc.toolPaths["udevadm"] = config.UdevadmPath
 	tc.toolPaths["sg_ses"] = config.SgSesPath
+	tc.toolPaths["zpool"] = config.ZpoolPath
 
 	return tc
 }

@@ -18,24 +18,18 @@ import (
 	"github.com/stratastor/rodent/pkg/system"
 )
 
-// ZFSPoolManager interface for ZFS pool operations (minimal subset needed for discovery)
-type ZFSPoolManager interface {
-	// GetPoolForDevice returns the pool name for a device, if any
-	GetPoolForDevice(ctx context.Context, devicePath string) (string, bool, error)
-}
-
 // Discoverer handles disk discovery operations
 type Discoverer struct {
-	logger         logger.Logger
-	lsblk          *tools.LsblkExecutor
-	smartctl       *tools.SmartctlExecutor
-	udevadm        *tools.UdevadmExecutor
-	toolChecker    *tools.ToolChecker
-	zfsPoolManager ZFSPoolManager
-	envDetector    *system.EnvironmentDetector
-	mu             sync.RWMutex
-	lastScan       time.Time
-	deviceCache    map[string]*types.PhysicalDisk // Keyed by device path
+	logger      logger.Logger
+	lsblk       *tools.LsblkExecutor
+	smartctl    *tools.SmartctlExecutor
+	udevadm     *tools.UdevadmExecutor
+	zpool       *tools.ZpoolExecutor
+	toolChecker *tools.ToolChecker
+	envDetector *system.EnvironmentDetector
+	mu          sync.RWMutex
+	lastScan    time.Time
+	deviceCache map[string]*types.PhysicalDisk // Keyed by device path
 }
 
 // NewDiscoverer creates a new disk discoverer
@@ -44,19 +38,19 @@ func NewDiscoverer(
 	lsblk *tools.LsblkExecutor,
 	smartctl *tools.SmartctlExecutor,
 	udevadm *tools.UdevadmExecutor,
+	zpool *tools.ZpoolExecutor,
 	toolChecker *tools.ToolChecker,
-	zfsPoolManager ZFSPoolManager,
 	envDetector *system.EnvironmentDetector,
 ) *Discoverer {
 	return &Discoverer{
-		logger:         l,
-		lsblk:          lsblk,
-		smartctl:       smartctl,
-		udevadm:        udevadm,
-		toolChecker:    toolChecker,
-		zfsPoolManager: zfsPoolManager,
-		envDetector:    envDetector,
-		deviceCache:    make(map[string]*types.PhysicalDisk),
+		logger:      l,
+		lsblk:       lsblk,
+		smartctl:    smartctl,
+		udevadm:     udevadm,
+		zpool:       zpool,
+		toolChecker: toolChecker,
+		envDetector: envDetector,
+		deviceCache: make(map[string]*types.PhysicalDisk),
 	}
 }
 
@@ -88,11 +82,11 @@ func (d *Discoverer) DiscoverAll(ctx context.Context) ([]*types.PhysicalDisk, er
 		d.logger.Warn("smartctl not available, skipping SMART enrichment")
 	}
 
-	// Enrich with ZFS pool membership (if ZFS pool manager available)
-	if d.zfsPoolManager != nil {
+	// Enrich with ZFS pool membership (if zpool tool available)
+	if d.zpool != nil && d.toolChecker.IsAvailable("zpool") {
 		d.enrichWithPoolMembership(ctx, devices)
 	} else {
-		d.logger.Debug("ZFS pool manager not available, skipping pool membership check")
+		d.logger.Debug("zpool tool not available, skipping pool membership check")
 	}
 
 	// Update cache
@@ -175,12 +169,14 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 			}
 		}
 
-		// Get by-id path
-		if byID, ok := props["DEVLINKS"]; ok {
-			for _, link := range strings.Fields(byID) {
-				if strings.Contains(link, "/dev/disk/by-id/") {
+		// Get all device links (for pool membership matching)
+		if devlinks, ok := props["DEVLINKS"]; ok {
+			disk.DevLinks = strings.Fields(devlinks)
+
+			// Also populate ByIDPath for backward compatibility (first by-id link found)
+			for _, link := range disk.DevLinks {
+				if strings.Contains(link, "/dev/disk/by-id/") && disk.ByIDPath == "" {
 					disk.ByIDPath = link
-					break
 				}
 			}
 		}
@@ -282,23 +278,100 @@ func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.Physica
 }
 
 // enrichWithPoolMembership enriches disk information with ZFS pool membership
+// Uses DEVLINKS-based matching for robust device path resolution
 func (d *Discoverer) enrichWithPoolMembership(ctx context.Context, disks []*types.PhysicalDisk) {
-	for _, disk := range disks {
-		poolName, inPool, err := d.zfsPoolManager.GetPoolForDevice(ctx, disk.DevicePath)
-		if err != nil {
-			d.logger.Warn("failed to check pool membership",
-				"device", disk.DevicePath,
-				"error", err)
-			continue
-		}
+	// Get all pool status
+	poolStatus, err := d.zpool.GetPoolStatus(ctx)
+	if err != nil {
+		d.logger.Warn("failed to get zpool status", "error", err)
+		return
+	}
 
-		if inPool {
+	// For each pool, extract all vdev paths
+	poolVdevPaths := make(map[string][]string) // poolName -> []vdevPaths
+	for poolName, pool := range poolStatus.Pools {
+		paths := d.extractVdevPaths(pool.VDevs)
+		poolVdevPaths[poolName] = paths
+		d.logger.Debug("extracted vdev paths for pool",
+			"pool", poolName,
+			"vdev_count", len(paths))
+	}
+
+	// Match disks against pool vdev paths using DEVLINKS
+	for _, disk := range disks {
+		poolName := d.findPoolForDisk(disk, poolVdevPaths)
+		if poolName != "" {
 			disk.PoolName = poolName
 			d.logger.Debug("device is in ZFS pool",
 				"device", disk.DevicePath,
+				"device_id", disk.DeviceID,
 				"pool", poolName)
 		}
 	}
+}
+
+// extractVdevPaths recursively extracts all vdev device paths from a vdev tree
+func (d *Discoverer) extractVdevPaths(vdevs map[string]*tools.VDev) []string {
+	var paths []string
+	for _, vdev := range vdevs {
+		if vdev.Path != "" {
+			paths = append(paths, vdev.Path)
+		}
+		// Recursively extract from nested vdevs
+		if vdev.VDevs != nil {
+			paths = append(paths, d.extractVdevPaths(vdev.VDevs)...)
+		}
+	}
+	return paths
+}
+
+// findPoolForDisk finds which pool (if any) a disk belongs to
+// Uses DEVLINKS for robust matching across different device path formats
+func (d *Discoverer) findPoolForDisk(disk *types.PhysicalDisk, poolVdevPaths map[string][]string) string {
+	// Build a set of all device links for quick lookup
+	deviceLinks := make(map[string]bool)
+	for _, link := range disk.DevLinks {
+		deviceLinks[link] = true
+	}
+	// Also add the main device path
+	deviceLinks[disk.DevicePath] = true
+
+	// Check each pool's vdev paths
+	for poolName, vdevPaths := range poolVdevPaths {
+		for _, vdevPath := range vdevPaths {
+			// Check if this vdev path matches any of our device links
+			if deviceLinks[vdevPath] {
+				return poolName
+			}
+
+			// Also check if vdev path is a partition of our device
+			// ZFS often uses partitions (e.g., /dev/disk/by-id/xxx-part1)
+			// We need to check if the base device matches
+			if d.isPartitionOfDevice(vdevPath, deviceLinks) {
+				return poolName
+			}
+		}
+	}
+
+	return ""
+}
+
+// isPartitionOfDevice checks if vdevPath is a partition of any device link
+// E.g., /dev/disk/by-id/nvme-xxx-part1 is a partition of /dev/disk/by-id/nvme-xxx
+func (d *Discoverer) isPartitionOfDevice(vdevPath string, deviceLinks map[string]bool) bool {
+	// Check if vdevPath ends with a partition suffix
+	// Common patterns: -part1, -part2, p1, p2, 1, 2
+	for deviceLink := range deviceLinks {
+		// Simple check: if vdevPath starts with deviceLink and has partition suffix
+		if strings.HasPrefix(vdevPath, deviceLink) {
+			suffix := strings.TrimPrefix(vdevPath, deviceLink)
+			// Check if suffix looks like a partition (starts with -, p, or digit)
+			if len(suffix) > 0 && (suffix[0] == '-' || suffix[0] == 'p' || (suffix[0] >= '0' && suffix[0] <= '9')) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // shouldSkipSMART determines if SMART should be skipped entirely for a device

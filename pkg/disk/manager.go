@@ -97,26 +97,39 @@ func NewManager(
 	}
 
 	// Initialize tool executors (useSudo=true for disk operations)
-	smartctl := tools.NewSmartctlExecutor(l, cfg.Tools.SmartctlPath, true)
-	lsblk := tools.NewLsblkExecutor(l, cfg.Tools.LsblkPath, true)
-	udevadm := tools.NewUdevadmExecutor(l, cfg.Tools.UdevadmPath, true)
+	// Use resolved paths from toolChecker (supports exec.LookPath)
+	smartctlPath, _ := toolChecker.GetPath("smartctl")
+	lsblkPath, _ := toolChecker.GetPath("lsblk")
+	udevadmPath, _ := toolChecker.GetPath("udevadm")
+
+	smartctl := tools.NewSmartctlExecutor(l, smartctlPath, true)
+	lsblk := tools.NewLsblkExecutor(l, lsblkPath, true)
+	udevadm := tools.NewUdevadmExecutor(l, udevadmPath, true)
 
 	// Initialize optional tools (may be nil)
 	var lsscsi *tools.LsscsiExecutor
 	if toolChecker.IsAvailable("lsscsi") {
-		lsscsi = tools.NewLsscsiExecutor(l, cfg.Tools.LsscsiPath, true)
+		lsscsiPath, _ := toolChecker.GetPath("lsscsi")
+		lsscsi = tools.NewLsscsiExecutor(l, lsscsiPath, true)
 	}
 
 	var sgses *tools.SgSesExecutor
 	if toolChecker.IsAvailable("sg_ses") {
-		sgses = tools.NewSgSesExecutor(l, cfg.Tools.SgSesPath, true)
+		sgsesPath, _ := toolChecker.GetPath("sg_ses")
+		sgses = tools.NewSgSesExecutor(l, sgsesPath, true)
+	}
+
+	var zpool *tools.ZpoolExecutor
+	if toolChecker.IsAvailable("zpool") {
+		zpoolPath, _ := toolChecker.GetPath("zpool")
+		zpool = tools.NewZpoolExecutor(l, zpoolPath, false) // No sudo for read-only status
 	}
 
 	// Initialize environment detector for SMART capability detection
 	envDetector := system.NewEnvironmentDetector(l)
 
-	// Initialize discoverer (with ZFS pool manager and environment detector)
-	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, toolChecker, poolManager, envDetector)
+	// Initialize discoverer (with zpool executor for pool membership detection)
+	discoverer := discovery.NewDiscoverer(l, lsblk, smartctl, udevadm, zpool, toolChecker, envDetector)
 
 	// Initialize topology mapper
 	topoMapper := topology.NewMapper(l, lsscsi, sgses, toolChecker)

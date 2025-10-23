@@ -170,12 +170,14 @@ const (
 )
 
 // Tool paths (may be overridden by configuration)
+// Empty strings mean the tool will be found via exec.LookPath() in system PATH
 const (
-	DefaultSmartctlPath  = "/usr/sbin/smartctl"
-	DefaultLsblkPath     = "/usr/bin/lsblk"
-	DefaultLsscsiPath    = "/usr/bin/lsscsi"
-	DefaultUdevadmPath   = "/usr/bin/udevadm"
-	DefaultSgSesPath     = "/usr/bin/sg_ses"
+	DefaultSmartctlPath  = "" // Will use exec.LookPath("smartctl")
+	DefaultLsblkPath     = "" // Will use exec.LookPath("lsblk")
+	DefaultLsscsiPath    = "" // Will use exec.LookPath("lsscsi")
+	DefaultUdevadmPath   = "" // Will use exec.LookPath("udevadm")
+	DefaultSgSesPath     = "" // Will use exec.LookPath("sg_ses")
+	DefaultZpoolPath     = "" // Will use exec.LookPath("zpool")
 )
 
 // Validation constants
