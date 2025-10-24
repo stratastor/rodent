@@ -15,9 +15,9 @@ func RegisterDiskGRPCHandlers(handler *DiskHandler) {
 	client.RegisterCommandHandler(proto.CmdDiskList, handleDiskList(handler))
 	client.RegisterCommandHandler(proto.CmdDiskGet, handleDiskGet(handler))
 	client.RegisterCommandHandler(proto.CmdDiskDiscover, handleDiskDiscover(handler))
-	client.RegisterCommandHandler(proto.CmdDiskRefresh, handleDiskRefresh(handler))
 
 	// Health and SMART operations
+	client.RegisterCommandHandler(proto.CmdDiskHealthCheck, handleDiskHealthCheck(handler))
 	client.RegisterCommandHandler(proto.CmdDiskHealthGet, handleDiskHealthGet(handler))
 	client.RegisterCommandHandler(proto.CmdDiskSMARTGet, handleDiskSMARTGet(handler))
 	client.RegisterCommandHandler(proto.CmdDiskSMARTRefresh, handleDiskSMARTRefresh(handler))

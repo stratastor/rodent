@@ -66,7 +66,10 @@ func handleDiskList(h *DiskHandler) client.CommandHandler {
 
 		disks := h.manager.GetInventory(filter)
 
-		return successResponse(req.RequestId, "Disk inventory retrieved", disks)
+		return successResponse(req.RequestId, "Disk inventory retrieved", map[string]interface{}{
+			"disks": disks,
+			"count": len(disks),
+		})
 	}
 }
 
@@ -107,20 +110,19 @@ func handleDiskDiscover(h *DiskHandler) client.CommandHandler {
 	}
 }
 
-func handleDiskRefresh(h *DiskHandler) client.CommandHandler {
+// Health operation handlers
+
+func handleDiskHealthCheck(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		ctx := context.Background()
 
-		// Refresh is same as discovery trigger
-		if err := h.manager.TriggerDiscovery(ctx); err != nil {
+		if err := h.manager.TriggerHealthCheck(ctx); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
-		return successResponse(req.RequestId, "Disk information refreshed", nil)
+		return successResponse(req.RequestId, "Health check triggered", nil)
 	}
 }
-
-// Health operation handlers
 
 func handleDiskHealthGet(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
@@ -268,7 +270,10 @@ func handleDiskProbeGet(h *DiskHandler) client.CommandHandler {
 func handleDiskProbeList(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		probes := h.manager.GetActiveProbes()
-		return successResponse(req.RequestId, "Active probes retrieved", probes)
+		return successResponse(req.RequestId, "Active probes retrieved", map[string]interface{}{
+			"probes": probes,
+			"count":  len(probes),
+		})
 	}
 }
 
@@ -287,7 +292,10 @@ func handleDiskProbeHistory(h *DiskHandler) client.CommandHandler {
 			return errorResponse(req.RequestId, err)
 		}
 
-		return successResponse(req.RequestId, "Probe history retrieved", history)
+		return successResponse(req.RequestId, "Probe history retrieved", map[string]interface{}{
+			"history": history,
+			"count":   len(history),
+		})
 	}
 }
 
@@ -296,7 +304,10 @@ func handleDiskProbeHistory(h *DiskHandler) client.CommandHandler {
 func handleDiskProbeScheduleList(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		schedules := h.manager.GetProbeSchedules()
-		return successResponse(req.RequestId, "Probe schedules retrieved", schedules)
+		return successResponse(req.RequestId, "Probe schedules retrieved", map[string]interface{}{
+			"schedules": schedules,
+			"count":     len(schedules),
+		})
 	}
 }
 
@@ -434,7 +445,10 @@ func handleDiskTopologyControllers(h *DiskHandler) client.CommandHandler {
 			return errorResponse(req.RequestId, err)
 		}
 
-		return successResponse(req.RequestId, "Controllers retrieved", controllers)
+		return successResponse(req.RequestId, "Controllers retrieved", map[string]interface{}{
+			"controllers": controllers,
+			"count":       len(controllers),
+		})
 	}
 }
 
@@ -445,7 +459,10 @@ func handleDiskTopologyEnclosures(h *DiskHandler) client.CommandHandler {
 			return errorResponse(req.RequestId, err)
 		}
 
-		return successResponse(req.RequestId, "Enclosures retrieved", enclosures)
+		return successResponse(req.RequestId, "Enclosures retrieved", map[string]interface{}{
+			"enclosures": enclosures,
+			"count":      len(enclosures),
+		})
 	}
 }
 

@@ -7,6 +7,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
@@ -92,8 +93,48 @@ func (h *DiskHandler) sendError(c *gin.Context, err error) {
 // Inventory handlers
 
 func (h *DiskHandler) GetInventory(c *gin.Context) {
-	// TODO: Parse optional filter from query params
-	disks := h.manager.GetInventory(nil)
+	// Parse optional filter from query params
+	var filter *types.DiskFilter
+
+	// Check if any filter params are provided
+	if c.Request.URL.Query().Encode() != "" {
+		filter = &types.DiskFilter{}
+
+		// Parse state filter (comma-separated)
+		if states := c.Query("states"); states != "" {
+			filter.States = []types.DiskState{}
+			for _, s := range strings.Split(states, ",") {
+				filter.States = append(filter.States, types.DiskState(strings.TrimSpace(s)))
+			}
+		}
+
+		// Parse pool_name filter
+		if poolName := c.Query("pool_name"); poolName != "" {
+			filter.PoolName = poolName
+		}
+
+		// Parse available filter
+		if availableStr := c.Query("available"); availableStr != "" {
+			available := availableStr == "true"
+			filter.Available = &available
+		}
+
+		// Parse min_size filter
+		if minSizeStr := c.Query("min_size"); minSizeStr != "" {
+			if minSize, err := strconv.ParseUint(minSizeStr, 10, 64); err == nil {
+				filter.MinSize = minSize
+			}
+		}
+
+		// Parse max_size filter
+		if maxSizeStr := c.Query("max_size"); maxSizeStr != "" {
+			if maxSize, err := strconv.ParseUint(maxSizeStr, 10, 64); err == nil {
+				filter.MaxSize = maxSize
+			}
+		}
+	}
+
+	disks := h.manager.GetInventory(filter)
 
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
 		"disks": disks,
