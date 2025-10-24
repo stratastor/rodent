@@ -185,11 +185,47 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 		if devlinks, ok := props["DEVLINKS"]; ok {
 			disk.DevLinks = strings.Fields(devlinks)
 
-			// Also populate ByIDPath for backward compatibility (first by-id link found)
+			// Populate ByIDPath - prefer serial-based paths without partition suffix
+			var firstByID string
+			var serialShort string
+			if idSerialShort, ok := props["ID_SERIAL_SHORT"]; ok {
+				serialShort = idSerialShort
+			}
+
 			for _, link := range disk.DevLinks {
-				if strings.Contains(link, "/dev/disk/by-id/") && disk.ByIDPath == "" {
+				if !strings.Contains(link, "/dev/disk/by-id/") {
+					continue
+				}
+
+				// Store first by-id as fallback
+				if firstByID == "" {
+					firstByID = link
+				}
+
+				// Skip partition links (ending with -partN or _N)
+				if strings.Contains(link, "-part") || strings.HasSuffix(link, "_1") ||
+				   strings.HasSuffix(link, "_2") || strings.HasSuffix(link, "_3") ||
+				   strings.HasSuffix(link, "_4") || strings.HasSuffix(link, "_5") ||
+				   strings.HasSuffix(link, "_6") || strings.HasSuffix(link, "_7") ||
+				   strings.HasSuffix(link, "_8") || strings.HasSuffix(link, "_9") {
+					continue
+				}
+
+				// Prefer paths containing the serial without partition suffix
+				if serialShort != "" && strings.Contains(link, serialShort) {
+					disk.ByIDPath = link
+					break
+				}
+
+				// If no serial match yet, use first non-partition by-id
+				if disk.ByIDPath == "" {
 					disk.ByIDPath = link
 				}
+			}
+
+			// Fallback to first by-id if nothing better found
+			if disk.ByIDPath == "" && firstByID != "" {
+				disk.ByIDPath = firstByID
 			}
 		}
 

@@ -72,3 +72,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
+
+// replace github.com/stratastor/toggle-rodent-proto => ../toggle-rodent-proto

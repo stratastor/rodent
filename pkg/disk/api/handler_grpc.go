@@ -73,6 +73,22 @@ func handleDiskList(h *DiskHandler) client.CommandHandler {
 	}
 }
 
+func handleDiskListAvailable(h *DiskHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		// List available disks only
+		filter := &types.DiskFilter{
+			States: []types.DiskState{types.DiskStateAvailable},
+		}
+
+		disks := h.manager.GetInventory(filter)
+
+		return successResponse(req.RequestId, "Available disks retrieved", map[string]interface{}{
+			"disks": disks,
+			"count": len(disks),
+		})
+	}
+}
+
 func handleDiskGet(h *DiskHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var request struct {

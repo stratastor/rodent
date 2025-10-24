@@ -8,6 +8,7 @@ import (
 func (h *DiskHandler) RegisterRoutes(router *gin.RouterGroup) {
 	// Disk collection and resource routes
 	router.GET("/", h.GetInventory)
+	router.GET("/available", h.GetAvailableDisks)
 	router.GET("/:device_id", h.GetDisk)
 	router.GET("/:device_id/health", h.GetDiskHealth)
 	router.GET("/:device_id/smart", h.GetSMARTData)

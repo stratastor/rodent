@@ -755,3 +755,18 @@ func (h *DiskHandler) ReloadConfiguration(c *gin.Context) {
 		"message": "Configuration reloaded",
 	})
 }
+
+// GetAvailableDisks returns disks available for pool creation
+func (h *DiskHandler) GetAvailableDisks(c *gin.Context) {
+	// Use existing GetInventory logic with AVAILABLE filter
+	filter := &types.DiskFilter{
+		States: []types.DiskState{types.DiskStateAvailable},
+	}
+
+	disks := h.manager.GetInventory(filter)
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"disks": disks,
+		"count": len(disks),
+	})
+}

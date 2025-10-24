@@ -14,6 +14,7 @@ func RegisterDiskGRPCHandlers(handler *DiskHandler) {
 	// Inventory operations
 	client.RegisterCommandHandler(proto.CmdDiskList, handleDiskList(handler))
 	client.RegisterCommandHandler(proto.CmdDiskGet, handleDiskGet(handler))
+	client.RegisterCommandHandler(proto.CmdDiskListAvailable, handleDiskListAvailable(handler))
 	client.RegisterCommandHandler(proto.CmdDiskDiscover, handleDiskDiscover(handler))
 
 	// Health and SMART operations
@@ -30,19 +31,46 @@ func RegisterDiskGRPCHandlers(handler *DiskHandler) {
 	client.RegisterCommandHandler(proto.CmdDiskProbeHistory, handleDiskProbeHistory(handler))
 
 	// Probe schedule operations
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleList, handleDiskProbeScheduleList(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleGet, handleDiskProbeScheduleGet(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleCreate, handleDiskProbeScheduleCreate(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleUpdate, handleDiskProbeScheduleUpdate(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleDelete, handleDiskProbeScheduleDelete(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleEnable, handleDiskProbeScheduleEnable(handler))
-	client.RegisterCommandHandler(proto.CmdDiskProbeScheduleDisable, handleDiskProbeScheduleDisable(handler))
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleList,
+		handleDiskProbeScheduleList(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleGet,
+		handleDiskProbeScheduleGet(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleCreate,
+		handleDiskProbeScheduleCreate(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleUpdate,
+		handleDiskProbeScheduleUpdate(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleDelete,
+		handleDiskProbeScheduleDelete(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleEnable,
+		handleDiskProbeScheduleEnable(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskProbeScheduleDisable,
+		handleDiskProbeScheduleDisable(handler),
+	)
 
 	// Topology operations
 	client.RegisterCommandHandler(proto.CmdDiskTopologyGet, handleDiskTopologyGet(handler))
 	client.RegisterCommandHandler(proto.CmdDiskTopologyRefresh, handleDiskTopologyRefresh(handler))
-	client.RegisterCommandHandler(proto.CmdDiskTopologyControllers, handleDiskTopologyControllers(handler))
-	client.RegisterCommandHandler(proto.CmdDiskTopologyEnclosures, handleDiskTopologyEnclosures(handler))
+	client.RegisterCommandHandler(
+		proto.CmdDiskTopologyControllers,
+		handleDiskTopologyControllers(handler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdDiskTopologyEnclosures,
+		handleDiskTopologyEnclosures(handler),
+	)
 
 	// State management operations
 	client.RegisterCommandHandler(proto.CmdDiskStateGet, handleDiskStateGet(handler))
