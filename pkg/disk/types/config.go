@@ -144,8 +144,8 @@ func DefaultDiskManagerConfig() *DiskManagerConfig {
 		},
 		Probing: ProbingConfig{
 			Enabled:                true,
-			QuickProbeSchedule:     "0 2 * * *",      // Daily at 2 AM
-			ExtensiveProbeSchedule: "0 3 * * 0",      // Weekly on Sunday at 3 AM
+			QuickProbeSchedule:     "0 2 * * 0",      // Weekly on Sunday at 2 AM
+			ExtensiveProbeSchedule: "0 3 1 */3 *",    // Quarterly on 1st at 3 AM
 			MaxConcurrent:          DefaultMaxConcurrentProbes,
 			Timeout:                DefaultProbeTimeout,
 			RetentionPeriod:        DefaultProbeRetention,

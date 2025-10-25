@@ -139,7 +139,7 @@ const (
 	DefaultStateBackupKeep = 3               // Keep 3 backup state files
 
 	// Performance settings
-	DefaultCacheSize   = 1000             // Disk inventory cache size
+	DefaultCacheSize   = 300              // Disk inventory cache size
 	DefaultCacheTTL    = 10 * time.Minute // Cache entry TTL
 	DefaultWorkerCount = 4                // Worker goroutines for concurrent operations
 )

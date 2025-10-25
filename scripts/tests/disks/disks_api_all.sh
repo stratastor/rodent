@@ -8,7 +8,7 @@ set -euo pipefail
 
 # Configuration
 API_BASE="${API_BASE:-http://localhost:8042/api/v1/rodent/disks}"
-OUTPUT_DIR="~/rodent/_gitignore/disks"
+OUTPUT_DIR="${OUTPUT_DIR:-/tmp/disks-api}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DISK="${TEST_DISK:-nvme4n1}"
 
