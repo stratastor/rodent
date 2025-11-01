@@ -65,13 +65,48 @@ if ! command -v systemctl &> /dev/null; then
     exit 1
 fi
 
-# Check if systemd is running
-if ! systemctl is-system-running &> /dev/null && ! systemctl is-system-running --wait &> /dev/null; then
-    log_error "systemd is not running or not fully operational"
-    log_error "Rodent requires an active systemd-based system"
-    exit 1
-fi
-log_success "systemd is active"
+# Check if systemd is running and operational
+SYSTEMD_STATE=$(systemctl is-system-running 2>&1 || true)
+case "$SYSTEMD_STATE" in
+    running|degraded)
+        # System is operational (running = perfect, degraded = some units failed but systemd works)
+        log_success "systemd is active (state: $SYSTEMD_STATE)"
+        ;;
+    offline|unknown)
+        # systemd is not running or state cannot be determined
+        log_error "systemd is not available (state: $SYSTEMD_STATE)"
+        log_error "Rodent requires an active systemd-based system"
+        exit 1
+        ;;
+    maintenance|stopping)
+        # System is in rescue/emergency mode or shutting down
+        log_error "systemd is not operational (state: $SYSTEMD_STATE)"
+        log_error "System is in maintenance mode or shutting down"
+        exit 1
+        ;;
+    initializing|starting)
+        # System is still booting - wait for it to settle
+        log_info "System is still booting (state: $SYSTEMD_STATE), waiting..."
+        if SYSTEMD_STATE=$(systemctl is-system-running --wait 2>&1 || true); then
+            case "$SYSTEMD_STATE" in
+                running|degraded)
+                    log_success "systemd is active (state: $SYSTEMD_STATE)"
+                    ;;
+                *)
+                    log_error "systemd did not reach operational state (state: $SYSTEMD_STATE)"
+                    exit 1
+                    ;;
+            esac
+        else
+            log_error "Failed to determine systemd state"
+            exit 1
+        fi
+        ;;
+    *)
+        log_error "Unknown systemd state: $SYSTEMD_STATE"
+        exit 1
+        ;;
+esac
 
 # Check if netplan is available
 if ! command -v netplan &> /dev/null; then

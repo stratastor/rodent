@@ -26,6 +26,24 @@ const (
 	CmdPoolDeviceAttach  = proto.ZFSCmdPoolDeviceAttach
 	CmdPoolDeviceDetach  = proto.ZFSCmdPoolDeviceDetach
 	CmdPoolDeviceReplace = proto.ZFSCmdPoolDeviceReplace
+	CmdPoolDeviceRemove  = proto.ZFSCmdPoolDeviceRemove
+	CmdPoolDeviceOffline = proto.ZFSCmdPoolDeviceOffline
+	CmdPoolDeviceOnline  = proto.ZFSCmdPoolDeviceOnline
+	CmdPoolAdd           = proto.ZFSCmdPoolAdd
+	CmdPoolClear         = proto.ZFSCmdPoolClear
+	CmdPoolInitialize    = proto.ZFSCmdPoolInitialize
+	CmdPoolTrim          = proto.ZFSCmdPoolTrim
+	CmdPoolCheckpoint    = proto.ZFSCmdPoolCheckpoint
+	CmdPoolReguid        = proto.ZFSCmdPoolReguid
+	CmdPoolReopen        = proto.ZFSCmdPoolReopen
+	CmdPoolUpgrade       = proto.ZFSCmdPoolUpgrade
+	CmdPoolHistory       = proto.ZFSCmdPoolHistory
+	CmdPoolEvents        = proto.ZFSCmdPoolEvents
+	CmdPoolIOStat        = proto.ZFSCmdPoolIOStat
+	CmdPoolWait          = proto.ZFSCmdPoolWait
+	CmdPoolSplit         = proto.ZFSCmdPoolSplit
+	CmdPoolLabelClear    = proto.ZFSCmdPoolLabelClear
+	CmdPoolSync          = proto.ZFSCmdPoolSync
 
 	// Dataset operations
 	CmdDatasetList   = proto.ZFSCmdDatasetList

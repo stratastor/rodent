@@ -130,3 +130,141 @@ type ImportConfig struct {
 	AllowDestroy bool              `json:"allow_destroy"`
 	Paths        []string          `json:"paths"` // Device paths to search
 }
+
+// AddConfig defines parameters for adding vdevs to a pool
+type AddConfig struct {
+	Name     string     `json:"name"`
+	VDevSpec []VDevSpec `json:"vdev_spec"`
+	Force    bool       `json:"force"`
+}
+
+// OfflineConfig defines parameters for taking a device offline
+type OfflineConfig struct {
+	Pool      string `json:"pool"`
+	Device    string `json:"device"`
+	Temporary bool   `json:"temporary"`
+}
+
+// OnlineConfig defines parameters for bringing a device online
+type OnlineConfig struct {
+	Pool   string `json:"pool"`
+	Device string `json:"device"`
+	Expand bool   `json:"expand"`
+}
+
+// ClearConfig defines parameters for clearing pool errors
+type ClearConfig struct {
+	Pool   string `json:"pool"`
+	Device string `json:"device,omitempty"` // Optional: clear specific device
+}
+
+// InitializeConfig defines parameters for initializing devices
+type InitializeConfig struct {
+	Pool    string   `json:"pool"`
+	Devices []string `json:"devices,omitempty"` // Optional: specific devices
+	Cancel  bool     `json:"cancel"`
+	Suspend bool     `json:"suspend"`
+}
+
+// TrimConfig defines parameters for trimming pool devices
+type TrimConfig struct {
+	Pool    string   `json:"pool"`
+	Devices []string `json:"devices,omitempty"` // Optional: specific devices
+	Cancel  bool     `json:"cancel"`
+	Suspend bool     `json:"suspend"`
+	Secure  bool     `json:"secure"`
+	Rate    int      `json:"rate,omitempty"` // Trim rate limit
+}
+
+// CheckpointConfig defines parameters for checkpoint operations
+type CheckpointConfig struct {
+	Pool    string `json:"pool"`
+	Discard bool   `json:"discard"`
+}
+
+// SplitConfig defines parameters for splitting a mirrored pool
+type SplitConfig struct {
+	Pool       string            `json:"pool"`
+	NewPool    string            `json:"new_pool"`
+	Devices    []string          `json:"devices,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
+	MountPoint string            `json:"mount_point,omitempty"`
+}
+
+// WaitConfig defines parameters for waiting on pool activities
+type WaitConfig struct {
+	Pool       string   `json:"pool"`
+	Activities []string `json:"activities"` // e.g., "scrub", "resilver", "initialize", "trim"
+}
+
+// HistoryResult represents pool command history
+type HistoryResult struct {
+	History []HistoryEntry `json:"history"`
+}
+
+// HistoryEntry represents a single history entry
+type HistoryEntry struct {
+	Time        string `json:"time"`
+	Command     string `json:"command"`
+	User        string `json:"user,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	Zone        string `json:"zone,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// EventsResult represents pool events
+type EventsResult struct {
+	Events []PoolEvent `json:"events"`
+}
+
+// PoolEvent represents a single pool event
+type PoolEvent struct {
+	Time    string            `json:"time"`
+	Class   string            `json:"class"`
+	Pool    string            `json:"pool,omitempty"`
+	VDev    string            `json:"vdev,omitempty"`
+	Details map[string]string `json:"details,omitempty"`
+}
+
+// IOStatResult represents I/O statistics
+type IOStatResult struct {
+	Pools map[string]PoolIOStats `json:"pools"`
+}
+
+// PoolIOStats represents I/O statistics for a pool
+type PoolIOStats struct {
+	Name       string              `json:"name"`
+	Alloc      string              `json:"alloc"`
+	Free       string              `json:"free"`
+	Operations IOOperations        `json:"operations"`
+	Bandwidth  IOBandwidth         `json:"bandwidth"`
+	VDevStats  map[string]VDevStat `json:"vdev_stats,omitempty"`
+}
+
+// IOOperations represents I/O operation counts
+type IOOperations struct {
+	Read  int64 `json:"read"`
+	Write int64 `json:"write"`
+}
+
+// IOBandwidth represents I/O bandwidth
+type IOBandwidth struct {
+	Read  string `json:"read"`
+	Write string `json:"write"`
+}
+
+// VDevStat represents statistics for a virtual device
+type VDevStat struct {
+	Alloc      string       `json:"alloc"`
+	Free       string       `json:"free"`
+	Operations IOOperations `json:"operations"`
+	Bandwidth  IOBandwidth  `json:"bandwidth"`
+	Errors     IOErrors     `json:"errors"`
+}
+
+// IOErrors represents I/O error counts
+type IOErrors struct {
+	Read     int64 `json:"read"`
+	Write    int64 `json:"write"`
+	Checksum int64 `json:"checksum"`
+}

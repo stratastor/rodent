@@ -220,18 +220,40 @@ func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
 			ValidatePropertyValue(),
 			h.setProperty)
 
-		// Maintenance
+		// Maintenance operations
 		pools.POST("/:name/scrub", ValidatePoolName(), h.scrubPool)
 		pools.POST("/:name/resilver", ValidatePoolName(), h.resilverPool)
+		pools.POST("/:name/clear", ValidatePoolName(), h.clearErrors)
+		pools.POST("/:name/sync", ValidatePoolName(), h.sync)
+		pools.POST("/:name/checkpoint", ValidatePoolName(), h.checkpoint)
+		pools.POST("/:name/reguid", ValidatePoolName(), h.reguid)
+		pools.POST("/:name/reopen", ValidatePoolName(), h.reopen)
+		pools.POST("/:name/upgrade", ValidatePoolName(), h.upgrade)
+		pools.POST("/:name/wait", ValidatePoolName(), h.wait)
+
+		// Information/Monitoring
+		pools.GET("/:name/history", ValidatePoolName(), h.history)
+		pools.GET("/:name/events", ValidatePoolName(), h.events)
+		pools.GET("/:name/iostat", ValidatePoolName(), h.iostat)
+
+		// Advanced operations
+		pools.POST("/:name/split", ValidatePoolName(), h.split)
+		pools.POST("/labelclear", h.labelClear)
+
+		// VDev operations
+		pools.POST("/:name/add", ValidatePoolName(), h.addVDevs)
+		pools.POST("/:name/initialize", ValidatePoolName(), h.initializeDevices)
+		pools.POST("/:name/trim", ValidatePoolName(), h.trimDevices)
 
 		// Device operations
 		devices := pools.Group("/:name/devices", ValidatePoolName())
 		{
-			// TODO: Validate device paths
 			devices.POST("/attach", h.attachDevice)
 			devices.POST("/detach", h.detachDevice)
-			devices.POST("/replace",
-				h.replaceDevice)
+			devices.POST("/replace", h.replaceDevice)
+			devices.POST("/remove", h.removeDevice)
+			devices.POST("/offline", h.offlineDevice)
+			devices.POST("/online", h.onlineDevice)
 		}
 	}
 }

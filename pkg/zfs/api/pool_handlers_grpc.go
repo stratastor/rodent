@@ -443,3 +443,432 @@ func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 		return successPoolResponse(req.RequestId, "Device replaced successfully", nil)
 	}
 }
+
+// handlePoolDeviceRemove returns a handler for removing devices from a ZFS pool
+func handlePoolDeviceRemove(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var removeParam struct {
+			PoolName string   `json:"pool_name"`
+			Devices  []string `json:"devices"`
+		}
+
+		if err := parseJSONPayload(cmd, &removeParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if removeParam.PoolName == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		if len(removeParam.Devices) == 0 {
+			return nil, errors.New(errors.ServerRequestValidation, "at least one device is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Remove(ctx, removeParam.PoolName, removeParam.Devices)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Device(s) removed successfully", nil)
+	}
+}
+
+// handlePoolDeviceOffline returns a handler for taking a device offline
+func handlePoolDeviceOffline(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.OfflineConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" || cfg.Device == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name and device are required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Offline(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Device taken offline successfully", nil)
+	}
+}
+
+// handlePoolDeviceOnline returns a handler for bringing a device online
+func handlePoolDeviceOnline(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.OnlineConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" || cfg.Device == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name and device are required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Online(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Device brought online successfully", nil)
+	}
+}
+
+// handlePoolAdd returns a handler for adding vdevs to a pool
+func handlePoolAdd(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.AddConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Name == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		if len(cfg.VDevSpec) == 0 {
+			return nil, errors.New(errors.ServerRequestValidation, "at least one vdev specification is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Add(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "VDevs added successfully", nil)
+	}
+}
+
+// handlePoolClear returns a handler for clearing pool errors
+func handlePoolClear(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.ClearConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Clear(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool errors cleared successfully", nil)
+	}
+}
+
+// handlePoolInitialize returns a handler for initializing pool devices
+func handlePoolInitialize(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.InitializeConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Initialize(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool initialization operation successful", nil)
+	}
+}
+
+// handlePoolTrim returns a handler for trimming pool devices
+func handlePoolTrim(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.TrimConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Trim(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool trim operation successful", nil)
+	}
+}
+
+// handlePoolCheckpoint returns a handler for pool checkpoint operations
+func handlePoolCheckpoint(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.CheckpointConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Checkpoint(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		action := "created"
+		if cfg.Discard {
+			action = "discarded"
+		}
+
+		return successPoolResponse(req.RequestId, "Pool checkpoint "+action+" successfully", nil)
+	}
+}
+
+// handlePoolReguid returns a handler for regenerating pool GUID
+func handlePoolReguid(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var nameParam struct {
+			Name string `json:"name"`
+		}
+
+		if err := parseJSONPayload(cmd, &nameParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if nameParam.Name == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Reguid(ctx, nameParam.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool GUID regenerated successfully", nil)
+	}
+}
+
+// handlePoolReopen returns a handler for reopening pool vdevs
+func handlePoolReopen(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var nameParam struct {
+			Name string `json:"name"`
+		}
+
+		if err := parseJSONPayload(cmd, &nameParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if nameParam.Name == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Reopen(ctx, nameParam.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool reopened successfully", nil)
+	}
+}
+
+// handlePoolUpgrade returns a handler for upgrading a pool
+func handlePoolUpgrade(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var upgradeParam struct {
+			Name string `json:"name"`
+			All  bool   `json:"all,omitempty"`
+		}
+
+		if err := parseJSONPayload(cmd, &upgradeParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Upgrade(ctx, upgradeParam.Name, upgradeParam.All)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool upgraded successfully", nil)
+	}
+}
+
+// handlePoolHistory returns a handler for getting pool command history
+func handlePoolHistory(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var historyParam struct {
+			Name       string `json:"name"`
+			Internal   bool   `json:"internal,omitempty"`
+			LongFormat bool   `json:"long_format,omitempty"`
+		}
+
+		if err := parseJSONPayload(cmd, &historyParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		ctx := createHandlerContext(req)
+		history, err := h.manager.History(ctx, historyParam.Name, historyParam.Internal, historyParam.LongFormat)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successResponse(req.RequestId, "Pool history", map[string]interface{}{
+			"history": history,
+		})
+	}
+}
+
+// handlePoolEvents returns a handler for getting pool events
+func handlePoolEvents(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var eventsParam struct {
+			Name    string `json:"name"`
+			Verbose bool   `json:"verbose,omitempty"`
+		}
+
+		if err := parseJSONPayload(cmd, &eventsParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		ctx := createHandlerContext(req)
+		events, err := h.manager.Events(ctx, eventsParam.Name, eventsParam.Verbose)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successResponse(req.RequestId, "Pool events", map[string]interface{}{
+			"events": events,
+		})
+	}
+}
+
+// handlePoolIOStat returns a handler for getting pool I/O statistics
+func handlePoolIOStat(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var iostatParam struct {
+			Name    string `json:"name"`
+			Verbose bool   `json:"verbose,omitempty"`
+		}
+
+		if err := parseJSONPayload(cmd, &iostatParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		ctx := createHandlerContext(req)
+		iostat, err := h.manager.IOStat(ctx, iostatParam.Name, iostatParam.Verbose)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successResponse(req.RequestId, "Pool I/O statistics", map[string]interface{}{
+			"iostat": iostat,
+		})
+	}
+}
+
+// handlePoolWait returns a handler for waiting on pool activities
+func handlePoolWait(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.WaitConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Wait(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool wait completed successfully", nil)
+	}
+}
+
+// handlePoolSplit returns a handler for splitting a mirrored pool
+func handlePoolSplit(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var cfg pool.SplitConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if cfg.Pool == "" || cfg.NewPool == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name and new pool name are required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Split(ctx, cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool split successfully", nil)
+	}
+}
+
+// handlePoolLabelClear returns a handler for clearing device labels
+func handlePoolLabelClear(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var labelParam struct {
+			Device string `json:"device"`
+			Force  bool   `json:"force,omitempty"`
+		}
+
+		if err := parseJSONPayload(cmd, &labelParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if labelParam.Device == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "device is required")
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.LabelClear(ctx, labelParam.Device, labelParam.Force)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Device label cleared successfully", nil)
+	}
+}
+
+// handlePoolSync returns a handler for syncing pool transactions
+func handlePoolSync(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var nameParam struct {
+			Name string `json:"name"`
+		}
+
+		if err := parseJSONPayload(cmd, &nameParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		ctx := createHandlerContext(req)
+		err := h.manager.Sync(ctx, nameParam.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool synced successfully", nil)
+	}
+}
