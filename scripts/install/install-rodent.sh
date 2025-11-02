@@ -229,15 +229,53 @@ check_systemd() {
         exit 1
     fi
 
-    # Check if systemd is actually running
-    if ! systemctl is-system-running &> /dev/null && ! systemctl is-system-running --wait &> /dev/null; then
-        log_error "systemd is not running or not fully operational"
-        log_error "Rodent requires an active systemd-based system"
-        [ "$FORCE" != true ] && exit 1
-        log_warn "Continuing due to --force flag..."
-    fi
-
-    log_success "systemd check passed"
+    # Check if systemd is running and operational
+    SYSTEMD_STATE=$(systemctl is-system-running 2>&1 || true)
+    case "$SYSTEMD_STATE" in
+        running|degraded)
+            # System is operational (running = perfect, degraded = some units failed but systemd works)
+            log_success "systemd check passed (state: $SYSTEMD_STATE)"
+            ;;
+        offline|unknown)
+            # systemd is not running or state cannot be determined
+            log_error "systemd is not available (state: $SYSTEMD_STATE)"
+            log_error "Rodent requires an active systemd-based system"
+            [ "$FORCE" != true ] && exit 1
+            log_warn "Continuing due to --force flag..."
+            ;;
+        maintenance|stopping)
+            # System is in rescue/emergency mode or shutting down
+            log_error "systemd is not operational (state: $SYSTEMD_STATE)"
+            log_error "System is in maintenance mode or shutting down"
+            [ "$FORCE" != true ] && exit 1
+            log_warn "Continuing due to --force flag..."
+            ;;
+        initializing|starting)
+            # System is still booting - wait for it to settle
+            log_info "System is still booting (state: $SYSTEMD_STATE), waiting..."
+            if SYSTEMD_STATE=$(systemctl is-system-running --wait 2>&1 || true); then
+                case "$SYSTEMD_STATE" in
+                    running|degraded)
+                        log_success "systemd check passed (state: $SYSTEMD_STATE)"
+                        ;;
+                    *)
+                        log_error "systemd did not reach operational state (state: $SYSTEMD_STATE)"
+                        [ "$FORCE" != true ] && exit 1
+                        log_warn "Continuing due to --force flag..."
+                        ;;
+                esac
+            else
+                log_error "Failed to determine systemd state"
+                [ "$FORCE" != true ] && exit 1
+                log_warn "Continuing due to --force flag..."
+            fi
+            ;;
+        *)
+            log_error "Unknown systemd state: $SYSTEMD_STATE"
+            [ "$FORCE" != true ] && exit 1
+            log_warn "Continuing due to --force flag..."
+            ;;
+    esac
 }
 
 check_netplan() {
@@ -522,11 +560,31 @@ download_binary() {
 
     local temp_binary="/tmp/rodent-${INSTALL_ID}"
 
-    if ! curl -fsSL -o "$temp_binary" "$download_url"; then
-        log_error "Failed to download Rodent binary from $download_url"
-        log_error "Please check your network connection and try again"
-        return 1
-    fi
+    # Retry download with exponential backoff (useful for transient DNS issues)
+    local max_attempts=3
+    local attempt=1
+    local wait_time=2
+
+    while [ $attempt -le $max_attempts ]; do
+        if [ $attempt -gt 1 ]; then
+            log_info "Retry attempt $attempt of $max_attempts (waiting ${wait_time}s)..."
+            sleep $wait_time
+            wait_time=$((wait_time * 2))
+        fi
+
+        if curl -fsSL -o "$temp_binary" "$download_url"; then
+            break
+        fi
+
+        if [ $attempt -eq $max_attempts ]; then
+            log_error "Failed to download Rodent binary from $download_url after $max_attempts attempts"
+            log_error "Please check your network connection and DNS resolver"
+            return 1
+        fi
+
+        log_warn "Download failed, retrying..."
+        attempt=$((attempt + 1))
+    done
 
     chmod +x "$temp_binary"
 

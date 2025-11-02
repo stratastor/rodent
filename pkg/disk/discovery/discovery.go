@@ -185,48 +185,64 @@ func (d *Discoverer) enrichWithUdev(ctx context.Context, disks []*types.Physical
 		if devlinks, ok := props["DEVLINKS"]; ok {
 			disk.DevLinks = strings.Fields(devlinks)
 
-			// Populate ByIDPath - prefer serial-based paths without partition suffix
-			var firstByID string
-			var serialShort string
-			if idSerialShort, ok := props["ID_SERIAL_SHORT"]; ok {
-				serialShort = idSerialShort
-			}
+			// Populate ByIDPath - prefer unique serial-based paths without partition suffix
+			// Use disk.Serial (from lsblk) as authoritative source - works across all platforms
+			var bestPath string
+			var bestScore int
 
 			for _, link := range disk.DevLinks {
 				if !strings.Contains(link, "/dev/disk/by-id/") {
 					continue
 				}
 
-				// Store first by-id as fallback
-				if firstByID == "" {
-					firstByID = link
+				// Skip partition links (ending with -partN, pN, or _N where N is a digit)
+				if strings.Contains(link, "-part") {
+					continue
 				}
-
-				// Skip partition links (ending with -partN or _N)
-				if strings.Contains(link, "-part") || strings.HasSuffix(link, "_1") ||
-				   strings.HasSuffix(link, "_2") || strings.HasSuffix(link, "_3") ||
-				   strings.HasSuffix(link, "_4") || strings.HasSuffix(link, "_5") ||
-				   strings.HasSuffix(link, "_6") || strings.HasSuffix(link, "_7") ||
-				   strings.HasSuffix(link, "_8") || strings.HasSuffix(link, "_9") {
+				// Skip numeric suffixes like _1, _2, p1, p2, etc (but not hex in middle of path)
+				if strings.HasSuffix(link, "_1") || strings.HasSuffix(link, "_2") ||
+					strings.HasSuffix(link, "_3") || strings.HasSuffix(link, "_4") ||
+					strings.HasSuffix(link, "_5") || strings.HasSuffix(link, "_6") ||
+					strings.HasSuffix(link, "_7") || strings.HasSuffix(link, "_8") ||
+					strings.HasSuffix(link, "_9") ||
+					strings.HasSuffix(link, "p1") || strings.HasSuffix(link, "p2") ||
+					strings.HasSuffix(link, "p3") || strings.HasSuffix(link, "p4") ||
+					strings.HasSuffix(link, "p5") || strings.HasSuffix(link, "p6") ||
+					strings.HasSuffix(link, "p7") || strings.HasSuffix(link, "p8") ||
+					strings.HasSuffix(link, "p9") {
 					continue
 				}
 
-				// Prefer paths containing the serial without partition suffix
-				if serialShort != "" && strings.Contains(link, serialShort) {
-					disk.ByIDPath = link
-					break
+				// Score this path based on uniqueness and simplicity
+				score := 0
+
+				// Highest priority: path contains the actual device serial (from lsblk)
+				if disk.Serial != "" && strings.Contains(link, disk.Serial) {
+					score += 100
 				}
 
-				// If no serial match yet, use first non-partition by-id
-				if disk.ByIDPath == "" {
-					disk.ByIDPath = link
+				// Prefer shorter paths (simpler is better)
+				// Subtract path length to favor shorter paths
+				score -= len(link) / 10
+
+				// Prefer standard naming schemes
+				if strings.Contains(link, "nvme-") {
+					score += 10
+				} else if strings.Contains(link, "scsi-S") { // SCSI with serial (e.g., scsi-SSanDisk_...)
+					score += 15
+				} else if strings.Contains(link, "usb-") {
+					score += 10
+				} else if strings.Contains(link, "scsi-1") { // Generic SCSI (less preferred)
+					score += 5
+				}
+
+				if score > bestScore {
+					bestScore = score
+					bestPath = link
 				}
 			}
 
-			// Fallback to first by-id if nothing better found
-			if disk.ByIDPath == "" && firstByID != "" {
-				disk.ByIDPath = firstByID
-			}
+			disk.ByIDPath = bestPath
 		}
 
 		// Get by-path path
