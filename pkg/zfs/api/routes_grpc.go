@@ -18,9 +18,11 @@ import (
 func RegisterZFSGRPCHandlers(poolHandler *PoolHandler, datasetHandler *DatasetHandler) {
 	// Pool operations
 	client.RegisterCommandHandler(CmdPoolList, handlePoolList(poolHandler))
+	client.RegisterCommandHandler(CmdPoolGet, handlePoolGet(poolHandler))
 	client.RegisterCommandHandler(CmdPoolStatus, handlePoolStatus(poolHandler))
 	client.RegisterCommandHandler(CmdPoolCreate, handlePoolCreate(poolHandler))
 	client.RegisterCommandHandler(CmdPoolDestroy, handlePoolDestroy(poolHandler))
+	client.RegisterCommandHandler(CmdPoolImportList, handlePoolImportList(poolHandler))
 	client.RegisterCommandHandler(CmdPoolImport, handlePoolImport(poolHandler))
 	client.RegisterCommandHandler(CmdPoolExport, handlePoolExport(poolHandler))
 	client.RegisterCommandHandler(CmdPoolPropertyList, handlePoolPropertyList(poolHandler))

@@ -197,9 +197,11 @@ func (h *PoolHandler) RegisterRoutes(router *gin.RouterGroup) {
 			ValidatePoolProperties(common.CreatePoolPropContext),
 			h.createPool)
 		pools.GET("", h.listPools)
+		pools.GET("/:name", ValidatePoolName(), h.getPool)
 		pools.DELETE("/:name", ValidatePoolName(), h.destroyPool)
 
 		// Import/Export
+		pools.GET("/import", h.listImportablePools)
 		pools.POST("/import",
 			ValidatePoolProperties(common.ImportPoolPropContext),
 			h.importPool)

@@ -22,6 +22,20 @@ type ListResult struct {
 	Pools map[string]Pool `json:"pools"`
 }
 
+// ImportablePoolsResult represents pools available for import
+type ImportablePoolsResult struct {
+	Pools []ImportablePool `json:"pools"`
+}
+
+// ImportablePool represents a pool that can be imported
+type ImportablePool struct {
+	Name   string `json:"name"`
+	ID     string `json:"id"`
+	State  string `json:"state"`
+	Action string `json:"action"`
+	Config string `json:"config"` // Raw config output
+}
+
 // PoolStatus represents the full status of a ZPool
 type PoolStatus struct {
 	Pools map[string]Pool `json:"pools"`

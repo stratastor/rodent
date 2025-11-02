@@ -25,6 +25,11 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
+// Note: Inconsistent wrapping pattern: successPoolResponse vs successResponse
+// gRPC: Uses successResponse() helper which wraps data in {"result": data}
+// gRPC: Uses successPoolResponse() for operations that return pool data directly (no wrapping)
+// TODO: Standardize on pattern with Result wrapper for all responses in the next major version
+
 func NewPoolHandler(manager *pool.Manager) *PoolHandler {
 	return &PoolHandler{manager: manager}
 }
@@ -36,6 +41,26 @@ func (h *PoolHandler) listPools(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, pools)
+}
+
+func (h *PoolHandler) getPool(c *gin.Context) {
+	name := c.Param("name")
+
+	pool, err := h.manager.List(c.Request.Context(), name)
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, pool)
+}
+
+func (h *PoolHandler) listImportablePools(c *gin.Context) {
+	result, err := h.manager.ListImportable(c.Request.Context())
+	if err != nil {
+		APIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"result": gin.H{"importable_pools": result}})
 }
 
 func (h *PoolHandler) destroyPool(c *gin.Context) {
@@ -397,7 +422,7 @@ func (h *PoolHandler) history(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"history": result})
+	c.JSON(http.StatusOK, gin.H{"result": gin.H{"history": result}})
 }
 
 func (h *PoolHandler) events(c *gin.Context) {
@@ -410,7 +435,7 @@ func (h *PoolHandler) events(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"events": result})
+	c.JSON(http.StatusOK, gin.H{"result": gin.H{"events": result}})
 }
 
 func (h *PoolHandler) iostat(c *gin.Context) {
@@ -423,7 +448,7 @@ func (h *PoolHandler) iostat(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"iostat": result})
+	c.JSON(http.StatusOK, gin.H{"result": gin.H{"iostat": result}})
 }
 
 func (h *PoolHandler) wait(c *gin.Context) {

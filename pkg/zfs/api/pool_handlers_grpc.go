@@ -11,6 +11,11 @@ import (
 	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
+// Note: Inconsistent wrapping pattern: successPoolResponse vs successResponse
+// gRPC: Uses successResponse() helper which wraps data in {"result": data}
+// gRPC: Uses successPoolResponse() for operations that return pool data directly (no wrapping)
+// TODO: Standardize on pattern with Result wrapper for all responses in the next major version
+
 // handlePoolList returns a handler for listing ZFS pools
 func handlePoolList(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
@@ -24,6 +29,52 @@ func handlePoolList(h *PoolHandler) client.CommandHandler {
 		}
 
 		return successPoolResponse(req.RequestId, "ZFS pools list", pools)
+	}
+}
+
+// handlePoolGet returns a handler for getting a specific ZFS pool
+func handlePoolGet(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var nameParam struct {
+			Name string `json:"name"`
+		}
+
+		if err := parseJSONPayload(cmd, &nameParam); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		if nameParam.Name == "" {
+			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
+		}
+
+		// Create context for the request
+		ctx := createHandlerContext(req)
+
+		// Call the manager's List method with pool name
+		pool, err := h.manager.List(ctx, nameParam.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolList)
+		}
+
+		return successPoolResponse(req.RequestId, "Pool info", pool)
+	}
+}
+
+// handlePoolImportList returns a handler for listing importable pools
+func handlePoolImportList(h *PoolHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		// Create context for the request
+		ctx := createHandlerContext(req)
+
+		// Call the manager's ListImportable method
+		result, err := h.manager.ListImportable(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.ZFSPoolImport)
+		}
+
+		return successResponse(req.RequestId, "Importable pools", map[string]interface{}{
+			"importable_pools": result,
+		})
 	}
 }
 
@@ -461,7 +512,10 @@ func handlePoolDeviceRemove(h *PoolHandler) client.CommandHandler {
 		}
 
 		if len(removeParam.Devices) == 0 {
-			return nil, errors.New(errors.ServerRequestValidation, "at least one device is required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"at least one device is required",
+			)
 		}
 
 		ctx := createHandlerContext(req)
@@ -483,7 +537,10 @@ func handlePoolDeviceOffline(h *PoolHandler) client.CommandHandler {
 		}
 
 		if cfg.Pool == "" || cfg.Device == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "pool name and device are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"pool name and device are required",
+			)
 		}
 
 		ctx := createHandlerContext(req)
@@ -505,7 +562,10 @@ func handlePoolDeviceOnline(h *PoolHandler) client.CommandHandler {
 		}
 
 		if cfg.Pool == "" || cfg.Device == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "pool name and device are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"pool name and device are required",
+			)
 		}
 
 		ctx := createHandlerContext(req)
@@ -531,7 +591,10 @@ func handlePoolAdd(h *PoolHandler) client.CommandHandler {
 		}
 
 		if len(cfg.VDevSpec) == 0 {
-			return nil, errors.New(errors.ServerRequestValidation, "at least one vdev specification is required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"at least one vdev specification is required",
+			)
 		}
 
 		ctx := createHandlerContext(req)
@@ -723,7 +786,12 @@ func handlePoolHistory(h *PoolHandler) client.CommandHandler {
 		}
 
 		ctx := createHandlerContext(req)
-		history, err := h.manager.History(ctx, historyParam.Name, historyParam.Internal, historyParam.LongFormat)
+		history, err := h.manager.History(
+			ctx,
+			historyParam.Name,
+			historyParam.Internal,
+			historyParam.LongFormat,
+		)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
@@ -813,7 +881,10 @@ func handlePoolSplit(h *PoolHandler) client.CommandHandler {
 		}
 
 		if cfg.Pool == "" || cfg.NewPool == "" {
-			return nil, errors.New(errors.ServerRequestValidation, "pool name and new pool name are required")
+			return nil, errors.New(
+				errors.ServerRequestValidation,
+				"pool name and new pool name are required",
+			)
 		}
 
 		ctx := createHandlerContext(req)

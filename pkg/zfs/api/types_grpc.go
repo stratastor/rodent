@@ -13,10 +13,12 @@ import (
 const (
 	// Pool operations
 	CmdPoolList          = proto.ZFSCmdPoolList
+	CmdPoolGet           = proto.ZFSCmdPoolGet
 	CmdPoolStatus        = proto.ZFSCmdPoolStatus
 	CmdPoolCreate        = proto.ZFSCmdPoolCreate
 	CmdPoolDestroy       = proto.ZFSCmdPoolDestroy
 	CmdPoolImport        = proto.ZFSCmdPoolImport
+	CmdPoolImportList    = proto.ZFSCmdPoolImportList
 	CmdPoolExport        = proto.ZFSCmdPoolExport
 	CmdPoolPropertyList  = proto.ZFSCmdPoolPropertyList
 	CmdPoolPropertyGet   = proto.ZFSCmdPoolPropertyGet

@@ -127,9 +127,20 @@ func (p *Manager) Import(ctx context.Context, cfg ImportConfig) error {
 	return nil
 }
 
-// Status gets the status of a pool
+// Status gets the comprehensive status of a pool or all pools.
+// Internally uses flags to provide complete information: -P (full vdev paths),
+// -i (initialization status), -t (TRIM status), -D (deduplication stats).
 func (p *Manager) Status(ctx context.Context, name string) (PoolStatus, error) {
-	args := []string{"status"}
+	// Build args with comprehensive flags for detailed status information
+	args := []string{
+		"status",
+		"-P", // Display complete vdev paths
+		"-i", // Include initialization status
+		"-t", // Include TRIM status
+		"-D", // Include deduplication statistics
+	}
+
+	// Add pool name if specified
 	if name != "" {
 		args = append(args, name)
 	}
@@ -302,9 +313,14 @@ func (p *Manager) Scrub(ctx context.Context, name string, stop bool) error {
 	return nil
 }
 
-// List returns a list of all pools
-func (p *Manager) List(ctx context.Context) (ListResult, error) {
+// List returns a list of all pools or a specific pool
+func (p *Manager) List(ctx context.Context, poolName ...string) (ListResult, error) {
 	args := []string{"-H", "-p"}
+
+	// If pool name is provided, add it to args
+	if len(poolName) > 0 && poolName[0] != "" {
+		args = append(args, poolName[0])
+	}
 
 	opts := command.CommandOptions{
 		Flags: command.FlagJSON,
@@ -328,6 +344,24 @@ func (p *Manager) List(ctx context.Context) (ListResult, error) {
 	}
 
 	return result, nil
+}
+
+// ListImportable lists pools available for import
+func (p *Manager) ListImportable(ctx context.Context) (ImportablePoolsResult, error) {
+	args := []string{"import"}
+
+	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool import", args...)
+	if err != nil {
+		// zpool import returns exit code 1 when no pools are available
+		// This is normal, so we parse the output anyway if available
+		if len(out) > 0 {
+			return parseImportablePoolsOutput(string(out))
+		}
+		return ImportablePoolsResult{}, errors.Wrap(err, errors.ZFSPoolImport).
+			WithMetadata("output", string(out))
+	}
+
+	return parseImportablePoolsOutput(string(out))
 }
 
 func (p *Manager) Resilver(ctx context.Context, name string) error {
@@ -838,4 +872,73 @@ func (p *Manager) Sync(ctx context.Context, pool string) error {
 		return errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 	}
 	return nil
+}
+
+// parseImportablePoolsOutput parses the text output from 'zpool import'
+// and returns a structured ImportablePoolsResult
+func parseImportablePoolsOutput(output string) (ImportablePoolsResult, error) {
+	result := ImportablePoolsResult{
+		Pools: []ImportablePool{},
+	}
+
+	if strings.TrimSpace(output) == "" || strings.Contains(output, "no pools available") {
+		return result, nil
+	}
+
+	lines := strings.Split(output, "\n")
+	var currentPool *ImportablePool
+	var configLines []string
+	inConfig := false
+
+	for _, line := range lines {
+		// Check for start of a new pool
+		if strings.HasPrefix(line, "  pool:") {
+			// Save previous pool if any
+			if currentPool != nil {
+				if len(configLines) > 0 {
+					currentPool.Config = strings.Join(configLines, "\n")
+				}
+				result.Pools = append(result.Pools, *currentPool)
+			}
+
+			// Start new pool
+			currentPool = &ImportablePool{
+				Name: strings.TrimSpace(strings.TrimPrefix(line, "  pool:")),
+			}
+			configLines = []string{}
+			inConfig = false
+			continue
+		}
+
+		if currentPool == nil {
+			continue
+		}
+
+		// Parse pool fields
+		if strings.HasPrefix(line, "    id:") {
+			currentPool.ID = strings.TrimSpace(strings.TrimPrefix(line, "    id:"))
+			inConfig = false
+		} else if strings.HasPrefix(line, " state:") {
+			currentPool.State = strings.TrimSpace(strings.TrimPrefix(line, " state:"))
+			inConfig = false
+		} else if strings.HasPrefix(line, "action:") {
+			currentPool.Action = strings.TrimSpace(strings.TrimPrefix(line, "action:"))
+			inConfig = false
+		} else if strings.HasPrefix(line, "config:") {
+			inConfig = true
+		} else if inConfig && strings.TrimSpace(line) != "" {
+			// Collect config lines (preserve original formatting)
+			configLines = append(configLines, line)
+		}
+	}
+
+	// Save the last pool
+	if currentPool != nil {
+		if len(configLines) > 0 {
+			currentPool.Config = strings.Join(configLines, "\n")
+		}
+		result.Pools = append(result.Pools, *currentPool)
+	}
+
+	return result, nil
 }
