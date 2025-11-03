@@ -380,9 +380,10 @@ func (d *Discoverer) enrichWithSMART(ctx context.Context, disks []*types.Physica
 	}
 }
 
-// VDevInfo holds vdev path and state information
+// VDevInfo holds vdev path, GUID, and state information
 type VDevInfo struct {
 	Path  string
+	GUID  string
 	State string
 }
 
@@ -406,30 +407,33 @@ func (d *Discoverer) enrichWithPoolMembership(ctx context.Context, disks []*type
 			"vdev_count", len(vdevs))
 	}
 
-	// Match disks against pool vdev paths using DEVLINKS and extract state
+	// Match disks against pool vdev paths using DEVLINKS and extract GUID and state
 	for _, disk := range disks {
-		poolName, vdevState := d.findPoolAndStateForDisk(disk, poolVdevInfo)
+		poolName, vdevGUID, vdevState := d.findPoolAndStateForDisk(disk, poolVdevInfo)
 		if poolName != "" {
 			disk.PoolName = poolName
+			disk.VdevGUID = vdevGUID
 			// Map ZFS vdev state to DiskState
 			disk.State = d.mapZFSStateToDiskState(vdevState)
 			d.logger.Debug("device is in ZFS pool",
 				"device", disk.DevicePath,
 				"device_id", disk.DeviceID,
 				"pool", poolName,
+				"vdev_guid", vdevGUID,
 				"vdev_state", vdevState,
 				"disk_state", disk.State)
 		}
 	}
 }
 
-// extractVdevInfo recursively extracts vdev paths and states from a vdev tree
+// extractVdevInfo recursively extracts vdev paths, GUIDs, and states from a vdev tree
 func (d *Discoverer) extractVdevInfo(vdevs map[string]*tools.VDev) []VDevInfo {
 	var vdevInfo []VDevInfo
 	for _, vdev := range vdevs {
 		if vdev.Path != "" {
 			vdevInfo = append(vdevInfo, VDevInfo{
 				Path:  vdev.Path,
+				GUID:  vdev.GUID,
 				State: vdev.State,
 			})
 		}
@@ -441,10 +445,10 @@ func (d *Discoverer) extractVdevInfo(vdevs map[string]*tools.VDev) []VDevInfo {
 	return vdevInfo
 }
 
-// findPoolAndStateForDisk finds which pool (if any) a disk belongs to and its vdev state
+// findPoolAndStateForDisk finds which pool (if any) a disk belongs to, its vdev GUID and state
 // Uses DEVLINKS for robust matching across different device path formats
-// Returns (poolName, vdevState) or ("", "") if not in any pool
-func (d *Discoverer) findPoolAndStateForDisk(disk *types.PhysicalDisk, poolVdevInfo map[string][]VDevInfo) (string, string) {
+// Returns (poolName, vdevGUID, vdevState) or ("", "", "") if not in any pool
+func (d *Discoverer) findPoolAndStateForDisk(disk *types.PhysicalDisk, poolVdevInfo map[string][]VDevInfo) (string, string, string) {
 	// Build a set of all device links for quick lookup
 	deviceLinks := make(map[string]bool)
 	for _, link := range disk.DevLinks {
@@ -458,19 +462,19 @@ func (d *Discoverer) findPoolAndStateForDisk(disk *types.PhysicalDisk, poolVdevI
 		for _, vdevInfo := range vdevInfoList {
 			// Check if this vdev path matches any of our device links
 			if deviceLinks[vdevInfo.Path] {
-				return poolName, vdevInfo.State
+				return poolName, vdevInfo.GUID, vdevInfo.State
 			}
 
 			// Also check if vdev path is a partition of our device
 			// ZFS often uses partitions (e.g., /dev/disk/by-id/xxx-part1)
 			// We need to check if the base device matches
 			if d.isPartitionOfDevice(vdevInfo.Path, deviceLinks) {
-				return poolName, vdevInfo.State
+				return poolName, vdevInfo.GUID, vdevInfo.State
 			}
 		}
 	}
 
-	return "", ""
+	return "", "", ""
 }
 
 // mapZFSStateToDiskState maps ZFS vdev state to DiskState constant
