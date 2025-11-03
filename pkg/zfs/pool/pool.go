@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/stratastor/rodent/pkg/errors"
@@ -757,12 +758,14 @@ func (p *Manager) Events(ctx context.Context, pool string, verbose bool) (string
 	return string(out), nil
 }
 
-// IOStat retrieves I/O statistics for pools
-func (p *Manager) IOStat(ctx context.Context, pool string, verbose bool) (string, error) {
-	args := []string{"iostat"}
-
-	if verbose {
-		args = append(args, "-v")
+// IOStat retrieves comprehensive I/O statistics for pools with per-vdev breakdown.
+// Internally uses -P (full paths) and -v (per-vdev stats) flags for consistent device naming
+// across APIs and detailed monitoring.
+func (p *Manager) IOStat(ctx context.Context, pool string) (IOStatResult, error) {
+	args := []string{
+		"iostat",
+		"-P", // Display full vdev paths for consistency with Status API
+		"-v", // Always include per-vdev statistics for comprehensive monitoring
 	}
 
 	if pool != "" {
@@ -772,13 +775,13 @@ func (p *Manager) IOStat(ctx context.Context, pool string, verbose bool) (string
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool iostat", args...)
 	if err != nil {
 		if len(out) > 0 {
-			return "", errors.Wrap(err, errors.ZFSPoolDeviceOperation).
+			return IOStatResult{}, errors.Wrap(err, errors.ZFSPoolDeviceOperation).
 				WithMetadata("output", string(out))
 		}
-		return "", errors.Wrap(err, errors.ZFSPoolDeviceOperation)
+		return IOStatResult{}, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 	}
 
-	return string(out), nil
+	return parseIOStatOutput(string(out), true) // Always parse with verbose=true
 }
 
 // Wait waits for background activity in a pool to complete
@@ -938,6 +941,111 @@ func parseImportablePoolsOutput(output string) (ImportablePoolsResult, error) {
 			currentPool.Config = strings.Join(configLines, "\n")
 		}
 		result.Pools = append(result.Pools, *currentPool)
+	}
+
+	return result, nil
+}
+
+// parseIOStatOutput parses the text output from 'zpool iostat'
+// and returns a structured IOStatResult
+func parseIOStatOutput(output string, verbose bool) (IOStatResult, error) {
+	result := IOStatResult{
+		Pools: make(map[string]PoolIOStats),
+	}
+
+	if strings.TrimSpace(output) == "" {
+		return result, nil
+	}
+
+	lines := strings.Split(output, "\n")
+
+	// Skip header lines (first 3 lines: header, column names, separator)
+	dataStart := 3
+	if dataStart >= len(lines) {
+		return result, nil
+	}
+
+	var currentPool *PoolIOStats
+	var currentPoolName string
+
+	for i := dataStart; i < len(lines); i++ {
+		line := lines[i]
+
+		// Skip separator lines
+		if strings.HasPrefix(line, "---") || strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// Parse the line into fields
+		fields := strings.Fields(line)
+		if len(fields) < 7 {
+			continue
+		}
+
+		// Check if this is a pool line (no leading whitespace) or vdev line (leading whitespace)
+		isVdev := len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
+
+		if !isVdev {
+			// This is a pool line
+			poolName := fields[0]
+			pool := PoolIOStats{
+				Name:       poolName,
+				Alloc:      fields[1],
+				Free:       fields[2],
+				Operations: IOOperations{},
+				Bandwidth:  IOBandwidth{},
+			}
+
+			// Parse operations (read, write)
+			if readOps, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+				pool.Operations.Read = readOps
+			}
+			if writeOps, err := strconv.ParseInt(fields[4], 10, 64); err == nil {
+				pool.Operations.Write = writeOps
+			}
+
+			// Parse bandwidth (read, write)
+			pool.Bandwidth.Read = fields[5]
+			pool.Bandwidth.Write = fields[6]
+
+			if verbose {
+				pool.VDevStats = make(map[string]VDevStat)
+			}
+
+			currentPoolName = poolName
+			currentPool = &pool
+			result.Pools[poolName] = pool
+		} else if verbose && currentPool != nil {
+			// This is a vdev line (only present when -v is used)
+			vdevName := strings.TrimSpace(fields[0])
+			vdev := VDevStat{
+				Alloc:      fields[1],
+				Free:       fields[2],
+				Operations: IOOperations{},
+				Bandwidth:  IOBandwidth{},
+			}
+
+			// Parse operations
+			if readOps, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+				vdev.Operations.Read = readOps
+			}
+			if writeOps, err := strconv.ParseInt(fields[4], 10, 64); err == nil {
+				vdev.Operations.Write = writeOps
+			}
+
+			// Parse bandwidth
+			vdev.Bandwidth.Read = fields[5]
+			vdev.Bandwidth.Write = fields[6]
+
+			// Update the pool in the map with the vdev
+			if pool, ok := result.Pools[currentPoolName]; ok {
+				if pool.VDevStats == nil {
+					pool.VDevStats = make(map[string]VDevStat)
+				}
+				pool.VDevStats[vdevName] = vdev
+				result.Pools[currentPoolName] = pool
+			}
+		}
 	}
 
 	return result, nil

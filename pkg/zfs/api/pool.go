@@ -440,9 +440,8 @@ func (h *PoolHandler) events(c *gin.Context) {
 
 func (h *PoolHandler) iostat(c *gin.Context) {
 	poolName := c.Param("name")
-	verbose := c.Query("verbose") == "true"
 
-	result, err := h.manager.IOStat(c.Request.Context(), poolName, verbose)
+	result, err := h.manager.IOStat(c.Request.Context(), poolName)
 	if err != nil {
 		APIError(c, err)
 		return

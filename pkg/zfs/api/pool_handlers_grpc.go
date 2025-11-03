@@ -830,8 +830,7 @@ func handlePoolEvents(h *PoolHandler) client.CommandHandler {
 func handlePoolIOStat(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var iostatParam struct {
-			Name    string `json:"name"`
-			Verbose bool   `json:"verbose,omitempty"`
+			Name string `json:"name"`
 		}
 
 		if err := parseJSONPayload(cmd, &iostatParam); err != nil {
@@ -839,7 +838,7 @@ func handlePoolIOStat(h *PoolHandler) client.CommandHandler {
 		}
 
 		ctx := createHandlerContext(req)
-		iostat, err := h.manager.IOStat(ctx, iostatParam.Name, iostatParam.Verbose)
+		iostat, err := h.manager.IOStat(ctx, iostatParam.Name)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
