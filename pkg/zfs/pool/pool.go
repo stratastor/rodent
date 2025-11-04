@@ -379,8 +379,16 @@ func (p *Manager) Resilver(ctx context.Context, name string) error {
 	return nil
 }
 
-func (p *Manager) AttachDevice(ctx context.Context, pool, device, newDevice string) error {
-	args := []string{"attach", pool, device, newDevice}
+func (p *Manager) AttachDevice(
+	ctx context.Context,
+	pool, device, newDevice string,
+	force bool,
+) error {
+	args := []string{"attach"}
+	if force {
+		args = append(args, "-f")
+	}
+	args = append(args, pool, device, newDevice)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool attach", args...)
 	if err != nil {
@@ -706,7 +714,12 @@ func (p *Manager) Upgrade(ctx context.Context, pool string, all bool) error {
 }
 
 // History retrieves the command history for a pool
-func (p *Manager) History(ctx context.Context, pool string, internal bool, longFormat bool) (string, error) {
+func (p *Manager) History(
+	ctx context.Context,
+	pool string,
+	internal bool,
+	longFormat bool,
+) (string, error) {
 	args := []string{"history"}
 
 	if internal {

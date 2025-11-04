@@ -382,9 +382,10 @@ func handlePoolResilver(h *PoolHandler) client.CommandHandler {
 func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var attachParam struct {
-			PoolName     string `json:"pool_name"`
+			PoolName     string `json:"name"`
 			TargetDevice string `json:"target_device"`
 			NewDevice    string `json:"new_device"`
+			Force        bool   `json:"force"`
 		}
 
 		if err := parseJSONPayload(cmd, &attachParam); err != nil {
@@ -411,6 +412,7 @@ func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 			attachParam.PoolName,
 			attachParam.TargetDevice,
 			attachParam.NewDevice,
+			attachParam.Force,
 		)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)

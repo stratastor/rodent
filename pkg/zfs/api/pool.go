@@ -193,13 +193,14 @@ func (h *PoolHandler) attachDevice(c *gin.Context) {
 	var req struct {
 		Device    string `json:"device" binding:"required"`
 		NewDevice string `json:"new_device" binding:"required"`
+		Force     bool   `json:"force"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
 
-	if err := h.manager.AttachDevice(c.Request.Context(), pool, req.Device, req.NewDevice); err != nil {
+	if err := h.manager.AttachDevice(c.Request.Context(), pool, req.Device, req.NewDevice, req.Force); err != nil {
 		APIError(c, err)
 		return
 	}
