@@ -53,13 +53,14 @@ type Pool struct {
 	Properties map[string]Property `json:"properties,omitempty"`
 
 	// Fields from zpool status
-	Status     string           `json:"status,omitempty"`
-	Action     string           `json:"action,omitempty"`
-	MsgID      string           `json:"msgid,omitempty"`
-	MoreInfo   string           `json:"moreinfo,omitempty"`
-	ScanStats  *ScanStats       `json:"scan_stats,omitempty"`
-	VDevs      map[string]*VDev `json:"vdevs,omitempty"`
-	ErrorCount string           `json:"error_count,omitempty"`
+	Status           string            `json:"status,omitempty"`
+	Action           string            `json:"action,omitempty"`
+	MsgID            string            `json:"msgid,omitempty"`
+	MoreInfo         string            `json:"moreinfo,omitempty"`
+	ScanStats        *ScanStats        `json:"scan_stats,omitempty"`
+	RaidzExpandStats *RaidzExpandStats `json:"raidz_expand_stats,omitempty"`
+	VDevs            map[string]*VDev  `json:"vdevs,omitempty"`
+	ErrorCount       string            `json:"error_count,omitempty"`
 }
 
 // ScanStats represents pool scanning status
@@ -79,6 +80,18 @@ type ScanStats struct {
 	ScrubSpentPaused   string `json:"scrub_spent_paused"`
 	IssuedBytesPerScan string `json:"issued_bytes_per_scan"`
 	Issued             string `json:"issued"`
+}
+
+// RaidzExpandStats represents RAIDZ expansion status (ZFS 2.3+)
+type RaidzExpandStats struct {
+	Name                 string `json:"name"`
+	State                string `json:"state"`
+	ExpandingVdev        string `json:"expanding_vdev"`
+	StartTime            string `json:"start_time"`
+	EndTime              string `json:"end_time"`
+	ToReflow             string `json:"to_reflow"`
+	Reflowed             string `json:"reflowed"`
+	WaitingForResilver   string `json:"waiting_for_resilver"`
 }
 
 // Property represents a pool property with source information
