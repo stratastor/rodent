@@ -100,6 +100,10 @@ func (p *Manager) Import(ctx context.Context, cfg ImportConfig) error {
 		args = append(args, "-f")
 	}
 
+	if cfg.RewindToCheckpoint {
+		args = append(args, "--rewind-to-checkpoint")
+	}
+
 	if cfg.Dir != "" {
 		args = append(args, "-d", cfg.Dir)
 	}

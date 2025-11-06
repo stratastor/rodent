@@ -53,14 +53,16 @@ type Pool struct {
 	Properties map[string]Property `json:"properties,omitempty"`
 
 	// Fields from zpool status
-	Status           string            `json:"status,omitempty"`
-	Action           string            `json:"action,omitempty"`
-	MsgID            string            `json:"msgid,omitempty"`
-	MoreInfo         string            `json:"moreinfo,omitempty"`
-	ScanStats        *ScanStats        `json:"scan_stats,omitempty"`
-	RaidzExpandStats *RaidzExpandStats `json:"raidz_expand_stats,omitempty"`
-	VDevs            map[string]*VDev  `json:"vdevs,omitempty"`
-	ErrorCount       string            `json:"error_count,omitempty"`
+	Status           string             `json:"status,omitempty"`
+	Action           string             `json:"action,omitempty"`
+	MsgID            string             `json:"msgid,omitempty"`
+	MoreInfo         string             `json:"moreinfo,omitempty"`
+	ScanStats        *ScanStats         `json:"scan_stats,omitempty"`
+	RaidzExpandStats *RaidzExpandStats  `json:"raidz_expand_stats,omitempty"`
+	CheckpointStats  *CheckpointStats   `json:"checkpoint_stats,omitempty"`
+	RemovalStats     *RemovalStats      `json:"removal_stats,omitempty"`
+	VDevs            map[string]*VDev   `json:"vdevs,omitempty"`
+	ErrorCount       string             `json:"error_count,omitempty"`
 }
 
 // ScanStats represents pool scanning status
@@ -94,6 +96,25 @@ type RaidzExpandStats struct {
 	WaitingForResilver   string `json:"waiting_for_resilver"`
 }
 
+// CheckpointStats represents pool checkpoint status
+type CheckpointStats struct {
+	State     string `json:"state"`
+	StartTime string `json:"start_time"`
+	Space     string `json:"space"`
+}
+
+// RemovalStats represents vdev removal status
+type RemovalStats struct {
+	Name          string `json:"name"`
+	State         string `json:"state"`
+	RemovingVdev  string `json:"removing_vdev"`
+	StartTime     string `json:"start_time"`
+	EndTime       string `json:"end_time"`
+	ToCopy        string `json:"to_copy"`
+	Copied        string `json:"copied"`
+	MappingMemory string `json:"mapping_memory"`
+}
+
 // Property represents a pool property with source information
 type Property struct {
 	Value  interface{} `json:"value"`
@@ -108,15 +129,26 @@ type Source struct {
 
 // VDev represents a virtual device in the pool
 type VDev struct {
-	Name           string           `json:"name"`
-	VDevType       string           `json:"vdev_type"`
-	GUID           string           `json:"guid"`
-	State          string           `json:"state"`
-	Path           string           `json:"path,omitempty"`
-	VDevs          map[string]*VDev `json:"vdevs,omitempty"` // Nested vdevs as map
-	ReadErrors     string           `json:"read_errors"`
-	WriteErrors    string           `json:"write_errors"`
-	ChecksumErrors string           `json:"checksum_errors"`
+	Name            string           `json:"name"`
+	VDevType        string           `json:"vdev_type"`
+	GUID            string           `json:"guid"`
+	State           string           `json:"state"`
+	Path            string           `json:"path,omitempty"`
+	PhysPath        string           `json:"phys_path,omitempty"`
+	DevID           string           `json:"devid,omitempty"`
+	Class           string           `json:"class,omitempty"`
+	AllocSpace      string           `json:"alloc_space,omitempty"`
+	TotalSpace      string           `json:"total_space,omitempty"`
+	DefSpace        string           `json:"def_space,omitempty"`
+	RepDevSize      string           `json:"rep_dev_size,omitempty"`
+	PhysSpace       string           `json:"phys_space,omitempty"`
+	ScanProcessed   string           `json:"scan_processed,omitempty"` // Data processed during scan/resilver
+	VDevs           map[string]*VDev `json:"vdevs,omitempty"`          // Nested vdevs as map
+	ReadErrors      string           `json:"read_errors"`
+	WriteErrors     string           `json:"write_errors"`
+	ChecksumErrors  string           `json:"checksum_errors"`
+	SlowIOs         string           `json:"slow_ios,omitempty"`
+	CheckpointSpace string           `json:"checkpoint_space,omitempty"`
 }
 
 // Stats holds VDev performance statistics
@@ -150,12 +182,13 @@ type VDevSpec struct {
 
 // ImportConfig defines parameters for pool import
 type ImportConfig struct {
-	Name         string            `json:"name"`
-	Dir          string            `json:"dir"` // Search directory
-	Properties   map[string]string `json:"properties"`
-	Force        bool              `json:"force"`
-	AllowDestroy bool              `json:"allow_destroy"`
-	Paths        []string          `json:"paths"` // Device paths to search
+	Name                string            `json:"name"`
+	Dir                 string            `json:"dir"` // Search directory
+	Properties          map[string]string `json:"properties"`
+	Force               bool              `json:"force"`
+	AllowDestroy        bool              `json:"allow_destroy"`
+	RewindToCheckpoint  bool              `json:"rewind_to_checkpoint"`  // Import pool rewound to checkpoint (--rewind-to-checkpoint)
+	Paths               []string          `json:"paths"` // Device paths to search
 }
 
 // ScrubConfig defines parameters for pool scrub operations

@@ -382,7 +382,7 @@ func handlePoolResilver(h *PoolHandler) client.CommandHandler {
 func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var attachParam struct {
-			PoolName     string `json:"name"`
+			Name         string `json:"name"`
 			TargetDevice string `json:"target_device"`
 			NewDevice    string `json:"new_device"`
 			Force        bool   `json:"force"`
@@ -392,7 +392,7 @@ func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if attachParam.PoolName == "" {
+		if attachParam.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -409,7 +409,7 @@ func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 		// Call the manager's AttachDevice method
 		err := h.manager.AttachDevice(
 			ctx,
-			attachParam.PoolName,
+			attachParam.Name,
 			attachParam.TargetDevice,
 			attachParam.NewDevice,
 			attachParam.Force,
@@ -426,15 +426,15 @@ func handlePoolDeviceAttach(h *PoolHandler) client.CommandHandler {
 func handlePoolDeviceDetach(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var detachParam struct {
-			PoolName string `json:"pool_name"`
-			Device   string `json:"device"`
+			Name   string `json:"name"`
+			Device string `json:"device"`
 		}
 
 		if err := parseJSONPayload(cmd, &detachParam); err != nil {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if detachParam.PoolName == "" {
+		if detachParam.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -446,7 +446,7 @@ func handlePoolDeviceDetach(h *PoolHandler) client.CommandHandler {
 		ctx := createHandlerContext(req)
 
 		// Call the manager's DetachDevice method
-		err := h.manager.DetachDevice(ctx, detachParam.PoolName, detachParam.Device)
+		err := h.manager.DetachDevice(ctx, detachParam.Name, detachParam.Device)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
@@ -459,7 +459,7 @@ func handlePoolDeviceDetach(h *PoolHandler) client.CommandHandler {
 func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var replaceParam struct {
-			PoolName  string `json:"pool_name"`
+			Name      string `json:"name"`
 			OldDevice string `json:"old_device"`
 			NewDevice string `json:"new_device"`
 		}
@@ -468,7 +468,7 @@ func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if replaceParam.PoolName == "" {
+		if replaceParam.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -485,7 +485,7 @@ func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 		// Call the manager's ReplaceDevice method
 		err := h.manager.ReplaceDevice(
 			ctx,
-			replaceParam.PoolName,
+			replaceParam.Name,
 			replaceParam.OldDevice,
 			replaceParam.NewDevice,
 		)
@@ -501,15 +501,15 @@ func handlePoolDeviceReplace(h *PoolHandler) client.CommandHandler {
 func handlePoolDeviceRemove(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var removeParam struct {
-			PoolName string   `json:"pool_name"`
-			Devices  []string `json:"devices"`
+			Name    string   `json:"name"`
+			Devices []string `json:"devices"`
 		}
 
 		if err := parseJSONPayload(cmd, &removeParam); err != nil {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if removeParam.PoolName == "" {
+		if removeParam.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -521,7 +521,7 @@ func handlePoolDeviceRemove(h *PoolHandler) client.CommandHandler {
 		}
 
 		ctx := createHandlerContext(req)
-		err := h.manager.Remove(ctx, removeParam.PoolName, removeParam.Devices)
+		err := h.manager.Remove(ctx, removeParam.Name, removeParam.Devices)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolDeviceOperation)
 		}
