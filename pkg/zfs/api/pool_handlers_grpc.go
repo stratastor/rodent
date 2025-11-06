@@ -538,7 +538,7 @@ func handlePoolDeviceOffline(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" || cfg.Device == "" {
+		if cfg.Name == "" || cfg.Device == "" {
 			return nil, errors.New(
 				errors.ServerRequestValidation,
 				"pool name and device are required",
@@ -563,7 +563,7 @@ func handlePoolDeviceOnline(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" || cfg.Device == "" {
+		if cfg.Name == "" || cfg.Device == "" {
 			return nil, errors.New(
 				errors.ServerRequestValidation,
 				"pool name and device are required",
@@ -617,7 +617,7 @@ func handlePoolClear(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -639,7 +639,7 @@ func handlePoolInitialize(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -661,7 +661,7 @@ func handlePoolTrim(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -683,7 +683,7 @@ func handlePoolCheckpoint(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -859,7 +859,7 @@ func handlePoolWait(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -881,7 +881,7 @@ func handlePoolSplit(h *PoolHandler) client.CommandHandler {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if cfg.Pool == "" || cfg.NewPool == "" {
+		if cfg.Name == "" || cfg.NewPool == "" {
 			return nil, errors.New(
 				errors.ServerRequestValidation,
 				"pool name and new pool name are required",

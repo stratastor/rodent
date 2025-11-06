@@ -504,7 +504,7 @@ func (p *Manager) Add(ctx context.Context, cfg AddConfig) error {
 
 // Clear clears device errors in a pool
 func (p *Manager) Clear(ctx context.Context, cfg ClearConfig) error {
-	args := []string{"clear", cfg.Pool}
+	args := []string{"clear", cfg.Name}
 
 	if cfg.Device != "" {
 		args = append(args, cfg.Device)
@@ -529,7 +529,7 @@ func (p *Manager) Offline(ctx context.Context, cfg OfflineConfig) error {
 		args = append(args, "-t")
 	}
 
-	args = append(args, cfg.Pool, cfg.Device)
+	args = append(args, cfg.Name, cfg.Device)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool offline", args...)
 	if err != nil {
@@ -550,7 +550,7 @@ func (p *Manager) Online(ctx context.Context, cfg OnlineConfig) error {
 		args = append(args, "-e")
 	}
 
-	args = append(args, cfg.Pool, cfg.Device)
+	args = append(args, cfg.Name, cfg.Device)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool online", args...)
 	if err != nil {
@@ -589,7 +589,7 @@ func (p *Manager) Initialize(ctx context.Context, cfg InitializeConfig) error {
 		args = append(args, "-s")
 	}
 
-	args = append(args, cfg.Pool)
+	args = append(args, cfg.Name)
 
 	if len(cfg.Devices) > 0 {
 		args = append(args, cfg.Devices...)
@@ -624,7 +624,7 @@ func (p *Manager) Trim(ctx context.Context, cfg TrimConfig) error {
 		args = append(args, "-r", fmt.Sprintf("%d", cfg.Rate))
 	}
 
-	args = append(args, cfg.Pool)
+	args = append(args, cfg.Name)
 
 	if len(cfg.Devices) > 0 {
 		args = append(args, cfg.Devices...)
@@ -649,7 +649,7 @@ func (p *Manager) Checkpoint(ctx context.Context, cfg CheckpointConfig) error {
 		args = append(args, "-d")
 	}
 
-	args = append(args, cfg.Pool)
+	args = append(args, cfg.Name)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool checkpoint", args...)
 	if err != nil {
@@ -807,7 +807,7 @@ func (p *Manager) Wait(ctx context.Context, cfg WaitConfig) error {
 		args = append(args, "-t", strings.Join(cfg.Activities, ","))
 	}
 
-	args = append(args, cfg.Pool)
+	args = append(args, cfg.Name)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool wait", args...)
 	if err != nil {
@@ -833,7 +833,7 @@ func (p *Manager) Split(ctx context.Context, cfg SplitConfig) error {
 		args = append(args, "-m", cfg.MountPoint)
 	}
 
-	args = append(args, cfg.Pool, cfg.NewPool)
+	args = append(args, cfg.Name, cfg.NewPool)
 
 	if len(cfg.Devices) > 0 {
 		args = append(args, cfg.Devices...)

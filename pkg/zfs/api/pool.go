@@ -267,11 +267,13 @@ type setPropertyRequest struct {
 // New command handlers
 
 func (h *PoolHandler) addVDevs(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.AddConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Add(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -281,11 +283,13 @@ func (h *PoolHandler) addVDevs(c *gin.Context) {
 }
 
 func (h *PoolHandler) clearErrors(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.ClearConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Clear(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -295,11 +299,13 @@ func (h *PoolHandler) clearErrors(c *gin.Context) {
 }
 
 func (h *PoolHandler) offlineDevice(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.OfflineConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Offline(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -309,11 +315,13 @@ func (h *PoolHandler) offlineDevice(c *gin.Context) {
 }
 
 func (h *PoolHandler) onlineDevice(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.OnlineConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Online(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -340,11 +348,13 @@ func (h *PoolHandler) removeDevice(c *gin.Context) {
 }
 
 func (h *PoolHandler) initializeDevices(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.InitializeConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Initialize(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -354,11 +364,13 @@ func (h *PoolHandler) initializeDevices(c *gin.Context) {
 }
 
 func (h *PoolHandler) trimDevices(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.TrimConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Trim(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -368,11 +380,13 @@ func (h *PoolHandler) trimDevices(c *gin.Context) {
 }
 
 func (h *PoolHandler) checkpoint(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.CheckpointConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Checkpoint(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -452,11 +466,13 @@ func (h *PoolHandler) iostat(c *gin.Context) {
 }
 
 func (h *PoolHandler) wait(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.WaitConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Wait(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
@@ -466,11 +482,13 @@ func (h *PoolHandler) wait(c *gin.Context) {
 }
 
 func (h *PoolHandler) split(c *gin.Context) {
+	poolName := c.Param("name")
 	var cfg pool.SplitConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
 		return
 	}
+	cfg.Name = poolName
 
 	if err := h.manager.Split(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)

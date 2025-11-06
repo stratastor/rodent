@@ -167,27 +167,27 @@ type AddConfig struct {
 
 // OfflineConfig defines parameters for taking a device offline
 type OfflineConfig struct {
-	Pool      string `json:"pool"`
+	Name      string `json:"name"`
 	Device    string `json:"device"`
 	Temporary bool   `json:"temporary"`
 }
 
 // OnlineConfig defines parameters for bringing a device online
 type OnlineConfig struct {
-	Pool   string `json:"pool"`
+	Name   string `json:"name"`
 	Device string `json:"device"`
 	Expand bool   `json:"expand"`
 }
 
 // ClearConfig defines parameters for clearing pool errors
 type ClearConfig struct {
-	Pool   string `json:"pool"`
+	Name   string `json:"name"`
 	Device string `json:"device,omitempty"` // Optional: clear specific device
 }
 
 // InitializeConfig defines parameters for initializing devices
 type InitializeConfig struct {
-	Pool    string   `json:"pool"`
+	Name    string   `json:"name"`
 	Devices []string `json:"devices,omitempty"` // Optional: specific devices
 	Cancel  bool     `json:"cancel"`
 	Suspend bool     `json:"suspend"`
@@ -195,7 +195,7 @@ type InitializeConfig struct {
 
 // TrimConfig defines parameters for trimming pool devices
 type TrimConfig struct {
-	Pool    string   `json:"pool"`
+	Name    string   `json:"name"`
 	Devices []string `json:"devices,omitempty"` // Optional: specific devices
 	Cancel  bool     `json:"cancel"`
 	Suspend bool     `json:"suspend"`
@@ -205,13 +205,13 @@ type TrimConfig struct {
 
 // CheckpointConfig defines parameters for checkpoint operations
 type CheckpointConfig struct {
-	Pool    string `json:"pool"`
+	Name    string `json:"name"`
 	Discard bool   `json:"discard"`
 }
 
 // SplitConfig defines parameters for splitting a mirrored pool
 type SplitConfig struct {
-	Pool       string            `json:"pool"`
+	Name       string            `json:"name"`
 	NewPool    string            `json:"new_pool"`
 	Devices    []string          `json:"devices,omitempty"`
 	Properties map[string]string `json:"properties,omitempty"`
@@ -220,7 +220,7 @@ type SplitConfig struct {
 
 // WaitConfig defines parameters for waiting on pool activities
 type WaitConfig struct {
-	Pool       string   `json:"pool"`
+	Name       string   `json:"name"`
 	Activities []string `json:"activities"` // e.g., "scrub", "resilver", "initialize", "trim"
 }
 
