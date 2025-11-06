@@ -295,13 +295,23 @@ func (p *Manager) Destroy(ctx context.Context, name string, force bool) error {
 	return nil
 }
 
-// Scrub starts/stops a scrub on a pool
-func (p *Manager) Scrub(ctx context.Context, name string, stop bool) error {
+// Scrub starts/stops/pauses a scrub on a pool
+func (p *Manager) Scrub(ctx context.Context, cfg ScrubConfig) error {
 	args := []string{"scrub"}
-	if stop {
+
+	// Handle mutually exclusive flags
+	if cfg.Stop {
 		args = append(args, "-s")
+	} else if cfg.Pause {
+		args = append(args, "-p")
+	} else if cfg.Continue {
+		args = append(args, "-C")
 	}
-	args = append(args, name)
+	// If none are set, 'zpool scrub <pool>' will either:
+	//   - Resume a paused scrub if one exists
+	//   - Start a new scrub if no scrub is in progress
+
+	args = append(args, cfg.Name)
 
 	out, err := p.executor.Execute(ctx, command.CommandOptions{}, "zpool scrub", args...)
 	if err != nil {

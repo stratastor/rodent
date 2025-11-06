@@ -319,16 +319,12 @@ func handlePoolPropertySet(h *PoolHandler) client.CommandHandler {
 // handlePoolScrub returns a handler for starting a ZFS pool scrub
 func handlePoolScrub(h *PoolHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
-		var scrubParam struct {
-			Name string `json:"name"`
-			Stop bool   `json:"stop,omitempty"`
-		}
-
-		if err := parseJSONPayload(cmd, &scrubParam); err != nil {
+		var cfg pool.ScrubConfig
+		if err := parseJSONPayload(cmd, &cfg); err != nil {
 			return nil, errors.Wrap(err, errors.ServerRequestValidation)
 		}
 
-		if scrubParam.Name == "" {
+		if cfg.Name == "" {
 			return nil, errors.New(errors.ServerRequestValidation, "pool name is required")
 		}
 
@@ -336,14 +332,18 @@ func handlePoolScrub(h *PoolHandler) client.CommandHandler {
 		ctx := createHandlerContext(req)
 
 		// Call the manager's Scrub method
-		err := h.manager.Scrub(ctx, scrubParam.Name, scrubParam.Stop)
+		err := h.manager.Scrub(ctx, cfg)
 		if err != nil {
 			return nil, errors.Wrap(err, errors.ZFSPoolScrubFailed)
 		}
 
-		action := "started"
-		if scrubParam.Stop {
+		action := "started/resumed"
+		if cfg.Stop {
 			action = "stopped"
+		} else if cfg.Pause {
+			action = "paused"
+		} else if cfg.Continue {
+			action = "continued from last txg"
 		}
 
 		return successPoolResponse(req.RequestId, "Pool scrub "+action+" successfully", nil)

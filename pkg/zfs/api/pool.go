@@ -153,10 +153,16 @@ func (h *PoolHandler) setProperty(c *gin.Context) {
 }
 
 func (h *PoolHandler) scrubPool(c *gin.Context) {
-	name := c.Param("name")
-	stop := c.Query("stop") == "true"
+	poolName := c.Param("name")
+	var cfg pool.ScrubConfig
+	// Allow empty body for starting/resuming scrub
+	if err := c.ShouldBindJSON(&cfg); err != nil && err.Error() != "EOF" {
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+	cfg.Name = poolName
 
-	if err := h.manager.Scrub(c.Request.Context(), name, stop); err != nil {
+	if err := h.manager.Scrub(c.Request.Context(), cfg); err != nil {
 		APIError(c, err)
 		return
 	}

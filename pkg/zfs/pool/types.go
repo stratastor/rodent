@@ -158,6 +158,17 @@ type ImportConfig struct {
 	Paths        []string          `json:"paths"` // Device paths to search
 }
 
+// ScrubConfig defines parameters for pool scrub operations
+// Note: When all flags are false, 'zpool scrub <pool>' either:
+//   - Resumes a paused scrub if one exists
+//   - Starts a new scrub if no scrub is in progress
+type ScrubConfig struct {
+	Name     string `json:"name"`
+	Stop     bool   `json:"stop"`     // Stop scrubbing (-s)
+	Pause    bool   `json:"pause"`    // Pause scrubbing (-p)
+	Continue bool   `json:"continue"` // Continue from last saved txg (-C)
+}
+
 // AddConfig defines parameters for adding vdevs to a pool
 type AddConfig struct {
 	Name     string     `json:"name"`
