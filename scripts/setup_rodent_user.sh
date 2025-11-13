@@ -184,6 +184,7 @@ USERMOD_PATH=$(detect_binary "usermod" "/usr/sbin/usermod")
 GROUPADD_PATH=$(detect_binary "groupadd" "/usr/sbin/groupadd")
 GROUPDEL_PATH=$(detect_binary "groupdel" "/usr/sbin/groupdel")
 GROUPMOD_PATH=$(detect_binary "groupmod" "/usr/sbin/groupmod")
+GPASSWD_PATH=$(detect_binary "gpasswd" "/usr/bin/gpasswd")
 CHPASSWD_PATH=$(detect_binary "chpasswd" "/usr/sbin/chpasswd")
 ECHO_PATH=$(detect_binary "echo" "/usr/bin/echo")
 SED_PATH=$(detect_binary "sed" "/usr/bin/sed")
@@ -493,6 +494,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $GROUPADD_PATH *, \\
     $GROUPDEL_PATH *, \\
     $GROUPMOD_PATH *, \\
+    $GPASSWD_PATH *, \\
     $CHPASSWD_PATH *, \\
     $ECHO_PATH *, \\
     $SED_PATH *, \\

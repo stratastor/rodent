@@ -162,14 +162,15 @@ EOF
 # Test 3: User Management
 test_users() {
     print_section "Test 3: User Management"
-    
+
     SUFFIX=$(generate_random_suffix)
     NEW_USERNAME="demouser$SUFFIX"
-    
+    TEST_GROUP="demogroup$SUFFIX"
+
     echo -e "${MINT_GREEN}3.1: List Existing Users${NC}"
     LIST_USERS_CURL="curl -s -X GET \"$BASE_URL/users\" -H \"$CONTENT_TYPE\""
     execute_curl "List System Users" "$LIST_USERS_CURL"
-    
+
     echo -e "${MINT_GREEN}3.2: Create New User${NC}"
     cat << EOF > /tmp/create_user_request.json
 {
@@ -185,34 +186,138 @@ test_users() {
 EOF
 
     print_json "Create User Request JSON:" "$(cat /tmp/create_user_request.json)"
-    
+
     CREATE_USER_CURL="curl -s -X POST \"$BASE_URL/users\" -H \"$CONTENT_TYPE\" -d @/tmp/create_user_request.json"
     response=$(eval "$CREATE_USER_CURL")
     echo -e "${LAVENDER}Response:${NC}"
     echo "$response" | jq '.' 2>/dev/null || echo "$response"
     echo
-    
+
     # Check if user was created successfully
     if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
         echo -e "${MINT_GREEN}3.3: Get Created User Details${NC}"
         GET_USER_CURL="curl -s -X GET \"$BASE_URL/users/$NEW_USERNAME\" -H \"$CONTENT_TYPE\""
         execute_curl "Get User Details" "$GET_USER_CURL"
-        
-        echo -e "${MINT_GREEN}3.4: List Users After Creation${NC}"
-        execute_curl "List Users After Creation" "$LIST_USERS_CURL"
-        
-        echo -e "${MINT_GREEN}3.5: Delete Created User (Cleanup)${NC}"
+
+        echo -e "${MINT_GREEN}3.4: Update User Information${NC}"
+        cat << EOF > /tmp/update_user_request.json
+{
+  "full_name": "Updated Demo User $SUFFIX",
+  "shell": "/bin/sh"
+}
+EOF
+
+        print_json "Update User Request JSON:" "$(cat /tmp/update_user_request.json)"
+
+        UPDATE_USER_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME\" -H \"$CONTENT_TYPE\" -d @/tmp/update_user_request.json"
+        execute_curl "Update User Information" "$UPDATE_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.5: Verify User Update${NC}"
+        execute_curl "Verify User Update" "$GET_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.6: Change User Password${NC}"
+        cat << EOF > /tmp/set_password_request.json
+{
+  "password": "NewSecurePassword456!"
+}
+EOF
+
+        print_json "Set Password Request JSON:" "$(cat /tmp/set_password_request.json)"
+
+        SET_PASSWORD_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME/password\" -H \"$CONTENT_TYPE\" -d @/tmp/set_password_request.json"
+        execute_curl "Change User Password" "$SET_PASSWORD_CURL"
+
+        echo -e "${MINT_GREEN}3.7: Lock User Account${NC}"
+        LOCK_USER_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME/lock\" -H \"$CONTENT_TYPE\""
+        execute_curl "Lock User Account" "$LOCK_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.8: Verify User Locked${NC}"
+        execute_curl "Verify User Locked" "$GET_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.9: Unlock User Account${NC}"
+        UNLOCK_USER_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME/unlock\" -H \"$CONTENT_TYPE\""
+        execute_curl "Unlock User Account" "$UNLOCK_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.10: Verify User Unlocked${NC}"
+        execute_curl "Verify User Unlocked" "$GET_USER_CURL"
+
+        echo -e "${MINT_GREEN}3.11: Get User Groups${NC}"
+        GET_USER_GROUPS_CURL="curl -s -X GET \"$BASE_URL/users/$NEW_USERNAME/groups\" -H \"$CONTENT_TYPE\""
+        execute_curl "Get User Groups" "$GET_USER_GROUPS_CURL"
+
+        # Create a test group for group membership operations
+        echo -e "${MINT_GREEN}3.12: Create Test Group for Membership${NC}"
+        cat << EOF > /tmp/create_test_group_request.json
+{
+  "name": "$TEST_GROUP",
+  "system_group": false
+}
+EOF
+
+        print_json "Create Test Group Request JSON:" "$(cat /tmp/create_test_group_request.json)"
+
+        CREATE_TEST_GROUP_CURL="curl -s -X POST \"$BASE_URL/groups\" -H \"$CONTENT_TYPE\" -d @/tmp/create_test_group_request.json"
+        group_response=$(eval "$CREATE_TEST_GROUP_CURL")
+        echo -e "${LAVENDER}Response:${NC}"
+        echo "$group_response" | jq '.' 2>/dev/null || echo "$group_response"
+        echo
+
+        if echo "$group_response" | jq -e '.success == true' >/dev/null 2>&1; then
+            echo -e "${MINT_GREEN}3.13: Add User to Test Group${NC}"
+            ADD_TO_GROUP_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME/groups/$TEST_GROUP\" -H \"$CONTENT_TYPE\""
+            execute_curl "Add User to Group" "$ADD_TO_GROUP_CURL"
+
+            echo -e "${MINT_GREEN}3.14: Verify Group Membership${NC}"
+            execute_curl "Verify Group Membership" "$GET_USER_GROUPS_CURL"
+
+            echo -e "${MINT_GREEN}3.15: Set Primary Group${NC}"
+            cat << EOF > /tmp/set_primary_group_request.json
+{
+  "group_name": "$TEST_GROUP"
+}
+EOF
+
+            print_json "Set Primary Group Request JSON:" "$(cat /tmp/set_primary_group_request.json)"
+
+            SET_PRIMARY_GROUP_CURL="curl -s -X PUT \"$BASE_URL/users/$NEW_USERNAME/primary-group\" -H \"$CONTENT_TYPE\" -d @/tmp/set_primary_group_request.json"
+            execute_curl "Set Primary Group" "$SET_PRIMARY_GROUP_CURL"
+
+            echo -e "${MINT_GREEN}3.16: Verify Primary Group Change${NC}"
+            execute_curl "Verify Primary Group Change" "$GET_USER_CURL"
+
+            echo -e "${MINT_GREEN}3.17: Remove User from Test Group${NC}"
+            REMOVE_FROM_GROUP_CURL="curl -s -X DELETE \"$BASE_URL/users/$NEW_USERNAME/groups/$TEST_GROUP\" -H \"$CONTENT_TYPE\""
+            execute_curl "Remove User from Group" "$REMOVE_FROM_GROUP_CURL"
+
+            echo -e "${MINT_GREEN}3.18: Verify Group Removal${NC}"
+            execute_curl "Verify Group Removal" "$GET_USER_GROUPS_CURL"
+
+            echo -e "${MINT_GREEN}3.19: Delete Test Group${NC}"
+            DELETE_TEST_GROUP_CURL="curl -s -X DELETE \"$BASE_URL/groups/$TEST_GROUP\" -H \"$CONTENT_TYPE\""
+            execute_curl "Delete Test Group" "$DELETE_TEST_GROUP_CURL"
+        else
+            echo -e "${PEACH}Test group creation failed, skipping group membership tests${NC}"
+        fi
+
+        echo -e "${MINT_GREEN}3.20: List Users After All Operations${NC}"
+        execute_curl "List Users After All Operations" "$LIST_USERS_CURL"
+
+        echo -e "${MINT_GREEN}3.21: Delete Created User (Cleanup)${NC}"
         DELETE_USER_CURL="curl -s -X DELETE \"$BASE_URL/users/$NEW_USERNAME\" -H \"$CONTENT_TYPE\""
         execute_curl "Delete Demo User" "$DELETE_USER_CURL"
-        
-        echo -e "${MINT_GREEN}3.6: Verify User Deletion${NC}"
+
+        echo -e "${MINT_GREEN}3.22: Verify User Deletion${NC}"
         execute_curl "Verify User Deletion" "$LIST_USERS_CURL"
     else
         echo -e "${PEACH}User creation failed, skipping user operations${NC}"
     fi
-    
+
     # Cleanup temp files
     rm -f /tmp/create_user_request.json
+    rm -f /tmp/update_user_request.json
+    rm -f /tmp/set_password_request.json
+    rm -f /tmp/create_test_group_request.json
+    rm -f /tmp/set_primary_group_request.json
 }
 
 # Test 4: Group Management

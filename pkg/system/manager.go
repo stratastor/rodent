@@ -116,9 +116,84 @@ func (m *Manager) DeleteUser(ctx context.Context, username string) error {
 	if err := m.userManager.DeleteUser(ctx, username); err != nil {
 		return err
 	}
-	
+
 	m.logger.Info("System user deleted successfully", "username", username)
 	return nil
+}
+
+// UpdateUser updates an existing system user
+func (m *Manager) UpdateUser(ctx context.Context, request UpdateUserRequest) error {
+	if err := m.userManager.UpdateUser(ctx, request); err != nil {
+		return err
+	}
+
+	m.logger.Info("System user updated successfully", "username", request.Username)
+	return nil
+}
+
+// SetPassword sets or changes a user's password
+func (m *Manager) SetPassword(ctx context.Context, username, password string) error {
+	if err := m.userManager.SetPassword(ctx, username, password); err != nil {
+		return err
+	}
+
+	m.logger.Info("User password set successfully", "username", username)
+	return nil
+}
+
+// LockUser locks a user account
+func (m *Manager) LockUser(ctx context.Context, username string) error {
+	if err := m.userManager.LockUser(ctx, username); err != nil {
+		return err
+	}
+
+	m.logger.Info("User account locked successfully", "username", username)
+	return nil
+}
+
+// UnlockUser unlocks a user account
+func (m *Manager) UnlockUser(ctx context.Context, username string) error {
+	if err := m.userManager.UnlockUser(ctx, username); err != nil {
+		return err
+	}
+
+	m.logger.Info("User account unlocked successfully", "username", username)
+	return nil
+}
+
+// AddUserToGroup adds a user to a group
+func (m *Manager) AddUserToGroup(ctx context.Context, username, groupName string) error {
+	if err := m.userManager.AddUserToGroup(ctx, username, groupName); err != nil {
+		return err
+	}
+
+	m.logger.Info("User added to group successfully", "username", username, "group", groupName)
+	return nil
+}
+
+// RemoveUserFromGroup removes a user from a group
+func (m *Manager) RemoveUserFromGroup(ctx context.Context, username, groupName string) error {
+	if err := m.userManager.RemoveUserFromGroup(ctx, username, groupName); err != nil {
+		return err
+	}
+
+	m.logger.Info("User removed from group successfully", "username", username, "group", groupName)
+	return nil
+}
+
+// SetPrimaryGroup sets a user's primary group
+func (m *Manager) SetPrimaryGroup(ctx context.Context, username, groupName string) error {
+	if err := m.userManager.SetPrimaryGroup(ctx, username, groupName); err != nil {
+		return err
+	}
+
+	m.logger.Info("User primary group set successfully", "username", username, "group", groupName)
+	return nil
+}
+
+// GetUserGroups gets all groups a user belongs to
+func (m *Manager) GetUserGroups(ctx context.Context, username string) ([]string, error) {
+	return m.userManager.GetUserGroups(ctx, username)
 }
 
 // Group Management Methods

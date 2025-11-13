@@ -28,6 +28,82 @@ const (
 	MinGroupGID = 1000
 )
 
+// Protected system users that cannot be deleted
+var protectedUsers = []string{
+	"root",
+	"daemon",
+	"bin",
+	"sys",
+	"sync",
+	"games",
+	"man",
+	"lp",
+	"mail",
+	"news",
+	"uucp",
+	"proxy",
+	"www-data",
+	"backup",
+	"list",
+	"irc",
+	"gnats",
+	"nobody",
+	"systemd-network",
+	"systemd-resolve",
+	"messagebus",
+	"systemd-timesync",
+	"sshd",
+	"ubuntu",
+	"rodent",
+	"strata",
+}
+
+// Protected system groups that cannot be deleted
+var protectedGroups = []string{
+	"root",
+	"daemon",
+	"bin",
+	"sys",
+	"adm",
+	"tty",
+	"disk",
+	"lp",
+	"mail",
+	"news",
+	"uucp",
+	"man",
+	"proxy",
+	"kmem",
+	"dialout",
+	"fax",
+	"voice",
+	"cdrom",
+	"floppy",
+	"tape",
+	"sudo",
+	"audio",
+	"dip",
+	"www-data",
+	"backup",
+	"operator",
+	"list",
+	"irc",
+	"src",
+	"gnats",
+	"shadow",
+	"utmp",
+	"video",
+	"sasl",
+	"plugdev",
+	"staff",
+	"games",
+	"users",
+	"nogroup",
+	"ubuntu",
+	"rodent",
+	"strata",
+}
+
 // UserManager manages local system users and groups
 type UserManager struct {
 	executor CommandExecutor
@@ -152,6 +228,11 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 		args = append(args, "--system")
 	}
 
+	// Add UID if explicitly specified
+	if request.UID != nil {
+		args = append(args, "--uid", strconv.Itoa(*request.UID))
+	}
+
 	if request.FullName != "" {
 		args = append(args, "--comment", request.FullName)
 	}
@@ -248,39 +329,9 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	}
 
 	// Safety check: prevent deletion of protected users
-	protectedUsers := []string{
-		"root",
-		"daemon",
-		"bin",
-		"sys",
-		"sync",
-		"games",
-		"man",
-		"lp",
-		"mail",
-		"news",
-		"uucp",
-		"proxy",
-		"www-data",
-		"backup",
-		"list",
-		"irc",
-		"gnats",
-		"nobody",
-		"systemd-network",
-		"systemd-resolve",
-		"messagebus",
-		"systemd-timesync",
-		"sshd",
-		"ubuntu",
-		"rodent",
-		"strata",
-	}
-	for _, protected := range protectedUsers {
-		if username == protected {
-			return errors.New(errors.SystemUserProtected,
-				fmt.Sprintf("Cannot delete protected system user '%s'", username))
-		}
+	if um.isProtectedUser(username) {
+		return errors.New(errors.SystemUserProtected,
+			fmt.Sprintf("Cannot delete protected system user '%s'", username))
 	}
 
 	// Check if user exists
@@ -416,6 +467,11 @@ func (um *UserManager) CreateGroup(ctx context.Context, request CreateGroupReque
 		args = append(args, "--system")
 	}
 
+	// Add GID if explicitly specified
+	if request.GID != nil {
+		args = append(args, "--gid", strconv.Itoa(*request.GID))
+	}
+
 	// Add group name as final argument
 	args = append(args, request.Name)
 
@@ -439,55 +495,9 @@ func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error 
 	}
 
 	// Safety check: prevent deletion of protected groups
-	protectedGroups := []string{
-		"root",
-		"daemon",
-		"bin",
-		"sys",
-		"adm",
-		"tty",
-		"disk",
-		"lp",
-		"mail",
-		"news",
-		"uucp",
-		"man",
-		"proxy",
-		"kmem",
-		"dialout",
-		"fax",
-		"voice",
-		"cdrom",
-		"floppy",
-		"tape",
-		"sudo",
-		"audio",
-		"dip",
-		"www-data",
-		"backup",
-		"operator",
-		"list",
-		"irc",
-		"src",
-		"gnats",
-		"shadow",
-		"utmp",
-		"video",
-		"sasl",
-		"plugdev",
-		"staff",
-		"games",
-		"users",
-		"nogroup",
-		"ubuntu",
-		"rodent",
-		"strata",
-	}
-	for _, protected := range protectedGroups {
-		if groupName == protected {
-			return errors.New(errors.SystemGroupProtected,
-				fmt.Sprintf("Cannot delete protected system group '%s'", groupName))
-		}
+	if um.isProtectedGroup(groupName) {
+		return errors.New(errors.SystemGroupProtected,
+			fmt.Sprintf("Cannot delete protected system group '%s'", groupName))
 	}
 
 	// Check if group exists
@@ -516,6 +526,403 @@ func (um *UserManager) DeleteGroup(ctx context.Context, groupName string) error 
 
 	um.logger.Info("Successfully deleted system group", "name", groupName)
 	return nil
+}
+
+// UpdateUser updates an existing system user
+func (um *UserManager) UpdateUser(ctx context.Context, request UpdateUserRequest) error {
+	// Validate username
+	if request.Username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	// Check if user is protected
+	if um.isProtectedUser(request.Username) {
+		return errors.New(errors.SystemUserProtected,
+			fmt.Sprintf("Cannot modify protected system user '%s'", request.Username))
+	}
+
+	// Check if user exists
+	_, err := um.GetUser(ctx, request.Username)
+	if err != nil {
+		return err
+	}
+
+	um.logger.Info("Updating system user", "username", request.Username)
+
+	// Build usermod command args based on what's being updated
+	hasChanges := false
+
+	if request.FullName != nil {
+		_, err = um.executor.ExecuteCommand(ctx, "usermod", "--comment", *request.FullName, request.Username)
+		if err != nil {
+			um.logger.Error("Failed to update user full name", "username", request.Username, "error", err)
+			return errors.Wrap(err, errors.SystemUserModifyFailed).
+				WithMetadata("username", request.Username).
+				WithMetadata("field", "full_name")
+		}
+		hasChanges = true
+	}
+
+	if request.Shell != nil {
+		// Validate shell
+		validShells := []string{
+			"/bin/bash", "/bin/sh", "/bin/dash", "/bin/zsh",
+			"/usr/bin/fish", "/bin/false", "/sbin/nologin",
+		}
+		valid := false
+		for _, shell := range validShells {
+			if *request.Shell == shell {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return errors.New(errors.SystemUserInvalidShell, "Invalid shell specified")
+		}
+
+		_, err = um.executor.ExecuteCommand(ctx, "usermod", "--shell", *request.Shell, request.Username)
+		if err != nil {
+			um.logger.Error("Failed to update user shell", "username", request.Username, "error", err)
+			return errors.Wrap(err, errors.SystemUserModifyFailed).
+				WithMetadata("username", request.Username).
+				WithMetadata("field", "shell")
+		}
+		hasChanges = true
+	}
+
+	if request.HomeDir != nil {
+		_, err = um.executor.ExecuteCommand(ctx, "usermod", "--home", *request.HomeDir, request.Username)
+		if err != nil {
+			um.logger.Error("Failed to update user home directory", "username", request.Username, "error", err)
+			return errors.Wrap(err, errors.SystemUserModifyFailed).
+				WithMetadata("username", request.Username).
+				WithMetadata("field", "home_dir")
+		}
+		hasChanges = true
+	}
+
+	if request.UID != nil {
+		_, err = um.executor.ExecuteCommand(ctx, "usermod", "--uid", strconv.Itoa(*request.UID), request.Username)
+		if err != nil {
+			um.logger.Error("Failed to update user UID", "username", request.Username, "error", err)
+			return errors.Wrap(err, errors.SystemUserModifyFailed).
+				WithMetadata("username", request.Username).
+				WithMetadata("field", "uid")
+		}
+		hasChanges = true
+	}
+
+	if !hasChanges {
+		return errors.New(errors.ServerRequestValidation, "No fields to update")
+	}
+
+	um.logger.Info("Successfully updated system user", "username", request.Username)
+
+	// Emit user update event
+	userPayload := &eventspb.SystemUserPayload{
+		Username:  request.Username,
+		Operation: eventspb.SystemUserPayload_SYSTEM_USER_OPERATION_MODIFIED,
+	}
+	if request.FullName != nil {
+		userPayload.DisplayName = *request.FullName
+	}
+
+	userMeta := map[string]string{
+		"component": "system-user-manager",
+		"action":    "update",
+		"user":      request.Username,
+	}
+
+	events.EmitSystemUser(eventspb.EventLevel_EVENT_LEVEL_INFO, userPayload, userMeta)
+
+	return nil
+}
+
+// SetPassword sets or changes a user's password
+func (um *UserManager) SetPassword(ctx context.Context, username, password string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	if password == "" {
+		return errors.New(errors.ServerRequestValidation, "Password cannot be empty")
+	}
+
+	// Check if user exists
+	_, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	um.logger.Info("Setting password for user", "username", username)
+
+	// Encrypt the password
+	encryptedPassword, err := um.encryptPassword(ctx, password)
+	if err != nil {
+		um.logger.Error("Failed to encrypt password", "username", username, "error", err)
+		return errors.Wrap(err, errors.SystemUserPasswordEncryptFailed).
+			WithMetadata("username", username)
+	}
+
+	// Use usermod to set password
+	_, err = um.executor.ExecuteCommand(ctx, "usermod", "--password", encryptedPassword, username)
+	if err != nil {
+		um.logger.Error("Failed to set password", "username", username, "error", err)
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("field", "password")
+	}
+
+	um.logger.Info("Successfully set password for user", "username", username)
+	return nil
+}
+
+// LockUser locks a user account
+func (um *UserManager) LockUser(ctx context.Context, username string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	// Check if user is protected
+	if um.isProtectedUser(username) {
+		return errors.New(errors.SystemUserProtected,
+			fmt.Sprintf("Cannot lock protected system user '%s'", username))
+	}
+
+	// Check if user exists
+	user, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	if user.Locked {
+		um.logger.Debug("User already locked", "username", username)
+		return nil // Already locked, no error
+	}
+
+	um.logger.Info("Locking user account", "username", username)
+
+	_, err = um.executor.ExecuteCommand(ctx, "usermod", "--lock", username)
+	if err != nil {
+		um.logger.Error("Failed to lock user", "username", username, "error", err)
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("operation", "lock")
+	}
+
+	um.logger.Info("Successfully locked user account", "username", username)
+
+	// Emit user lock event
+	userPayload := &eventspb.SystemUserPayload{
+		Username:  username,
+		Operation: eventspb.SystemUserPayload_SYSTEM_USER_OPERATION_LOCKED,
+	}
+
+	userMeta := map[string]string{
+		"component": "system-user-manager",
+		"action":    "lock",
+		"user":      username,
+	}
+
+	events.EmitSystemUser(eventspb.EventLevel_EVENT_LEVEL_WARN, userPayload, userMeta)
+
+	return nil
+}
+
+// UnlockUser unlocks a user account
+func (um *UserManager) UnlockUser(ctx context.Context, username string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	// Check if user exists
+	user, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	if !user.Locked {
+		um.logger.Debug("User already unlocked", "username", username)
+		return nil // Already unlocked, no error
+	}
+
+	um.logger.Info("Unlocking user account", "username", username)
+
+	_, err = um.executor.ExecuteCommand(ctx, "usermod", "--unlock", username)
+	if err != nil {
+		um.logger.Error("Failed to unlock user", "username", username, "error", err)
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("operation", "unlock")
+	}
+
+	um.logger.Info("Successfully unlocked user account", "username", username)
+
+	// Emit user unlock event
+	userPayload := &eventspb.SystemUserPayload{
+		Username:  username,
+		Operation: eventspb.SystemUserPayload_SYSTEM_USER_OPERATION_UNLOCKED,
+	}
+
+	userMeta := map[string]string{
+		"component": "system-user-manager",
+		"action":    "unlock",
+		"user":      username,
+	}
+
+	events.EmitSystemUser(eventspb.EventLevel_EVENT_LEVEL_INFO, userPayload, userMeta)
+
+	return nil
+}
+
+// AddUserToGroup adds a user to a group
+func (um *UserManager) AddUserToGroup(ctx context.Context, username, groupName string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	if groupName == "" {
+		return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
+	}
+
+	// Check if user exists
+	_, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	// Check if group exists
+	_, err = um.GetGroup(ctx, groupName)
+	if err != nil {
+		return err
+	}
+
+	um.logger.Info("Adding user to group", "username", username, "group", groupName)
+
+	// Use usermod -a -G to append the group (preserves existing groups)
+	_, err = um.executor.ExecuteCommand(ctx, "usermod", "-a", "-G", groupName, username)
+	if err != nil {
+		um.logger.Error("Failed to add user to group", "username", username, "group", groupName, "error", err)
+		return errors.Wrap(err, errors.SystemGroupMembershipFailed).
+			WithMetadata("username", username).
+			WithMetadata("group", groupName)
+	}
+
+	um.logger.Info("Successfully added user to group", "username", username, "group", groupName)
+	return nil
+}
+
+// RemoveUserFromGroup removes a user from a group
+func (um *UserManager) RemoveUserFromGroup(ctx context.Context, username, groupName string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	if groupName == "" {
+		return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
+	}
+
+	// Check if user exists
+	user, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	// Check if group exists
+	group, err := um.GetGroup(ctx, groupName)
+	if err != nil {
+		return err
+	}
+
+	// Check if user is in the group
+	isMember := false
+	for _, member := range group.Members {
+		if member == username {
+			isMember = true
+			break
+		}
+	}
+
+	// Also check user's groups list
+	if !isMember && user.Groups != nil {
+		for _, grp := range user.Groups {
+			if grp == groupName {
+				isMember = true
+				break
+			}
+		}
+	}
+
+	if !isMember {
+		um.logger.Debug("User is not a member of the group", "username", username, "group", groupName)
+		return nil // Not a member, no error
+	}
+
+	um.logger.Info("Removing user from group", "username", username, "group", groupName)
+
+	// Use gpasswd -d to remove user from group
+	_, err = um.executor.ExecuteCommand(ctx, "gpasswd", "-d", username, groupName)
+	if err != nil {
+		um.logger.Error("Failed to remove user from group", "username", username, "group", groupName, "error", err)
+		return errors.Wrap(err, errors.SystemGroupMembershipFailed).
+			WithMetadata("username", username).
+			WithMetadata("group", groupName)
+	}
+
+	um.logger.Info("Successfully removed user from group", "username", username, "group", groupName)
+	return nil
+}
+
+// SetPrimaryGroup sets a user's primary group
+func (um *UserManager) SetPrimaryGroup(ctx context.Context, username, groupName string) error {
+	if username == "" {
+		return errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	if groupName == "" {
+		return errors.New(errors.SystemGroupInvalidName, "Group name cannot be empty")
+	}
+
+	// Check if user exists
+	_, err := um.GetUser(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	// Check if group exists
+	_, err = um.GetGroup(ctx, groupName)
+	if err != nil {
+		return err
+	}
+
+	um.logger.Info("Setting primary group for user", "username", username, "group", groupName)
+
+	// Use usermod -g to set primary group
+	_, err = um.executor.ExecuteCommand(ctx, "usermod", "-g", groupName, username)
+	if err != nil {
+		um.logger.Error("Failed to set primary group", "username", username, "group", groupName, "error", err)
+		return errors.Wrap(err, errors.SystemGroupMembershipFailed).
+			WithMetadata("username", username).
+			WithMetadata("group", groupName)
+	}
+
+	um.logger.Info("Successfully set primary group for user", "username", username, "group", groupName)
+	return nil
+}
+
+// GetUserGroups gets all groups a user belongs to
+func (um *UserManager) GetUserGroups(ctx context.Context, username string) ([]string, error) {
+	if username == "" {
+		return nil, errors.New(errors.SystemUserInvalidName, "Username cannot be empty")
+	}
+
+	// Check if user exists and get groups
+	user, err := um.GetUser(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+
+	return user.Groups, nil
 }
 
 // parsePasswdLine parses a line from /etc/passwd
@@ -687,6 +1094,26 @@ func (um *UserManager) parseLastLoginLine(line string, user *User) {
 	}
 	
 	um.logger.Debug("Failed to parse last login time", "username", user.Username, "line", line)
+}
+
+// isProtectedUser checks if a user is in the protected list
+func (um *UserManager) isProtectedUser(username string) bool {
+	for _, protected := range protectedUsers {
+		if username == protected {
+			return true
+		}
+	}
+	return false
+}
+
+// isProtectedGroup checks if a group is in the protected list
+func (um *UserManager) isProtectedGroup(groupName string) bool {
+	for _, protected := range protectedGroups {
+		if groupName == protected {
+			return true
+		}
+	}
+	return false
 }
 
 // validateCreateUserRequest validates a create user request

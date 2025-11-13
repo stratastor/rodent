@@ -34,6 +34,14 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 	client.RegisterCommandHandler(proto.CmdSystemUsersCreate, handleUsersCreate(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemUsersDelete, handleUsersDelete(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemUsersGet, handleUsersGet(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersUpdate, handleUsersUpdate(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersPasswordSet, handleUsersPasswordSet(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersLock, handleUsersLock(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersUnlock, handleUsersUnlock(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsList, handleUsersGroupsList(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsAdd, handleUsersGroupsAdd(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsRemove, handleUsersGroupsRemove(systemHandler))
+	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsPrimary, handleUsersGroupsPrimary(systemHandler))
 
 	// Group management operations
 	client.RegisterCommandHandler(proto.CmdSystemGroupsList, handleGroupsList(systemHandler))
@@ -620,5 +628,204 @@ func handlePowerScheduledDelete(h *SystemHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Scheduled shutdown cancelled", result)
+	}
+}
+
+// handleUsersUpdate returns a handler for updating a system user
+func handleUsersUpdate(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload system.UpdateUserRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.UpdateUser(ctx, payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "User updated successfully",
+			"username": payload.Username,
+		}
+
+		return successResponse(req.RequestId, "User updated", result)
+	}
+}
+
+// handleUsersPasswordSet returns a handler for setting a user's password
+func handleUsersPasswordSet(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload system.SetPasswordRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.SetPassword(ctx, payload.Username, payload.Password); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "Password set successfully",
+			"username": payload.Username,
+		}
+
+		return successResponse(req.RequestId, "Password set", result)
+	}
+}
+
+// handleUsersLock returns a handler for locking a user account
+func handleUsersLock(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			Username string `json:"username"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.Username == "" {
+			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+		}
+
+		ctx := context.Background()
+		if err := h.manager.LockUser(ctx, payload.Username); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "User account locked successfully",
+			"username": payload.Username,
+		}
+
+		return successResponse(req.RequestId, "User locked", result)
+	}
+}
+
+// handleUsersUnlock returns a handler for unlocking a user account
+func handleUsersUnlock(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			Username string `json:"username"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.Username == "" {
+			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+		}
+
+		ctx := context.Background()
+		if err := h.manager.UnlockUser(ctx, payload.Username); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "User account unlocked successfully",
+			"username": payload.Username,
+		}
+
+		return successResponse(req.RequestId, "User unlocked", result)
+	}
+}
+
+// handleUsersGroupsList returns a handler for getting user's groups
+func handleUsersGroupsList(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload struct {
+			Username string `json:"username"`
+		}
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		if payload.Username == "" {
+			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+		}
+
+		ctx := context.Background()
+		groups, err := h.manager.GetUserGroups(ctx, payload.Username)
+		if err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"username": payload.Username,
+			"groups":   groups,
+			"count":    len(groups),
+		}
+
+		return successResponse(req.RequestId, "User groups retrieved", result)
+	}
+}
+
+// handleUsersGroupsAdd returns a handler for adding a user to a group
+func handleUsersGroupsAdd(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload system.GroupMembershipRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.AddUserToGroup(ctx, payload.Username, payload.GroupName); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "User added to group successfully",
+			"username": payload.Username,
+			"group":    payload.GroupName,
+		}
+
+		return successResponse(req.RequestId, "User added to group", result)
+	}
+}
+
+// handleUsersGroupsRemove returns a handler for removing a user from a group
+func handleUsersGroupsRemove(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload system.GroupMembershipRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.RemoveUserFromGroup(ctx, payload.Username, payload.GroupName); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":  "User removed from group successfully",
+			"username": payload.Username,
+			"group":    payload.GroupName,
+		}
+
+		return successResponse(req.RequestId, "User removed from group", result)
+	}
+}
+
+// handleUsersGroupsPrimary returns a handler for setting user's primary group
+func handleUsersGroupsPrimary(h *SystemHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload system.GroupMembershipRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		ctx := context.Background()
+		if err := h.manager.SetPrimaryGroup(ctx, payload.Username, payload.GroupName); err != nil {
+			return errorResponse(req.RequestId, err)
+		}
+
+		result := map[string]interface{}{
+			"message":       "Primary group set successfully",
+			"username":      payload.Username,
+			"primary_group": payload.GroupName,
+		}
+
+		return successResponse(req.RequestId, "Primary group set", result)
 	}
 }

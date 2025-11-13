@@ -106,7 +106,15 @@ func (h *SystemHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		users.GET("", h.GetUsers)
 		users.GET("/:username", h.GetUser)
+		users.GET("/:username/groups", h.GetUserGroups)
 		users.POST("", h.CreateUser)
+		users.PUT("/:username", h.UpdateUser)
+		users.PUT("/:username/password", h.SetPassword)
+		users.PUT("/:username/lock", h.LockUser)
+		users.PUT("/:username/unlock", h.UnlockUser)
+		users.PUT("/:username/groups/:groupname", h.AddUserToGroup)
+		users.DELETE("/:username/groups/:groupname", h.RemoveUserFromGroup)
+		users.PUT("/:username/primary-group", h.SetPrimaryGroup)
 		users.DELETE("/:username", h.DeleteUser)
 	}
 
@@ -288,6 +296,190 @@ func (h *SystemHandler) DeleteUser(c *gin.Context) {
 	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
 		"message":  "User deleted successfully",
 		"username": username,
+	})
+}
+
+func (h *SystemHandler) UpdateUser(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	var request system.UpdateUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	// Override username from URL parameter
+	request.Username = username
+
+	if err := h.manager.UpdateUser(c.Request.Context(), request); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":  "User updated successfully",
+		"username": username,
+	})
+}
+
+func (h *SystemHandler) SetPassword(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	var request system.SetPasswordRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	if err := h.manager.SetPassword(c.Request.Context(), username, request.Password); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":  "Password set successfully",
+		"username": username,
+	})
+}
+
+func (h *SystemHandler) LockUser(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	if err := h.manager.LockUser(c.Request.Context(), username); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":  "User account locked successfully",
+		"username": username,
+	})
+}
+
+func (h *SystemHandler) UnlockUser(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	if err := h.manager.UnlockUser(c.Request.Context(), username); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":  "User account unlocked successfully",
+		"username": username,
+	})
+}
+
+func (h *SystemHandler) AddUserToGroup(c *gin.Context) {
+	username := c.Param("username")
+	groupname := c.Param("groupname")
+
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	if groupname == "" {
+		h.sendError(c, errors.New(errors.SystemGroupInvalidName, "Group name parameter is required"))
+		return
+	}
+
+	if err := h.manager.AddUserToGroup(c.Request.Context(), username, groupname); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message": "User added to group successfully",
+		"username": username,
+		"group":   groupname,
+	})
+}
+
+func (h *SystemHandler) RemoveUserFromGroup(c *gin.Context) {
+	username := c.Param("username")
+	groupname := c.Param("groupname")
+
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	if groupname == "" {
+		h.sendError(c, errors.New(errors.SystemGroupInvalidName, "Group name parameter is required"))
+		return
+	}
+
+	if err := h.manager.RemoveUserFromGroup(c.Request.Context(), username, groupname); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":  "User removed from group successfully",
+		"username": username,
+		"group":    groupname,
+	})
+}
+
+func (h *SystemHandler) SetPrimaryGroup(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	var request system.GroupMembershipRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		h.sendError(c, errors.Wrap(err, errors.ServerRequestValidation))
+		return
+	}
+
+	if err := h.manager.SetPrimaryGroup(c.Request.Context(), username, request.GroupName); err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"message":       "Primary group set successfully",
+		"username":      username,
+		"primary_group": request.GroupName,
+	})
+}
+
+func (h *SystemHandler) GetUserGroups(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		h.sendError(c, errors.New(errors.SystemUserInvalidName, "Username parameter is required"))
+		return
+	}
+
+	groups, err := h.manager.GetUserGroups(c.Request.Context(), username)
+	if err != nil {
+		h.sendError(c, err)
+		return
+	}
+
+	h.sendSuccess(c, http.StatusOK, map[string]interface{}{
+		"username": username,
+		"groups":   groups,
+		"count":    len(groups),
 	})
 }
 

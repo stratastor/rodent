@@ -212,12 +212,35 @@ type CreateUserRequest struct {
 	CreateHome  bool     `json:"create_home"`
 	SystemUser  bool     `json:"system_user"`
 	Password    string   `json:"password,omitempty"`
+	UID         *int     `json:"uid,omitempty"` // Optional: specify UID explicitly
+}
+
+// UpdateUserRequest represents a request to update a user
+type UpdateUserRequest struct {
+	Username string  `json:"username,omitempty"` // Set from URL path in REST API
+	FullName *string `json:"full_name,omitempty"`
+	HomeDir  *string `json:"home_dir,omitempty"`
+	Shell    *string `json:"shell,omitempty"`
+	UID      *int    `json:"uid,omitempty"`
+}
+
+// SetPasswordRequest represents a request to set a user's password
+type SetPasswordRequest struct {
+	Username string `json:"username,omitempty"` // Set from URL path in REST API
+	Password string `json:"password" binding:"required"`
 }
 
 // CreateGroupRequest represents a request to create a group
 type CreateGroupRequest struct {
 	Name        string `json:"name"         binding:"required"`
 	SystemGroup bool   `json:"system_group"`
+	GID         *int   `json:"gid,omitempty"` // Optional: specify GID explicitly
+}
+
+// GroupMembershipRequest represents a request to modify group membership
+type GroupMembershipRequest struct {
+	Username  string `json:"username,omitempty"`  // Set from URL path in REST API
+	GroupName string `json:"group_name" binding:"required"`
 }
 
 // SetHostnameRequest represents a request to set hostname
