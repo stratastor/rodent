@@ -919,10 +919,14 @@ func parseImportablePoolsOutput(output string) (ImportablePoolsResult, error) {
 	var currentPool *ImportablePool
 	var configLines []string
 	inConfig := false
+	inStatus := false
+	inAction := false
 
 	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
 		// Check for start of a new pool
-		if strings.HasPrefix(line, "  pool:") {
+		if strings.HasPrefix(trimmedLine, "pool:") {
 			// Save previous pool if any
 			if currentPool != nil {
 				if len(configLines) > 0 {
@@ -933,10 +937,12 @@ func parseImportablePoolsOutput(output string) (ImportablePoolsResult, error) {
 
 			// Start new pool
 			currentPool = &ImportablePool{
-				Name: strings.TrimSpace(strings.TrimPrefix(line, "  pool:")),
+				Name: strings.TrimSpace(strings.TrimPrefix(trimmedLine, "pool:")),
 			}
 			configLines = []string{}
 			inConfig = false
+			inStatus = false
+			inAction = false
 			continue
 		}
 
@@ -944,21 +950,47 @@ func parseImportablePoolsOutput(output string) (ImportablePoolsResult, error) {
 			continue
 		}
 
-		// Parse pool fields
-		if strings.HasPrefix(line, "    id:") {
-			currentPool.ID = strings.TrimSpace(strings.TrimPrefix(line, "    id:"))
+		// Parse pool fields (trim to handle varying indentation)
+		if strings.HasPrefix(trimmedLine, "id:") {
+			currentPool.ID = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "id:"))
 			inConfig = false
-		} else if strings.HasPrefix(line, " state:") {
-			currentPool.State = strings.TrimSpace(strings.TrimPrefix(line, " state:"))
+			inStatus = false
+			inAction = false
+		} else if strings.HasPrefix(trimmedLine, "state:") {
+			currentPool.State = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "state:"))
 			inConfig = false
-		} else if strings.HasPrefix(line, "action:") {
-			currentPool.Action = strings.TrimSpace(strings.TrimPrefix(line, "action:"))
+			inStatus = false
+			inAction = false
+		} else if strings.HasPrefix(trimmedLine, "status:") {
+			// Status may be multiline, collect the first line
+			currentPool.Status = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "status:"))
 			inConfig = false
-		} else if strings.HasPrefix(line, "config:") {
+			inStatus = true
+			inAction = false
+		} else if strings.HasPrefix(trimmedLine, "action:") {
+			// Action may be multiline, collect the first line
+			currentPool.Action = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "action:"))
+			inConfig = false
+			inStatus = false
+			inAction = true
+		} else if strings.HasPrefix(trimmedLine, "comment:") {
+			// Skip comment field
+			inConfig = false
+			inStatus = false
+			inAction = false
+		} else if strings.HasPrefix(trimmedLine, "config:") {
 			inConfig = true
+			inStatus = false
+			inAction = false
 		} else if inConfig && strings.TrimSpace(line) != "" {
 			// Collect config lines (preserve original formatting)
 			configLines = append(configLines, line)
+		} else if inStatus && trimmedLine != "" && !strings.Contains(trimmedLine, ":") {
+			// Continuation of status field (multiline)
+			currentPool.Status += " " + trimmedLine
+		} else if inAction && trimmedLine != "" && !strings.Contains(trimmedLine, ":") {
+			// Continuation of action field (multiline)
+			currentPool.Action += " " + trimmedLine
 		}
 	}
 

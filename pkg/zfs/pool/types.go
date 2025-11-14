@@ -32,6 +32,7 @@ type ImportablePool struct {
 	Name   string `json:"name"`
 	ID     string `json:"id"`
 	State  string `json:"state"`
+	Status string `json:"status,omitempty"` // Pool status message (may be multiline)
 	Action string `json:"action"`
 	Config string `json:"config"` // Raw config output
 }
