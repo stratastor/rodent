@@ -20,9 +20,15 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 	// System information operations
 	client.RegisterCommandHandler(proto.CmdSystemInfoGet, handleSystemInfoGet(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemInfoCPUGet, handleSystemInfoCPU(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemInfoMemoryGet, handleSystemInfoMemory(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemInfoMemoryGet,
+		handleSystemInfoMemory(systemHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdSystemInfoOSGet, handleSystemInfoOS(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemInfoPerformanceGet, handleSystemInfoPerformance(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemInfoPerformanceGet,
+		handleSystemInfoPerformance(systemHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdSystemHealthGet, handleSystemHealthGet(systemHandler))
 
 	// Hostname management operations
@@ -35,13 +41,28 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 	client.RegisterCommandHandler(proto.CmdSystemUsersDelete, handleUsersDelete(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemUsersGet, handleUsersGet(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemUsersUpdate, handleUsersUpdate(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemUsersPasswordSet, handleUsersPasswordSet(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemUsersPasswordSet,
+		handleUsersPasswordSet(systemHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdSystemUsersLock, handleUsersLock(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemUsersUnlock, handleUsersUnlock(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsList, handleUsersGroupsList(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsAdd, handleUsersGroupsAdd(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsRemove, handleUsersGroupsRemove(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemUsersGroupsPrimary, handleUsersGroupsPrimary(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemUsersGroupsList,
+		handleUsersGroupsList(systemHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSystemUsersGroupsAdd,
+		handleUsersGroupsAdd(systemHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSystemUsersGroupsRemove,
+		handleUsersGroupsRemove(systemHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSystemUsersGroupsPrimary,
+		handleUsersGroupsPrimary(systemHandler),
+	)
 
 	// Group management operations
 	client.RegisterCommandHandler(proto.CmdSystemGroupsList, handleGroupsList(systemHandler))
@@ -50,12 +71,24 @@ func RegisterSystemGRPCHandlers(systemHandler *SystemHandler) {
 	client.RegisterCommandHandler(proto.CmdSystemGroupsDelete, handleGroupsDelete(systemHandler))
 
 	// Power management operations
-	client.RegisterCommandHandler(proto.CmdSystemPowerStatusGet, handlePowerStatusGet(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemPowerScheduledGet, handlePowerScheduledGet(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemPowerStatusGet,
+		handlePowerStatusGet(systemHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSystemPowerScheduledGet,
+		handlePowerScheduledGet(systemHandler),
+	)
 	client.RegisterCommandHandler(proto.CmdSystemPowerShutdown, handlePowerShutdown(systemHandler))
 	client.RegisterCommandHandler(proto.CmdSystemPowerReboot, handlePowerReboot(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemPowerScheduleShutdown, handlePowerScheduleShutdown(systemHandler))
-	client.RegisterCommandHandler(proto.CmdSystemPowerScheduledDelete, handlePowerScheduledDelete(systemHandler))
+	client.RegisterCommandHandler(
+		proto.CmdSystemPowerScheduleShutdown,
+		handlePowerScheduleShutdown(systemHandler),
+	)
+	client.RegisterCommandHandler(
+		proto.CmdSystemPowerScheduledDelete,
+		handlePowerScheduledDelete(systemHandler),
+	)
 
 	// System configuration operations
 	client.RegisterCommandHandler(proto.CmdSystemTimezoneGet, handleTimezoneGet(systemHandler))
@@ -247,7 +280,10 @@ func handleUsersGet(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Username == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Username cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -293,7 +329,10 @@ func handleUsersDelete(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Username == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Username cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -357,14 +396,17 @@ func handleGroupsCreate(h *SystemHandler) client.CommandHandler {
 func handleGroupsDelete(h *SystemHandler) client.CommandHandler {
 	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
 		var payload struct {
-			Name string `json:"name"`
+			Name string `json:"groupname"`
 		}
 		if err := parseJSONPayload(cmd, &payload); err != nil {
 			return errorResponse(req.RequestId, err)
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Group name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Group name cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -538,7 +580,10 @@ func handleGroupsGet(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Name == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Group name cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Group name cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -591,12 +636,21 @@ func handlePowerScheduleShutdown(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.DelayMinutes <= 0 {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "DelayMinutes must be greater than 0"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "DelayMinutes must be greater than 0"),
+			)
 		}
 
 		delay := time.Duration(payload.DelayMinutes) * time.Minute
 
-		h.logger.Warn("Scheduled shutdown requested via gRPC", "delay_minutes", payload.DelayMinutes, "request_id", req.RequestId)
+		h.logger.Warn(
+			"Scheduled shutdown requested via gRPC",
+			"delay_minutes",
+			payload.DelayMinutes,
+			"request_id",
+			req.RequestId,
+		)
 
 		ctx := context.Background()
 		if err := h.manager.ScheduleShutdown(ctx, delay, payload.Message); err != nil {
@@ -686,7 +740,10 @@ func handleUsersLock(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Username == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Username cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -714,7 +771,10 @@ func handleUsersUnlock(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Username == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Username cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
@@ -742,7 +802,10 @@ func handleUsersGroupsList(h *SystemHandler) client.CommandHandler {
 		}
 
 		if payload.Username == "" {
-			return errorResponse(req.RequestId, errors.New(errors.ServerRequestValidation, "Username cannot be empty"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.ServerRequestValidation, "Username cannot be empty"),
+			)
 		}
 
 		ctx := context.Background()
