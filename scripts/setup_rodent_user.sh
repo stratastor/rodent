@@ -216,6 +216,7 @@ SMBSTATUS_PATH=$(detect_binary "smbstatus" "/usr/bin/smbstatus")
 SMBCONTROL_PATH=$(detect_binary "smbcontrol" "/usr/bin/smbcontrol")
 SMBCLIENT_PATH=$(detect_binary "smbclient" "/usr/bin/smbclient")
 TESTPARM_PATH=$(detect_binary "testparm" "/usr/bin/testparm")
+PDBEDIT_PATH=$(detect_binary "pdbedit" "/usr/bin/pdbedit")
 
 # Docker binaries
 DOCKER_PATH=$(detect_binary "docker" "/usr/bin/docker")
@@ -412,6 +413,7 @@ Cmnd_Alias SMB_COMMANDS = \\
     $SMBCONTROL_PATH *, \\
     $SMBCLIENT_PATH *, \\
     $TESTPARM_PATH *, \\
+    $PDBEDIT_PATH *, \\
     $SYSTEMCTL_PATH start smbd*, \\
     $SYSTEMCTL_PATH stop smbd*, \\
     $SYSTEMCTL_PATH restart smbd*, \\

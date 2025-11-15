@@ -6,9 +6,11 @@ package system
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -300,7 +302,23 @@ func (um *UserManager) CreateUser(ctx context.Context, request CreateUserRequest
 	// No need for separate password setting step
 
 	um.logger.Info("Successfully created system user", "username", request.Username)
-	
+
+	// Add user to Samba database for SMB/CIFS authentication
+	// This is done regardless of security mode to ensure seamless mode transitions
+	if request.Password != "" {
+		if err := um.addUserToSamba(ctx, request.Username, request.Password); err != nil {
+			um.logger.Warn(
+				"Failed to add user to Samba database (SMB access may not work)",
+				"username", request.Username,
+				"error", err,
+			)
+			// Don't fail the entire operation - user was created successfully in the system
+			// SMB password can be set later if needed
+		} else {
+			um.logger.Debug("User synchronized to Samba database", "username", request.Username)
+		}
+	}
+
 	// Emit user creation event with structured payload
 	userPayload := &eventspb.SystemUserPayload{
 		Username:    request.Username,
@@ -341,6 +359,17 @@ func (um *UserManager) DeleteUser(ctx context.Context, username string) error {
 	}
 
 	um.logger.Info("Deleting system user", "username", username)
+
+	// Remove user from Samba database first
+	// Done before userdel to ensure cleanup even if system deletion fails
+	if err := um.removeUserFromSamba(ctx, username); err != nil {
+		um.logger.Warn(
+			"Failed to remove user from Samba database",
+			"username", username,
+			"error", err,
+		)
+		// Continue with system user deletion
+	}
 
 	// Delete user with home directory
 	result, err := um.executor.ExecuteCommand(ctx, "userdel", "-r", username)
@@ -671,6 +700,20 @@ func (um *UserManager) SetPassword(ctx context.Context, username, password strin
 		return errors.Wrap(err, errors.SystemUserModifyFailed).
 			WithMetadata("username", username).
 			WithMetadata("field", "password")
+	}
+
+	// Update Samba password for SMB/CIFS authentication
+	// If PAM smbpass is configured, usermod should have synced automatically,
+	// but we do explicit sync for robustness
+	if err := um.updateSambaPassword(ctx, username, password); err != nil {
+		um.logger.Warn(
+			"Failed to update Samba password (SMB access may require manual sync)",
+			"username", username,
+			"error", err,
+		)
+		// Don't fail the entire operation - system password was set successfully
+	} else {
+		um.logger.Debug("Synchronized password to Samba database", "username", username)
 	}
 
 	um.logger.Info("Successfully set password for user", "username", username)
@@ -1187,5 +1230,93 @@ func (um *UserManager) validateCreateGroupRequest(request CreateGroupRequest) er
 		)
 	}
 
+	return nil
+}
+
+// Samba User Database Management
+// These methods manage the Samba user database (passdb) to enable SMB/CIFS authentication.
+// Users are synced to Samba database regardless of security mode (standalone/AD) to ensure
+// seamless mode transitions and consistent SMB access for local users.
+
+// addUserToSamba adds a user to the Samba password database
+// This enables the user to authenticate to SMB/CIFS shares
+func (um *UserManager) addUserToSamba(ctx context.Context, username, password string) error {
+	// Use pdbedit to add user with password via stdin
+	// -a = add user
+	// -u username = specify username
+	// -t = read password from stdin (requires password twice, one per line)
+	cmd := exec.CommandContext(ctx, "sudo", "pdbedit", "-a", "-u", username, "-t")
+	// pdbedit -t expects password twice for confirmation, each on a separate line
+	cmd.Stdin = strings.NewReader(password + "\n" + password + "\n")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("operation", "samba_add").
+			WithMetadata("stdout", stdout.String()).
+			WithMetadata("stderr", stderr.String())
+	}
+
+	um.logger.Debug("Added user to Samba database", "username", username)
+	return nil
+}
+
+// removeUserFromSamba removes a user from the Samba password database
+func (um *UserManager) removeUserFromSamba(ctx context.Context, username string) error {
+	// Use pdbedit to remove user
+	// -x = delete user
+	// -u username = specify username
+	result, err := um.executor.ExecuteCommand(ctx, "pdbedit", "-x", "-u", username)
+	if err != nil {
+		// Don't fail if user doesn't exist in Samba database
+		if strings.Contains(result.Stdout, "not found") || strings.Contains(result.Stderr, "not found") {
+			um.logger.Debug("User not found in Samba database (already removed)", "username", username)
+			return nil
+		}
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("operation", "samba_remove").
+			WithMetadata("output", result.Stdout)
+	}
+
+	um.logger.Debug("Removed user from Samba database", "username", username)
+	return nil
+}
+
+// updateSambaPassword updates a user's password in the Samba database
+// Note: If PAM smbpass is configured, password changes via usermod will
+// automatically sync. This method provides explicit sync for robustness.
+func (um *UserManager) updateSambaPassword(ctx context.Context, username, password string) error {
+	// Use pdbedit to update password
+	// -a = add or update user (when user exists, this updates their password)
+	// -u username = specify username
+	// -t = read password from stdin (requires password twice, one per line)
+	cmd := exec.CommandContext(ctx, "sudo", "pdbedit", "-a", "-u", username, "-t")
+	// pdbedit -t expects password twice for confirmation, each on a separate line
+	cmd.Stdin = strings.NewReader(password + "\n" + password + "\n")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// If user doesn't exist in Samba DB, add them
+		output := stdout.String() + stderr.String()
+		if strings.Contains(output, "not found") {
+			um.logger.Debug("User not found in Samba database, adding", "username", username)
+			return um.addUserToSamba(ctx, username, password)
+		}
+		return errors.Wrap(err, errors.SystemUserModifyFailed).
+			WithMetadata("username", username).
+			WithMetadata("operation", "samba_update_password").
+			WithMetadata("stdout", stdout.String()).
+			WithMetadata("stderr", stderr.String())
+	}
+
+	um.logger.Debug("Updated Samba password", "username", username)
 	return nil
 }
