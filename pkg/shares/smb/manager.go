@@ -818,9 +818,25 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 	if !exists {
 		m.logger.Info("No existing SMB configuration found, generating defaults")
 
-		// Create default global config
+		// Create default global config based on security mode
 		cfg := config.GetConfig()
-		globalConfig := NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup)
+		securityMode := m.determineSecurityMode()
+
+		var globalConfig *SMBGlobalConfig
+		if securityMode == "ads" {
+			m.logger.Info("Generating AD member server configuration",
+				"realm", cfg.Shares.SMB.Realm,
+				"workgroup", cfg.Shares.SMB.Workgroup)
+			globalConfig = NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup)
+		} else {
+			m.logger.Info("Generating standalone server configuration",
+				"workgroup", cfg.Shares.SMB.Workgroup)
+			globalConfig = NewSMBGlobalConfig()
+			// Apply custom workgroup if specified
+			if cfg.Shares.SMB.Workgroup != "" {
+				globalConfig.WorkGroup = cfg.Shares.SMB.Workgroup
+			}
+		}
 
 		// Save the global config
 		data, err := json.MarshalIndent(globalConfig, "", "  ")
@@ -883,7 +899,92 @@ func (m *Manager) GenerateConfig(ctx context.Context) error {
 
 		m.logger.Info("Imported global SMB configuration")
 	} else {
-		m.logger.Info("Using existing Rodent-managed global SMB configuration")
+		m.logger.Info("Found existing Rodent-managed global SMB configuration")
+
+		// Read existing config to check if we need to update it
+		existingData, err := os.ReadFile(globalConfigPath)
+		if err != nil {
+			m.logger.Warn("Failed to read existing global config", "error", err)
+		} else {
+			var existingConfig SMBGlobalConfig
+			if err := json.Unmarshal(existingData, &existingConfig); err != nil {
+				m.logger.Warn("Failed to parse existing global config", "error", err)
+			} else {
+				// Determine current security mode
+				cfg := config.GetConfig()
+				currentMode := m.determineSecurityMode()
+
+				// Check if mode has changed
+				needsUpdate := false
+				if currentMode == "ads" && existingConfig.SecurityMode != "ADS" {
+					m.logger.Info("Security mode changed to AD, regenerating global config")
+					needsUpdate = true
+				} else if currentMode == "user" && existingConfig.SecurityMode == "ADS" {
+					m.logger.Info("Security mode changed to standalone, regenerating global config")
+					needsUpdate = true
+				}
+
+				// Regenerate if needed
+				if needsUpdate {
+					// Create backup before updating
+					backupPath, err := BackupConfigFile(globalConfigPath, nil)
+					if err != nil {
+						m.logger.Warn("Failed to create backup of global config", "error", err)
+					} else if backupPath != "" {
+						m.logger.Info("Backed up global configuration", "backup_path", backupPath)
+					}
+
+					// Generate new config based on detected mode
+					var newGlobalConfig *SMBGlobalConfig
+					if currentMode == "ads" {
+						m.logger.Info("Generating AD member server configuration",
+							"realm", cfg.Shares.SMB.Realm,
+							"workgroup", cfg.Shares.SMB.Workgroup)
+						newGlobalConfig = NewSMBGlobalConfigWithAD(cfg.Shares.SMB.Realm, cfg.Shares.SMB.Workgroup)
+					} else {
+						m.logger.Info("Generating standalone server configuration",
+							"workgroup", cfg.Shares.SMB.Workgroup)
+						newGlobalConfig = NewSMBGlobalConfig()
+						if cfg.Shares.SMB.Workgroup != "" {
+							newGlobalConfig.WorkGroup = cfg.Shares.SMB.Workgroup
+						}
+					}
+
+					// Save updated config
+					data, err := json.MarshalIndent(newGlobalConfig, "", "  ")
+					if err != nil {
+						m.logger.Warn("Failed to marshal updated global config", "error", err)
+					} else {
+						if err := os.WriteFile(globalConfigPath, data, 0644); err != nil {
+							m.logger.Warn("Failed to save updated global config", "error", err)
+						} else {
+							// Generate SMB global config section
+							if err := m.generateGlobalConfig(newGlobalConfig); err != nil {
+								m.logger.Warn("Failed to generate global config section", "error", err)
+							} else {
+								// Update main SMB configuration
+								if err := m.updateMainConfig(); err != nil {
+									m.logger.Warn("Failed to update main config", "error", err)
+								} else {
+									m.logger.Info("Successfully updated global SMB configuration for new security mode")
+
+								// Reload Samba configuration if service is running
+								// This handles the case where Rodent restarts but Samba is still running
+								if err := m.ReloadConfig(ctx); err != nil {
+									m.logger.Warn("Failed to reload Samba config (service may not be running)", "error", err)
+								} else {
+									m.logger.Info("Reloaded Samba service configuration")
+								}
+								}
+							}
+						}
+					}
+				} else {
+					m.logger.Debug("Security mode unchanged, keeping existing global configuration",
+						"mode", existingConfig.SecurityMode)
+				}
+			}
+		}
 	}
 
 	// Parse all share sections
@@ -1655,4 +1756,38 @@ func getFileModificationTime(path string) time.Time {
 	}
 
 	return info.ModTime()
+}
+
+// determineSecurityMode determines the appropriate Samba security mode based on configuration
+// Returns "ads" for Active Directory mode, "user" for standalone mode
+func (m *Manager) determineSecurityMode() string {
+	cfg := config.GetConfig()
+
+	// Check if security mode is explicitly configured
+	securityMode := cfg.Shares.SMB.SecurityMode
+	if securityMode != "" && securityMode != "auto" {
+		m.logger.Debug("Using explicit security mode from config", "mode", securityMode)
+		return securityMode
+	}
+
+	// Auto-detect based on AD DC configuration
+	if cfg.AD.DC.Enabled {
+		m.logger.Debug("Auto-detected AD mode (AD DC enabled)")
+		return "ads"
+	}
+
+	// Check if external AD is configured
+	if cfg.AD.Mode == "external" && len(cfg.AD.External.DomainControllers) > 0 {
+		m.logger.Debug("Auto-detected AD mode (external AD configured)")
+		return "ads"
+	}
+
+	// Default to standalone user mode
+	m.logger.Debug("Auto-detected standalone mode")
+	return "user"
+}
+
+// isADMode checks if the system is configured for Active Directory integration
+func (m *Manager) isADMode() bool {
+	return m.determineSecurityMode() == "ads"
 }

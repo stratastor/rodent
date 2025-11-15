@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -159,11 +160,12 @@ func (m *ACLManager) SetACL(ctx context.Context, cfg ACLConfig) error {
 	hasOwner, hasOwnerGroup, hasOther := false, false, false
 	for _, entry := range cfg.Entries {
 		if !entry.IsDefault {
-			if entry.Type == EntryOwner {
+			switch entry.Type {
+			case EntryOwner:
 				hasOwner = true
-			} else if entry.Type == EntryOwnerGroup {
+			case EntryOwnerGroup:
 				hasOwnerGroup = true
-			} else if entry.Type == EntryOther {
+			case EntryOther:
 				hasOther = true
 			}
 		}
@@ -422,12 +424,9 @@ func (m *ACLManager) RemoveACL(ctx context.Context, cfg ACLRemoveConfig) error {
 	return nil
 }
 
-// ResolveADUsers resolves Active Directory users/groups for ACL entries
+// ResolveADUsers resolves Active Directory users/groups and local system users/groups for ACL entries
+// Supports both AD principals (DOMAIN\User format) and local principals (username format)
 func (m *ACLManager) ResolveADUsers(ctx context.Context, entries []ACLEntry) ([]ACLEntry, error) {
-	if m.adClient == nil {
-		return entries, nil // No AD client, return original entries
-	}
-
 	result := make([]ACLEntry, len(entries))
 	copy(result, entries)
 
@@ -440,13 +439,27 @@ func (m *ACLManager) ResolveADUsers(ctx context.Context, entries []ACLEntry) ([]
 			continue
 		}
 
-		// TODO: "\\" may not always be the correct filter
-		// TODO: Check principal regardless of default domain
 		// Check if it's a domain user/group (DOMAIN\User format)
 		if strings.Contains(entry.Principal, "\\") {
+			// AD principal specified - require AD client
+			if m.adClient == nil {
+				return nil, errors.New(errors.FACLInvalidPrincipal,
+					fmt.Sprintf("AD principal specified but AD is not configured: %s", entry.Principal),
+				).
+					WithMetadata("principal", entry.Principal).
+					WithMetadata("hint", "either configure AD or use local usernames without domain prefix")
+			}
+
 			parts := strings.SplitN(entry.Principal, "\\", 2)
 			if len(parts) != 2 {
-				continue
+				return nil, errors.New(
+					errors.FACLInvalidPrincipal,
+					fmt.Sprintf(
+						"Invalid AD principal format: %s (expected DOMAIN\\User)",
+						entry.Principal,
+					),
+				).
+					WithMetadata("principal", entry.Principal)
 			}
 
 			// domain := parts[0]
@@ -466,15 +479,51 @@ func (m *ACLManager) ResolveADUsers(ctx context.Context, entries []ACLEntry) ([]
 
 			if !exists {
 				return nil, errors.New(errors.FACLInvalidPrincipal,
-					fmt.Sprintf("AD principal not found: %s", entry.Principal))
+					fmt.Sprintf("AD principal not found: %s", entry.Principal)).
+					WithMetadata("principal", entry.Principal).
+					WithMetadata("sam_account_name", name)
 			}
 
+			m.logger.Debug("Validated AD principal", "principal", entry.Principal)
 			// Keep the original format for now
+			result[i].Principal = entry.Principal
+		} else {
+			// Local user/group - validate against system
+			if err := m.validateLocalPrincipal(entry); err != nil {
+				return nil, err
+			}
 			result[i].Principal = entry.Principal
 		}
 	}
 
 	return result, nil
+}
+
+// validateLocalPrincipal validates a local user or group against the system
+func (m *ACLManager) validateLocalPrincipal(entry ACLEntry) error {
+	switch entry.Type {
+	case EntryUser:
+		// Validate local user
+		_, err := user.Lookup(entry.Principal)
+		if err != nil {
+			return errors.New(errors.FACLInvalidPrincipal,
+				fmt.Sprintf("Local user not found: %s", entry.Principal)).
+				WithMetadata("principal", entry.Principal).
+				WithMetadata("type", "user")
+		}
+		m.logger.Debug("Validated local user", "user", entry.Principal)
+	case EntryGroup:
+		// Validate local group
+		_, err := user.LookupGroup(entry.Principal)
+		if err != nil {
+			return errors.New(errors.FACLInvalidPrincipal,
+				fmt.Sprintf("Local group not found: %s", entry.Principal)).
+				WithMetadata("principal", entry.Principal).
+				WithMetadata("type", "group")
+		}
+		m.logger.Debug("Validated local group", "group", entry.Principal)
+	}
+	return nil
 }
 
 // detectACLType determines the ACL type supported by the filesystem

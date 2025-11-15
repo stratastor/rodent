@@ -2,6 +2,200 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package smb provides comprehensive SMB/CIFS share management for StrataSTOR Rodent.
+//
+// # Architecture Overview
+//
+// The SMB package manages Samba file shares with support for both standalone and
+// Active Directory integrated modes. It uses a template-based configuration system
+// that separates configuration storage (JSON) from generated Samba configs.
+//
+// # Security Modes
+//
+// The package supports two security modes that can be automatically detected or
+// explicitly configured:
+//
+//  1. Standalone Mode (security = user):
+//     - Uses local system users and groups from /etc/passwd and /etc/group
+//     - No domain controller required
+//     - Suitable for simple file sharing scenarios
+//     - Example valid users: "alice", "bob", "admins"
+//
+//  2. Active Directory Mode (security = ADS):
+//     - Integrates with AD DC (self-hosted or external)
+//     - Supports domain users and groups
+//     - Requires winbind and domain membership
+//     - Example valid users: "DOMAIN\alice", "DOMAIN\Domain Admins"
+//
+// Mode detection (automatic when security_mode = "auto"):
+//   - If AD.DC.Enabled = true → ADS mode
+//   - If AD.Mode = "external" with DCs configured → ADS mode
+//   - Otherwise → Standalone mode
+//
+// # Directory Structure
+//
+// All Rodent-managed SMB configurations are stored in:
+//   ~/.rodent/shares/smb/
+//
+// File types and their purposes:
+//
+//   global.conf              - JSON source of truth for global Samba settings
+//   global.smb.conf          - Generated [global] section for smb.conf
+//   <sharename>.json         - JSON source of truth for individual share
+//   <sharename>.smb.conf     - Generated [sharename] section for smb.conf
+//
+// Templates are stored in:
+//   ~/.rodent/templates/smb/
+//
+//   global.tmpl              - Template for [global] section
+//   share.tmpl               - Template for share sections
+//
+// # Data Flow
+//
+// The configuration flow follows a strict pattern:
+//
+//   1. JSON Config Files (Source of Truth)
+//      ├─ global.conf           (SMBGlobalConfig struct)
+//      └─ <sharename>.json      (SMBShareConfig struct)
+//            ↓
+//   2. Template Rendering
+//      ├─ generateGlobalConfig() → renders global.tmpl → global.smb.conf
+//      └─ generateShareConfig()  → renders share.tmpl → <share>.smb.conf
+//            ↓
+//   3. Main Config Assembly (updateMainConfig)
+//      ├─ Read global.smb.conf
+//      ├─ Read all *.smb.conf share files
+//      └─ Assemble into /etc/samba/smb.conf
+//            ↓
+//   4. Service Reload (optional, runtime only)
+//      └─ smbcontrol smbd reload-config
+//
+// # Key Operations
+//
+// Configuration Generation (GenerateConfig):
+//   - Called at service startup (before Samba starts)
+//   - Imports existing /etc/samba/smb.conf if needed
+//   - Auto-detects and adapts to security mode changes
+//   - Creates backups when mode changes
+//
+// Share Management:
+//   - CreateShare: Validates → Save JSON → Generate config → Update main → Reload
+//   - UpdateShare: Validate → Save JSON → Regenerate → Update main → Reload
+//   - DeleteShare: Remove JSON and .smb.conf → Update main → Reload
+//
+// Global Config Management:
+//   - UpdateGlobalConfig: Validate → Save JSON → Regenerate → Update main → Reload
+//   - GetGlobalConfig: Read and parse global.conf JSON
+//
+// # Security Mode Migration
+//
+// When the security mode changes (e.g., AD DC enabled/disabled), the system:
+//   1. Detects mode change during GenerateConfig()
+//   2. Creates backup of global.conf with timestamp
+//   3. Generates new SMBGlobalConfig for the target mode
+//   4. Saves new global.conf (JSON source)
+//   5. Regenerates global.smb.conf from template
+//   6. Updates /etc/samba/smb.conf
+//
+// Existing shares continue to work because:
+//   - Share configs are mode-agnostic (same template structure)
+//   - User validation happens at ACL/share creation time
+//   - Both "user" and "DOMAIN\user" formats can coexist
+//
+// # User/Group Validation
+//
+// The package integrates with pkg/facl for access control validation:
+//
+//   - Local users/groups: Validated against /etc/passwd and /etc/group
+//   - AD users/groups: Validated via LDAP queries (DOMAIN\user format)
+//   - Mixed mode: Both types can be used in the same share
+//
+// # File Lifecycle
+//
+// Creating a share:
+//   1. API receives SMBShareConfig
+//   2. Manager.CreateShare() validates config
+//   3. Saves to <sharename>.json
+//   4. Calls generateShareConfig() → creates <sharename>.smb.conf
+//   5. Calls updateMainConfig() → updates /etc/samba/smb.conf
+//   6. Calls ReloadConfig() → tells Samba to reload
+//
+// Updating a share:
+//   1. API receives updated SMBShareConfig
+//   2. Manager.UpdateShare() validates changes
+//   3. Updates <sharename>.json
+//   4. Regenerates <sharename>.smb.conf
+//   5. Updates /etc/samba/smb.conf
+//   6. Reloads Samba service
+//
+// Deleting a share:
+//   1. API requests share deletion
+//   2. Manager.DeleteShare() removes <sharename>.json
+//   3. Removes <sharename>.smb.conf
+//   4. Updates /etc/samba/smb.conf (share section removed)
+//   5. Reloads Samba service
+//
+// # Backup Strategy
+//
+// Backups are created in specific scenarios:
+//
+//   Initial Import:
+//     - When first importing from /etc/samba/smb.conf
+//     - Creates: /etc/samba/smb.conf.YYYYMMDD-HHMMSS.bak
+//     - Preserves original manual configuration
+//
+//   Security Mode Change:
+//     - When switching between standalone and AD modes
+//     - Creates: ~/.rodent/shares/smb/global.conf.YYYYMMDD-HHMMSS.bak
+//     - Allows rollback if mode change causes issues
+//
+// Runtime updates do NOT create backups as Rodent JSON configs are the source of truth.
+//
+// # Thread Safety
+//
+// All public methods use mutex locking:
+//   - RWMutex for read/write operations
+//   - Lock held during: validate → save → generate → update cycle
+//   - Prevents concurrent modifications
+//
+// # Error Handling
+//
+// The package uses pkg/errors for structured error reporting:
+//   - All errors include operation metadata
+//   - Errors are wrapped with context
+//   - Failed operations log warnings but may continue (best-effort)
+//
+// Example error with metadata:
+//   errors.Wrap(err, errors.SharesOperationFailed).
+//       WithMetadata("operation", "save_config").
+//       WithMetadata("share_name", name)
+//
+// # Template System
+//
+// Templates are loaded at initialization:
+//   - Embedded in binary via templates.go
+//   - Fallback to default content if embedding fails
+//   - Cached in memory for performance
+//
+// Template functions available:
+//   - join: Joins string slice with separator (e.g., {{join .ValidUsers ", "}})
+//
+// # Integration Points
+//
+// The SMB manager integrates with:
+//
+//   - pkg/facl: For filesystem ACL management and user validation
+//   - internal/services/samba: For Samba service lifecycle (start/stop/reload)
+//   - internal/services/addc: For AD DC container management
+//   - internal/services/domain: For domain join operations
+//   - pkg/shares/api: REST and gRPC API handlers
+//
+// See also:
+//   - types.go: Data structures (SMBGlobalConfig, SMBShareConfig)
+//   - parser.go: Parsing existing smb.conf files
+//   - service.go: Samba service management (ServiceManager)
+//
+
 package smb
 
 import (

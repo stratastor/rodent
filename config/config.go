@@ -92,8 +92,9 @@ type Config struct {
 
 	Shares struct {
 		SMB struct {
-			Realm     string `mapstructure:"realm"`
-			Workgroup string `mapstructure:"workgroup"`
+			SecurityMode string `mapstructure:"security_mode"` // Security mode: auto, ads, user
+			Realm        string `mapstructure:"realm"`
+			Workgroup    string `mapstructure:"workgroup"`
 		} `mapstructure:"smb"`
 	} `mapstructure:"shares"`
 
