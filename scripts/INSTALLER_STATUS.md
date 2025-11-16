@@ -8,7 +8,7 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ---
 
-## MVP Complete
+## Rudimentary Complete
 
 ### Core Components
 
@@ -48,7 +48,7 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 - Service start validation and common error handling
 
-### Phase 2 - Enterprise Features
+### Items
 
 - APT repository setup
 - Semantic versioning and upgrade path validation
@@ -58,19 +58,6 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 - Air-gapped installation
 - Binary signature verification (GPG)
 - Telemetry dashboard
-
----
-
-## Key Design Decisions
-
-- **R2 over S3:** Cost efficiency and Cloudflare CDN integration
-- **Binary distribution over APT:** Faster iteration for MVP
-- **Zabbly ZFS repo:** Ubuntu default is 2.2, need 2.3+
-- **Non-interactive Kerberos:** debconf pre-configuration for automation
-- **No caching during dev:** Scripts use `cache-control: no-cache` for rapid testing
-- **rodent.sample.yml naming:** Gitignored pattern, no manual git add needed
-- **Bucket-specific R2 testing:** Token lacks ListBuckets permission
-- **Skip 'latest' copy when VERSION=latest:** Avoid redundant S3 operations
 
 ---
 

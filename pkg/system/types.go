@@ -47,6 +47,7 @@ type HardwareInfo struct {
 type CPUInfo struct {
 	ModelName      string   `json:"model_name"`
 	Vendor         string   `json:"vendor"`
+	Architecture   string   `json:"architecture"` // CPU architecture (e.g., x86_64, aarch64)
 	Family         string   `json:"family"`
 	Model          string   `json:"model"`
 	Stepping       string   `json:"stepping"`

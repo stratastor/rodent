@@ -22,10 +22,12 @@ import (
 	diskAPI "github.com/stratastor/rodent/pkg/disk/api"
 	"github.com/stratastor/rodent/pkg/facl"
 	aclAPI "github.com/stratastor/rodent/pkg/facl/api"
+	"github.com/stratastor/rodent/pkg/inventory"
 	sshAPI "github.com/stratastor/rodent/pkg/keys/ssh/api"
 	"github.com/stratastor/rodent/pkg/netmage"
 	netmageAPI "github.com/stratastor/rodent/pkg/netmage/api"
 	"github.com/stratastor/rodent/pkg/netmage/types"
+	"github.com/stratastor/rodent/pkg/shares"
 	sharesAPI "github.com/stratastor/rodent/pkg/shares/api"
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	"github.com/stratastor/rodent/pkg/system"
@@ -34,6 +36,22 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
+	"github.com/stratastor/rodent/pkg/zfs/snapshot"
+)
+
+// Shared manager instances for stateful subsystems
+var (
+	// sharedDiskManager holds the stateful disk manager instance
+	// Used by inventory and other subsystems that need access to disk state
+	sharedDiskManager *disk.Manager
+
+	// sharedSharesManager holds the shares manager instance (SMB manager)
+	// Used by inventory to collect shares information
+	sharedSharesManager shares.SharesManager
+
+	// sharedSnapshotHandler holds the snapshot handler which provides access to the snapshot manager
+	// Used by inventory to collect snapshot policies information
+	sharedSnapshotHandler *snapshot.Handler
 )
 
 func registerZFSRoutes(engine *gin.Engine) (error error) {
@@ -71,8 +89,12 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 
 		schedulers := v1.Group("/schedulers")
 		{
-			// Register auto-snapshot routes
-			_ = api.RegisterAutoSnapshotRoutes(schedulers, datasetManager)
+			// Register auto-snapshot routes and store handler for use by other subsystems (e.g., inventory)
+			snapshotHandler, err := api.RegisterAutoSnapshotRoutes(schedulers, datasetManager)
+			if err == nil {
+				sharedSnapshotHandler = snapshotHandler
+			}
+			// If err != nil, sharedSnapshotHandler remains nil and inventory won't include snapshot policies
 		}
 
 		// Health check routes
@@ -188,6 +210,9 @@ func registerSharesRoutes(engine *gin.Engine) error {
 
 	// Create SMB service manager
 	smbService := smb.NewServiceManager(l)
+
+	// Store shared instance for use by other subsystems (e.g., inventory)
+	sharedSharesManager = smbManager
 
 	// Create the shares handler
 	sharesHandler := sharesAPI.NewSharesHandler(l, smbManager, smbService)
@@ -327,6 +352,9 @@ func registerDiskRoutes(engine *gin.Engine) (*diskAPI.DiskHandler, error) {
 		return nil, fmt.Errorf("failed to start disk manager: %w", err)
 	}
 
+	// Store shared instance for use by other subsystems (e.g., inventory)
+	sharedDiskManager = diskManager
+
 	// Create disk handler
 	diskHandler := diskAPI.NewDiskHandler(diskManager, l)
 
@@ -341,4 +369,89 @@ func registerDiskRoutes(engine *gin.Engine) (*diskAPI.DiskHandler, error) {
 	diskAPI.RegisterDiskGRPCHandlers(diskHandler)
 
 	return diskHandler, nil
+}
+
+// registerInventoryRoutes registers inventory API routes
+// Creates new manager instances for stateless managers (System, ZFS, Network)
+// Uses shared disk manager instance for stateful disk operations
+func registerInventoryRoutes(engine *gin.Engine) (*inventory.Handler, error) {
+	// Add error handler middleware
+	engine.Use(ErrorHandler())
+
+	cfg := config.GetConfig()
+
+	// Create logger
+	l, err := logger.NewTag(config.NewLoggerConfig(cfg), "inventory")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create stateless managers for inventory collection
+	// These managers only read state and don't maintain persistent state
+
+	// System Manager - reads /proc, /sys, etc.
+	systemMgr := system.NewManager(l)
+
+	// ZFS Managers - wrap zpool/zfs commands
+	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
+	poolMgr := pool.NewManager(executor)
+	datasetMgr := dataset.NewManager(executor)
+
+	// Network Manager - reads network configuration
+	ctx := context.Background()
+	networkMgr, err := netmage.NewManager(ctx, l, types.RendererNetworkd)
+	if err != nil {
+		l.Warn("Failed to create network manager for inventory", "error", err)
+		networkMgr = nil // Continue without network data
+	}
+
+	// Disk Manager - use shared stateful instance
+	// May be nil if disk routes haven't been registered yet
+	diskMgr := sharedDiskManager
+	if diskMgr == nil {
+		l.Warn("Shared disk manager not available, disk inventory will be unavailable")
+	}
+
+	// Shares Manager - use shared instance
+	// May be nil if shares routes haven't been registered yet
+	sharesMgr := sharedSharesManager
+	if sharesMgr == nil {
+		l.Warn("Shared shares manager not available, shares inventory will be unavailable")
+	}
+
+	// Snapshot Manager - extract from shared handler
+	// May be nil if snapshot routes haven't been registered yet
+	var snapshotMgr snapshot.SchedulerInterface
+	if sharedSnapshotHandler != nil {
+		snapshotMgr = sharedSnapshotHandler // Handler implements SchedulerInterface
+	} else {
+		l.Warn("Shared snapshot handler not available, snapshot policies inventory will be unavailable")
+	}
+
+	// Create inventory collector
+	collector := inventory.NewCollector(
+		diskMgr,
+		poolMgr,
+		datasetMgr,
+		networkMgr,
+		systemMgr,
+		sharesMgr,
+		snapshotMgr,
+		l,
+	)
+
+	// Create inventory handler
+	inventoryHandler := inventory.NewHandler(collector, l)
+
+	// API group with version
+	v1 := engine.Group(constants.APIInventory)
+	{
+		// Register inventory routes
+		inventoryHandler.RegisterRoutes(v1)
+	}
+
+	// Register gRPC handlers
+	inventory.RegisterInventoryGRPCHandlers(inventoryHandler)
+
+	return inventoryHandler, nil
 }

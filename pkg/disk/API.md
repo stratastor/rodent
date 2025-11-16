@@ -1,7 +1,6 @@
 # Disk Management API Reference
 
 **Status**: 88% Complete (38/43 endpoints)
-**Last Updated**: 2025-10-24
 
 ## Overview
 
@@ -11,17 +10,17 @@ All disk management APIs use base path `/api/v1/rodent/disks/` for REST and foll
 
 | Category | Endpoints | Status |
 |----------|-----------|--------|
-| Inventory & Discovery | 4 | ✅ 100% |
-| Health & SMART | 4 | ✅ 100% |
-| Probe Operations | 5 | ✅ 100% |
-| Probe Schedules | 7 | ✅ 100% |
-| Topology | 4 | ✅ 100% |
-| State Management | 4 | ✅ 100% |
-| Configuration | 3 | ✅ 100% |
-| Metadata | 3 | ✅ 100% |
-| Statistics & Monitoring | 4 | ✅ 100% |
-| **Naming Strategy** | 3 | ⏳ Pending Phase 8 |
-| **Fault Domains** | 2 | ⏳ Pending Phase 9 |
+| Inventory & Discovery | 4 | 100% |
+| Health & SMART | 4 | 100% |
+| Probe Operations | 5 | 100% |
+| Probe Schedules | 7 | 100% |
+| Topology | 4 | 100% |
+| State Management | 4 | 100% |
+| Configuration | 3 | 100% |
+| Metadata | 3 | 100% |
+| Statistics & Monitoring | 4 | 100% |
+| **Naming Strategy** | 3 | Pending Phase 8 |
+| **Fault Domains** | 2 | Pending Phase 9 |
 | **Total** | **43** | **38 (88%)** |
 
 ## API Endpoints

@@ -48,6 +48,9 @@ const (
 	// APIDisk is the base path for disk management API endpoints
 	APIDisk = APIBase + "/disks"
 
+	// APIInventory is the base path for inventory API endpoints
+	APIInventory = APIBase + "/inventory"
+
 	// Template paths - relative paths
 	TemplatesBasePath = "internal/templates"
 )

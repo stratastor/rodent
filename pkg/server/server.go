@@ -154,6 +154,20 @@ func Start(ctx context.Context, port int) error {
 		_ = diskHandler // Handler doesn't implement Close() method yet
 	}
 
+	// Register inventory routes
+	// Creates its own manager instances for stateless subsystems (system, zfs, network)
+	// Disk inventory will be limited until disk handler exposes its manager
+	inventoryHandler, err := registerInventoryRoutes(engine)
+	if err != nil {
+		l.Warn(
+			"Failed to register inventory routes, continuing without inventory functionality",
+			"error",
+			err,
+		)
+	} else {
+		_ = inventoryHandler // Handler doesn't implement Close() method
+	}
+
 	// Start AD DC service if enabled in config
 	if cfg.AD.DC.Enabled {
 		l.Info("AD DC service is enabled, starting the service...")

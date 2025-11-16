@@ -11,20 +11,21 @@ import (
 )
 
 // RegisterAutoSnapshotRoutes registers the auto-snapshot routes to the dataset router group
-func RegisterAutoSnapshotRoutes(router *gin.RouterGroup, dsManager *dataset.Manager) error {
+// Returns the handler so it can be stored for use by other subsystems (e.g., inventory)
+func RegisterAutoSnapshotRoutes(router *gin.RouterGroup, dsManager *dataset.Manager) (*snapshot.Handler, error) {
 	// Create handler
 	handler, err := snapshot.NewHandler(dsManager)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Start the manager
 	if err := handler.StartManager(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Register routes
 	handler.RegisterRoutes(router)
 
-	return nil
+	return handler, nil
 }

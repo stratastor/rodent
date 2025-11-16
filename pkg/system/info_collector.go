@@ -259,114 +259,8 @@ func (ic *InfoCollector) getHardwareInfo(ctx context.Context) (*HardwareInfo, er
 	return info, nil
 }
 
-// getCPUInfo parses /proc/cpuinfo
-func (ic *InfoCollector) getCPUInfo(_ context.Context) (*CPUInfo, error) {
-	file, err := os.Open("/proc/cpuinfo")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
 
-	info := &CPUInfo{}
-	processors := make(map[string]bool)
-	coreIDs := make(map[string]bool)
-	physicalIDs := make(map[string]bool)
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, ":") {
-			parts := strings.SplitN(line, ":", 2)
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-
-			switch key {
-			case "model name":
-				if info.ModelName == "" {
-					info.ModelName = value
-				}
-			case "vendor_id":
-				if info.Vendor == "" {
-					info.Vendor = value
-				}
-			case "cpu family":
-				if info.Family == "" {
-					info.Family = value
-				}
-			case "model":
-				if info.Model == "" {
-					info.Model = value
-				}
-			case "stepping":
-				if info.Stepping == "" {
-					info.Stepping = value
-				}
-			case "microcode":
-				if info.Microcode == "" {
-					info.Microcode = value
-				}
-			case "cpu MHz":
-				if info.CPUMHz == 0 {
-					if mhz, err := strconv.ParseFloat(value, 64); err == nil {
-						info.CPUMHz = mhz
-					}
-				}
-			case "cache size":
-				if info.CacheSize == "" {
-					info.CacheSize = value
-				}
-			case "physical id":
-				if info.PhysicalID == "" {
-					info.PhysicalID = value
-				}
-				physicalIDs[value] = true
-			case "siblings":
-				if info.Siblings == 0 {
-					if siblings, err := strconv.Atoi(value); err == nil {
-						info.Siblings = siblings
-					}
-				}
-			case "core id":
-				if info.CoreID == "" {
-					info.CoreID = value
-				}
-				coreIDs[value] = true
-			case "cpu cores":
-				if info.CPUCores == 0 {
-					if cores, err := strconv.Atoi(value); err == nil {
-						info.CPUCores = cores
-					}
-				}
-			case "apicid":
-				if info.ApicID == "" {
-					info.ApicID = value
-				}
-			case "flags":
-				if len(info.Flags) == 0 {
-					info.Flags = strings.Fields(value)
-				}
-			case "processor":
-				processors[value] = true
-			}
-		}
-	}
-
-	// Calculate derived values
-	info.ProcessorCount = len(processors)
-	info.Sockets = len(physicalIDs)
-	if info.Sockets == 0 {
-		info.Sockets = 1
-	}
-
-	if info.CPUCores > 0 {
-		info.CoresPerSocket = info.CPUCores
-		if info.Siblings > 0 {
-			info.ThreadsPerCore = info.Siblings / info.CPUCores
-		}
-	}
-
-	return info, scanner.Err()
-}
 
 // getMemoryInfo parses /proc/meminfo
 func (ic *InfoCollector) getMemoryInfo(_ context.Context) (*MemoryInfo, error) {
@@ -428,51 +322,101 @@ func (ic *InfoCollector) getMemoryInfo(_ context.Context) (*MemoryInfo, error) {
 	return info, scanner.Err()
 }
 
-// getSystemHWInfo gets comprehensive system hardware info from DMI
+// getSystemHWInfo gets comprehensive system hardware info from DMI or Device Tree
 func (ic *InfoCollector) getSystemHWInfo(ctx context.Context) (*SystemHW, error) {
 	info := &SystemHW{}
+
+	// Try DMI first (x86/x86_64 systems with BIOS/UEFI)
+	dmiSuccess := ic.tryGetSystemInfoFromDMI(ctx, info)
+
+	// If DMI didn't provide system info, try Device Tree (ARM systems)
+	if !dmiSuccess && info.System.Manufacturer == "" && info.System.ProductName == "" {
+		ic.logger.Debug("DMI unavailable, trying Device Tree")
+		dtInfo, err := ic.getSystemInfoFromDeviceTree(ctx)
+		if err != nil {
+			ic.logger.Debug("Device Tree unavailable", "error", err)
+		} else {
+			// Merge Device Tree info into existing info
+			if dtInfo.System.Manufacturer != "" {
+				info.System.Manufacturer = dtInfo.System.Manufacturer
+			}
+			if dtInfo.System.ProductName != "" {
+				info.System.ProductName = dtInfo.System.ProductName
+			}
+			if dtInfo.System.SerialNumber != "" {
+				info.System.SerialNumber = dtInfo.System.SerialNumber
+			}
+			if dtInfo.System.Version != "" {
+				info.System.Version = dtInfo.System.Version
+			}
+			if dtInfo.Baseboard.Manufacturer != "" {
+				info.Baseboard.Manufacturer = dtInfo.Baseboard.Manufacturer
+			}
+			if dtInfo.Baseboard.Version != "" {
+				info.Baseboard.Version = dtInfo.Baseboard.Version
+			}
+			if dtInfo.Chassis.Manufacturer != "" {
+				info.Chassis.Manufacturer = dtInfo.Chassis.Manufacturer
+			}
+			if dtInfo.Chassis.Type != "" {
+				info.Chassis.Type = dtInfo.Chassis.Type
+			}
+		}
+	}
+
+	return info, nil
+}
+
+// tryGetSystemInfoFromDMI attempts to get system info from DMI, returns true if successful
+func (ic *InfoCollector) tryGetSystemInfoFromDMI(ctx context.Context, info *SystemHW) bool {
+	hasAnyDMIData := false
 
 	// Get BIOS information
 	biosInfo, err := ic.getBIOSInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get BIOS info", "error", err)
-	} else {
+		ic.logger.Debug("Failed to get BIOS info", "error", err)
+	} else if biosInfo.Vendor != "" || biosInfo.Version != "" {
 		info.BIOS = *biosInfo
+		hasAnyDMIData = true
 	}
 
 	// Get System information
 	systemInfo, err := ic.getSystemDMIInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get system DMI info", "error", err)
-	} else {
+		ic.logger.Debug("Failed to get system DMI info", "error", err)
+	} else if systemInfo.Manufacturer != "" || systemInfo.ProductName != "" {
 		info.System = *systemInfo
+		hasAnyDMIData = true
 	}
 
 	// Get Baseboard information
 	baseboardInfo, err := ic.getBaseboardInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get baseboard info", "error", err)
-	} else {
+		ic.logger.Debug("Failed to get baseboard info", "error", err)
+	} else if baseboardInfo.Manufacturer != "" || baseboardInfo.ProductName != "" {
 		info.Baseboard = *baseboardInfo
+		hasAnyDMIData = true
 	}
 
 	// Get Chassis information
 	chassisInfo, err := ic.getChassisInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get chassis info", "error", err)
-	} else {
+		ic.logger.Debug("Failed to get chassis info", "error", err)
+	} else if chassisInfo.Manufacturer != "" || chassisInfo.Type != "" {
 		info.Chassis = *chassisInfo
+		hasAnyDMIData = true
 	}
 
 	// Get Processor DMI information
 	processorInfo, err := ic.getProcessorDMIInfo(ctx)
 	if err != nil {
-		ic.logger.Warn("Failed to get processor DMI info", "error", err)
-	} else {
+		ic.logger.Debug("Failed to get processor DMI info", "error", err)
+	} else if processorInfo.Manufacturer != "" || processorInfo.Version != "" {
 		info.Processor = *processorInfo
+		hasAnyDMIData = true
 	}
 
-	return info, nil
+	return hasAnyDMIData
 }
 
 // getBIOSInfo gets BIOS information from DMI

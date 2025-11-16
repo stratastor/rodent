@@ -249,6 +249,8 @@ func (ed *EnvironmentDetector) determineEnvironmentType(
 	cloudProvider, hypervisor string,
 	supportsMACVLAN bool,
 ) DeploymentEnvironment {
+	_ = hypervisor // Reserved for future use
+
 	if !isVirtualized {
 		return DeploymentPhysical
 	}
@@ -272,6 +274,7 @@ func (ed *EnvironmentDetector) recommendNetworkMode(
 	envType DeploymentEnvironment,
 	supportsMACVLAN bool,
 ) string {
+	_ = supportsMACVLAN // Reserved for future use
 	switch envType {
 	case DeploymentPhysical:
 		return "macvlan"

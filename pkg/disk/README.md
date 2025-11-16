@@ -223,14 +223,14 @@ Events automatically flow to Toggle via `SendEvents` RPC.
 
 ### Completed (88%)
 
-- ✅ Core discovery with topology mapping
-- ✅ Health monitoring (SMART/NVMe/iostat)
-- ✅ SMART probe scheduling with ZFS-aware conflict detection
-- ✅ Hotplug detection (netlink-based, <1ms latency)
-- ✅ State and config management with persistence
+- Core discovery with topology mapping
+- Health monitoring (SMART/NVMe/iostat)
+- SMART probe scheduling with ZFS-aware conflict detection
+- Hotplug detection (netlink-based, <1ms latency)
+- State and config management with persistence
 - REST and gRPC APIs (38/43 endpoints, 88%)
-- ✅ Integration test suite for all handlers
-- ✅ Available disks endpoint for pool creation
+- Integration test suite for all handlers
+- Available disks endpoint for pool creation
 
 ### In Progress
 
@@ -275,10 +275,6 @@ Location: [api/handler_grpc_integration_test.go](api/handler_grpc_integration_te
 | Examples | Schedules, intervals | Active probes, history |
 | Version Control | Yes | No |
 
-### 2. HBA Mode Only
-
-Assumes HBA in IT mode (passthrough) or direct PCIe. ZFS requires direct disk access for checksumming and redundancy. System warns if RAID controller detected.
-
 ### 3. ZFS-Aware Conflict Detection
 
 Probes automatically detect and skip devices under:
@@ -295,15 +291,6 @@ System continues operating when tools are unavailable:
 - SMART unavailable → health status marked as UNKNOWN
 - Topology tools missing → basic device info only
 - Config file missing → uses defaults
-
-## Performance
-
-- **Discovery**: <5s for 100 disks (cached: <100ms)
-- **SMART read**: <2s per disk (max 5 concurrent)
-- **Hotplug**: <1ms event latency
-- **API response**: <200ms for inventory (from cache)
-- **Memory**: ~10MB baseline + 100KB per disk
-- **CPU**: <5% idle, <15% during probe batch
 
 ## Documentation
 

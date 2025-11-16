@@ -165,9 +165,9 @@ default via 192.168.31.1 dev wlan0            # Internet via WiFi
 
 ### MACVLAN Testing
 
-- ✅ Ping MACVLAN container (192.168.100.10) from Mac: ~1ms latency
-- ✅ DNS/LDAP services accessible on MACVLAN IP
-- ✅ Internet still works via wlan0
+- Ping MACVLAN container (192.168.100.10) from Mac: ~1ms latency
+- DNS/LDAP services accessible on MACVLAN IP
+- Internet still works via wlan0
 
 ## Troubleshooting
 

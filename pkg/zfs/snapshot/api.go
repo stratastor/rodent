@@ -65,6 +65,59 @@ func (h *Handler) StopManager() error {
 	return h.manager.Stop()
 }
 
+// SchedulerInterface implementation - delegate to manager
+// These methods allow Handler to be used as a SchedulerInterface
+
+// AddPolicy adds a new snapshot policy
+func (h *Handler) AddPolicy(params EditPolicyParams) (string, error) {
+	return h.manager.AddPolicy(params)
+}
+
+// UpdatePolicy updates an existing snapshot policy
+func (h *Handler) UpdatePolicy(params EditPolicyParams) error {
+	return h.manager.UpdatePolicy(params)
+}
+
+// RemovePolicy removes a snapshot policy
+func (h *Handler) RemovePolicy(policyID string, removeSnapshots bool) error {
+	return h.manager.RemovePolicy(policyID, removeSnapshots)
+}
+
+// GetPolicy gets a snapshot policy by ID
+func (h *Handler) GetPolicy(policyID string) (SnapshotPolicy, error) {
+	return h.manager.GetPolicy(policyID)
+}
+
+// ListPolicies lists all snapshot policies
+func (h *Handler) ListPolicies() ([]SnapshotPolicy, error) {
+	return h.manager.ListPolicies()
+}
+
+// RunPolicy runs a snapshot policy
+func (h *Handler) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error) {
+	return h.manager.RunPolicy(params)
+}
+
+// Start starts the scheduler
+func (h *Handler) Start() error {
+	return h.manager.Start()
+}
+
+// Stop stops the scheduler
+func (h *Handler) Stop() error {
+	return h.manager.Stop()
+}
+
+// LoadConfig loads the configuration
+func (h *Handler) LoadConfig() error {
+	return h.manager.LoadConfig()
+}
+
+// SaveConfig saves the configuration
+func (h *Handler) SaveConfig(skipLock bool) error {
+	return h.manager.SaveConfig(skipLock)
+}
+
 // createPolicy creates a new snapshot policy
 func (h *Handler) createPolicy(c *gin.Context) {
 	var params EditPolicyParams
