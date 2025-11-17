@@ -213,6 +213,11 @@ func (c *Collector) collectSystemSummary(
 	}
 	summary.Hardware = hwInfo
 
+	// Clear CPU flags - they're verbose and not particularly useful for inventory
+	if summary.Hardware != nil {
+		summary.Hardware.CPU.Flags = nil
+	}
+
 	// Get performance info
 	perfInfo, err := c.systemManager.GetPerformanceInfo(ctx)
 	if err != nil {

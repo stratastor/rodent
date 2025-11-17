@@ -688,47 +688,42 @@ func (ic *InfoCollector) getCPUUsage(_ context.Context) (*CPUUsage, error) {
 	return usage, nil
 }
 
-// getProcessCount gets process statistics from /proc/stat
+// getProcessCount gets process statistics by parsing /proc/[pid]/stat
 func (ic *InfoCollector) getProcessCount() (*ProcessCount, error) {
-	data, err := os.ReadFile("/proc/stat")
-	if err != nil {
-		return nil, err
-	}
-
 	count := &ProcessCount{}
-	lines := strings.Split(string(data), "\n")
 
-	for _, line := range lines {
-		if strings.HasPrefix(line, "processes ") {
-			// This is total processes created since boot, not current count
-			continue
-		}
-		if strings.HasPrefix(line, "procs_running ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				if running, err := strconv.Atoi(fields[1]); err == nil {
-					count.Running = running
-				}
-			}
-		}
-		if strings.HasPrefix(line, "procs_blocked ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				if blocked, err := strconv.Atoi(fields[1]); err == nil {
-					// Blocked processes are effectively sleeping
-					count.Sleeping = blocked
-				}
-			}
-		}
-	}
-
-	// Get more detailed process count by parsing /proc
+	// Get accurate process count by parsing /proc/[pid]/stat for each process
+	// This gives us accurate state counts (S, R, Z, T, etc.)
 	if entries, err := os.ReadDir("/proc"); err == nil {
 		processRegex := regexp.MustCompile(`^\d+$`)
 		for _, entry := range entries {
 			if processRegex.MatchString(entry.Name()) {
 				count.Total++
-				// Could read /proc/[pid]/stat for more detailed state info
+
+				// Read /proc/[pid]/stat to get process state
+				statPath := "/proc/" + entry.Name() + "/stat"
+				if statData, err := os.ReadFile(statPath); err == nil {
+					// Parse the stat file - state is the 3rd field after the comm field
+					// Format: pid (comm) state ...
+					statStr := string(statData)
+
+					// Find the last ')' to handle process names with spaces/parentheses
+					lastParen := strings.LastIndex(statStr, ")")
+					if lastParen != -1 && lastParen+2 < len(statStr) {
+						state := statStr[lastParen+2]
+
+						switch state {
+						case 'R': // Running
+							count.Running++
+						case 'S', 'D', 'I': // Sleeping (interruptible, uninterruptible, idle)
+							count.Sleeping++
+						case 'T': // Stopped (traced or stopped by signal)
+							count.Stopped++
+						case 'Z': // Zombie
+							count.Zombie++
+						}
+					}
+				}
 			}
 		}
 	}
