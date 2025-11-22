@@ -5,6 +5,7 @@
 package dataset
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -685,45 +686,29 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 		return errors.New(errors.TransferInvalidState, "Transfer is not paused")
 	}
 
-	// Check if transfer was paused during initial send phase
-	// For initial send, always abort and restart (resume tokens unreliable for this phase)
-	if info.Progress.Phase == "initial_send" {
-		tm.logger.Info("Transfer paused during initial send, aborting and restarting", "id", transferID)
-
-		// Abort any partial receive state to ensure clean restart
-		// Resume tokens for initial send can be incompatible after pause/kill
-		if abortErr := tm.abortPartialReceive(info.Config.ReceiveConfig.Target, info.Config.ReceiveConfig.RemoteConfig); abortErr != nil {
-			tm.logger.Warn("Failed to abort partial receive (may not exist)",
-				"error", abortErr,
-				"target", info.Config.ReceiveConfig.Target,
-			)
-			// Don't fail resume if abort fails - the partial state might not exist
-		}
-
-		// Clear resume token - restart from scratch
-		info.Config.SendConfig.ResumeToken = ""
-
-		// Resume the transfer
-		info.pendingAction = TransferActionNone
-		info.Status = TransferStatusRunning
-		info.ErrorMessage = ""
-
-		// Emit transfer resumed event
-		tm.emitTransferEvent(info, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_RESUMED)
-
-		// Start transfer execution
-		go tm.executeTransfer(ctx, info)
-
-		tm.logger.Info("Transfer restarted from initial send (no token)", "id", transferID)
-		return nil
-	}
-
-	// For transfers paused during main send: fetch resume token
+	// Fetch resume token (works for both initial_send and main send phases)
+	tm.logger.Info("Fetching resume token for paused transfer", "id", transferID, "phase", info.Progress.Phase)
 	token, err := tm.getReceiveResumeTokenWithRetry(
 		info.Config.ReceiveConfig.Target,
 		info.Config.ReceiveConfig.RemoteConfig,
 	)
 	if err != nil {
+		// Check if error is due to dataset being busy (transient - don't fail transfer)
+		errStr := err.Error()
+		isBusy := strings.Contains(errStr, "dataset is busy") ||
+			strings.Contains(errStr, "resource busy")
+
+		if isBusy {
+			// Dataset still cleaning up from pause - don't fail, let user retry
+			tm.logger.Warn("Dataset busy, resume can be retried",
+				"id", transferID,
+				"error", err,
+				"hint", "ZFS is still cleaning up from pause, please retry in a few seconds")
+			return errors.New(errors.TransferResumeFailed,
+				"Dataset busy - ZFS is still processing the paused receive. Please retry resume in a few seconds")
+		}
+
+		// Non-transient error - fail the transfer
 		tm.updateTransferStatusUnlocked(info, TransferStatusFailed,
 			fmt.Sprintf("Failed to get resume token for resuming transfer: %v", err))
 		return errors.Wrap(err, errors.TransferResumeFailed)
@@ -1447,12 +1432,21 @@ func (tm *TransferManager) getReceiveResumeToken(
 		cmd = exec.Command("sudo", "zfs", "get", "-H", "-o", "value", "receive_resume_token", target)
 	}
 
-	output, err := cmd.Output()
-	if err != nil {
+	// Capture both stdout and stderr for better error reporting
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			tm.logger.Debug("Get resume token stderr", "stderr", stderrStr, "target", target)
+			return "", fmt.Errorf("%w: %s", err, stderrStr)
+		}
 		return "", err
 	}
 
-	token := strings.TrimSpace(string(output))
+	token := strings.TrimSpace(stdout.String())
 	if token == "-" {
 		return "", errors.New(errors.ZFSDatasetNoReceiveToken, "No resume token available")
 	}
@@ -1460,8 +1454,48 @@ func (tm *TransferManager) getReceiveResumeToken(
 	return token, nil
 }
 
-// abortPartialReceive aborts a partial receive operation
+// abortPartialReceive aborts a partial receive operation with retry logic
 func (tm *TransferManager) abortPartialReceive(target string, remoteConfig RemoteConfig) error {
+	const maxRetries = 5
+	const retryDelay = 2 * time.Second
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := tm.abortPartialReceiveOnce(target, remoteConfig)
+		if err == nil {
+			if attempt > 1 {
+				tm.logger.Info("Abort succeeded after retry", "target", target, "attempt", attempt)
+			}
+			return nil
+		}
+
+		lastErr = err
+		errStr := err.Error()
+
+		// Check if error is due to dataset being busy (needs retry)
+		isBusy := strings.Contains(errStr, "dataset is busy") ||
+			strings.Contains(errStr, "resource busy")
+
+		if !isBusy {
+			// Non-busy error - return immediately
+			return err
+		}
+
+		// Dataset is busy - retry with delay
+		if attempt < maxRetries {
+			tm.logger.Debug("Dataset busy during abort, will retry",
+				"target", target,
+				"attempt", attempt,
+				"retry_in_seconds", retryDelay.Seconds())
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("failed to abort after %d attempts (dataset busy): %w", maxRetries, lastErr)
+}
+
+// abortPartialReceiveOnce attempts to abort a partial receive once
+func (tm *TransferManager) abortPartialReceiveOnce(target string, remoteConfig RemoteConfig) error {
 	var cmd *exec.Cmd
 
 	if remoteConfig.Host != "" {
@@ -1481,7 +1515,22 @@ func (tm *TransferManager) abortPartialReceive(target string, remoteConfig Remot
 		cmd = exec.Command("sudo", "zfs", "receive", "-A", target)
 	}
 
-	return cmd.Run()
+	// Capture both stdout and stderr for better error reporting
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Include stderr in error message for debugging
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			tm.logger.Debug("Abort command stderr", "stderr", stderrStr, "target", target)
+			return fmt.Errorf("%w: %s", err, stderrStr)
+		}
+		return err
+	}
+
+	return nil
 }
 
 // monitorTransferProgress monitors and updates transfer progress
