@@ -174,6 +174,7 @@ UPTIME_PATH=$(detect_binary "uptime" "/usr/bin/uptime")
 GROUPS_PATH=$(detect_binary "groups" "/usr/bin/groups")
 PASSWD_PATH=$(detect_binary "passwd" "/usr/bin/passwd")
 OPENSSL_PATH=$(detect_binary "openssl" "/usr/bin/openssl")
+LSCPU_PATH=$(detect_binary "lscpu" "/usr/bin/lscpu")
 DMIDECODE_PATH=$(detect_binary "dmidecode" "/usr/sbin/dmidecode")
 SYSTEMD_DETECT_VIRT_PATH=$(detect_binary "systemd-detect-virt" "/usr/bin/systemd-detect-virt")
 REBOOT_PATH=$(detect_binary "reboot" "/usr/sbin/reboot")
@@ -486,6 +487,7 @@ Cmnd_Alias SYSTEM_COMMANDS = \\
     $GROUPS_PATH *, \\
     $PASSWD_PATH *, \\
     $OPENSSL_PATH *, \\
+    $LSCPU_PATH *, \\
     $DMIDECODE_PATH *, \\
     $SYSTEMD_DETECT_VIRT_PATH *, \\
     $REBOOT_PATH *, \\
