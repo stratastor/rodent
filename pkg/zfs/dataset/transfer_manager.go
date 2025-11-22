@@ -238,6 +238,16 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 				return
 			}
 
+			// Check if transfer was paused/stopped during initial send
+			tm.mu.Lock()
+			wasPausedOrStopped := info.Status == TransferStatusPaused || info.Status == TransferStatusCancelled
+			tm.mu.Unlock()
+
+			if wasPausedOrStopped {
+				tm.logger.Info("Transfer paused/stopped during initial send, not proceeding to main transfer", "id", info.ID)
+				return
+			}
+
 			// Update progress to show incremental phase
 			info.Progress.Phase = "incremental_send"
 			info.Progress.PhaseDescription = fmt.Sprintf("Sending incremental changes from %s to %s", sendCfg.FromSnapshot, sendCfg.Snapshot)
@@ -317,7 +327,19 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 	// Save PID (this is the process group leader)
 	info.PID = cmd.Process.Pid
 	if err := tm.savePID(info); err != nil {
-		tm.logger.Warn("Failed to save PID", "error", err)
+		// Kill the process immediately if we can't save PID
+		// Without PID, the transfer cannot be paused/stopped later
+		tm.logger.Error("Failed to save PID, killing process", "error", err, "id", info.ID, "pid", info.PID)
+		if killErr := syscall.Kill(-info.PID, syscall.SIGKILL); killErr != nil {
+			tm.logger.Error("Failed to kill process after PID save failure", "error", killErr)
+		}
+		cmd.Wait() // Clean up zombie process
+		tm.updateTransferStatusLocked(
+			info,
+			TransferStatusFailed,
+			fmt.Sprintf("Failed to save transfer PID: %v", err),
+		)
+		return
 	}
 	tm.logger.Debug("Transfer PID saved", "id", info.ID, "pid", info.PID)
 
@@ -580,12 +602,13 @@ func (tm *TransferManager) PauseTransfer(transferID string) error {
 	// Set pending action to pause to prevent executeTransfer from updating status
 	info.pendingAction = TransferActionPause
 
-	// Check if we have a valid PID to pause
+	// Check if we have a valid PID to pause (defensive - should not happen with fail-fast on PID save)
 	if info.PID == 0 {
 		info.pendingAction = TransferActionNone // Reset pending action
+		tm.logger.Error("Unexpected: transfer has no PID during pause", "id", info.ID, "status", info.Status)
 		return errors.New(
 			errors.TransferPauseFailed,
-			"transfer process not yet started or PID not available",
+			"transfer PID not available (unexpected state - please check logs)",
 		)
 	}
 
@@ -662,7 +685,40 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 		return errors.New(errors.TransferInvalidState, "Transfer is not paused")
 	}
 
-	// Fetch resume token NOW (when network connectivity is more likely to be restored)
+	// Check if transfer was paused during initial send phase
+	// For initial send, always abort and restart (resume tokens unreliable for this phase)
+	if info.Progress.Phase == "initial_send" {
+		tm.logger.Info("Transfer paused during initial send, aborting and restarting", "id", transferID)
+
+		// Abort any partial receive state to ensure clean restart
+		// Resume tokens for initial send can be incompatible after pause/kill
+		if abortErr := tm.abortPartialReceive(info.Config.ReceiveConfig.Target, info.Config.ReceiveConfig.RemoteConfig); abortErr != nil {
+			tm.logger.Warn("Failed to abort partial receive (may not exist)",
+				"error", abortErr,
+				"target", info.Config.ReceiveConfig.Target,
+			)
+			// Don't fail resume if abort fails - the partial state might not exist
+		}
+
+		// Clear resume token - restart from scratch
+		info.Config.SendConfig.ResumeToken = ""
+
+		// Resume the transfer
+		info.pendingAction = TransferActionNone
+		info.Status = TransferStatusRunning
+		info.ErrorMessage = ""
+
+		// Emit transfer resumed event
+		tm.emitTransferEvent(info, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_RESUMED)
+
+		// Start transfer execution
+		go tm.executeTransfer(ctx, info)
+
+		tm.logger.Info("Transfer restarted from initial send (no token)", "id", transferID)
+		return nil
+	}
+
+	// For transfers paused during main send: fetch resume token
 	token, err := tm.getReceiveResumeTokenWithRetry(
 		info.Config.ReceiveConfig.Target,
 		info.Config.ReceiveConfig.RemoteConfig,
@@ -724,14 +780,13 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 	// Set pending action to stop to prevent executeTransfer from updating status
 	info.pendingAction = TransferActionStop
 
-	// Warn if PID is not available (process may not be killable)
+	// Check if we have a valid PID to stop (defensive - should not happen with fail-fast on PID save)
 	if info.PID == 0 {
-		tm.logger.Warn(
-			"Cannot kill transfer process - PID not available",
-			"id",
-			info.ID,
-			"status",
-			info.Status,
+		info.pendingAction = TransferActionNone // Reset pending action
+		tm.logger.Error("Unexpected: transfer has no PID during stop", "id", info.ID, "status", info.Status)
+		return errors.New(
+			errors.TransferStopFailed,
+			"transfer PID not available (unexpected state - please check logs)",
 		)
 	}
 
@@ -1250,13 +1305,34 @@ func (tm *TransferManager) performInitialSend(
 	// Save PID so the initial send can be paused/stopped
 	info.PID = cmd.Process.Pid
 	if err := tm.savePID(info); err != nil {
-		tm.logger.Warn("Failed to save PID for initial send", "error", err)
+		// Kill the process immediately if we can't save PID
+		// Without PID, the transfer cannot be paused/stopped later
+		tm.logger.Error("Failed to save PID for initial send, killing process", "error", err, "id", info.ID, "pid", info.PID)
+		if killErr := syscall.Kill(-info.PID, syscall.SIGKILL); killErr != nil {
+			tm.logger.Error("Failed to kill initial send process after PID save failure", "error", killErr)
+		}
+		cmd.Wait() // Clean up zombie process
+		return fmt.Errorf("failed to save transfer PID: %w", err)
 	}
 	tm.logger.Debug("Initial send PID saved", "id", info.ID, "pid", info.PID)
 
 	// Wait for completion
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("initial send failed: %w", err)
+	waitErr := cmd.Wait()
+
+	// Check if transfer was paused/stopped before treating Wait error as failure
+	tm.mu.Lock()
+	wasPaused := info.Status == TransferStatusPaused
+	wasCancelled := info.Status == TransferStatusCancelled
+	tm.mu.Unlock()
+
+	if waitErr != nil && !wasPaused && !wasCancelled {
+		return fmt.Errorf("initial send failed: %w", waitErr)
+	}
+
+	// If transfer was paused/cancelled, return without error (status already set)
+	if wasPaused || wasCancelled {
+		tm.logger.Info("Initial send terminated due to pause/stop", "id", info.ID, "status", info.Status)
+		return nil
 	}
 
 	// Clear PID after initial send completes (main transfer will set it again)
