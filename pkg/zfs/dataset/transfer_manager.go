@@ -61,24 +61,27 @@ const (
 	TransferActionResume TransferAction = "resume"
 )
 
+const cooloffPeriod = 3 * time.Minute
+
 // TransferInfo holds comprehensive information about a ZFS transfer
 type TransferInfo struct {
-	ID           string            `json:"id"                      yaml:"id"`
-	Operation    TransferOperation `json:"operation"               yaml:"operation"`
-	Status       TransferStatus    `json:"status"                  yaml:"status"`
-	Config       TransferConfig    `json:"config"                  yaml:"config"`
-	Progress     TransferProgress  `json:"progress"                yaml:"progress"`
-	CreatedAt    time.Time         `json:"created_at"              yaml:"created_at"`
-	StartedAt    *time.Time        `json:"started_at,omitempty"    yaml:"started_at,omitempty"`
-	CompletedAt  *time.Time        `json:"completed_at,omitempty"  yaml:"completed_at,omitempty"`
-	PID          int               `json:"pid,omitempty"           yaml:"pid,omitempty"`
-	LogFile      string            `json:"log_file"                yaml:"log_file"`
-	PIDFile      string            `json:"pid_file"                yaml:"pid_file"`
-	ConfigFile   string            `json:"config_file"             yaml:"config_file"`
-	ProgressFile string            `json:"progress_file"           yaml:"progress_file"`
-	ErrorMessage string            `json:"error_message,omitempty" yaml:"error_message,omitempty"`
+	ID           string            `json:"id"                       yaml:"id"`
+	Operation    TransferOperation `json:"operation"                yaml:"operation"`
+	Status       TransferStatus    `json:"status"                   yaml:"status"`
+	Config       TransferConfig    `json:"config"                   yaml:"config"`
+	Progress     TransferProgress  `json:"progress"                 yaml:"progress"`
+	CreatedAt    time.Time         `json:"created_at"               yaml:"created_at"`
+	StartedAt    *time.Time        `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"   yaml:"completed_at,omitempty"`
+	LastPausedAt *time.Time        `json:"last_paused_at,omitempty" yaml:"last_paused_at,omitempty"`
+	PID          int               `json:"pid,omitempty"            yaml:"pid,omitempty"`
+	LogFile      string            `json:"log_file"                 yaml:"log_file"`
+	PIDFile      string            `json:"pid_file"                 yaml:"pid_file"`
+	ConfigFile   string            `json:"config_file"              yaml:"config_file"`
+	ProgressFile string            `json:"progress_file"            yaml:"progress_file"`
+	ErrorMessage string            `json:"error_message,omitempty"  yaml:"error_message,omitempty"`
 	// Internal state for action flow tracking
-	pendingAction TransferAction `json:"-"                       yaml:"-"`
+	pendingAction TransferAction `json:"-"                        yaml:"-"`
 }
 
 // TransferProgress tracks the progress of a transfer operation
@@ -185,7 +188,10 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig
 	tm.logger.Info("Transfer initiated", "id", transferID, "operation", transferInfo.Operation)
 
 	// Emit transfer started event with complete transfer information
-	tm.emitTransferEvent(transferInfo, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED)
+	tm.emitTransferEvent(
+		transferInfo,
+		eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED,
+	)
 
 	return transferID, nil
 }
@@ -330,7 +336,15 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 	if err := tm.savePID(info); err != nil {
 		// Kill the process immediately if we can't save PID
 		// Without PID, the transfer cannot be paused/stopped later
-		tm.logger.Error("Failed to save PID, killing process", "error", err, "id", info.ID, "pid", info.PID)
+		tm.logger.Error(
+			"Failed to save PID, killing process",
+			"error",
+			err,
+			"id",
+			info.ID,
+			"pid",
+			info.PID,
+		)
 		if killErr := syscall.Kill(-info.PID, syscall.SIGKILL); killErr != nil {
 			tm.logger.Error("Failed to kill process after PID save failure", "error", killErr)
 		}
@@ -413,6 +427,34 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, info *TransferIn
 			tm.updateTransferStatusLocked(info, TransferStatusCancelled, "Transfer cancelled")
 			tm.logger.Info("Status Update: Transfer cancelled", "id", info.ID)
 		} else {
+			// Check if error is due to stale/incompatible token or ZFS busy cleaning up
+			logContent := tm.readLastLinesFromLogFile(info.LogFile, 20)
+			isPartiallyComplete := strings.Contains(logContent, "partially-complete state")
+			isStaleToken := strings.Contains(logContent, "kernel modules must be upgraded")
+
+			if isPartiallyComplete || isStaleToken {
+				// Dataset still busy or token is stale - keep transfer paused for retry
+				var reason string
+				if isPartiallyComplete {
+					reason = "ZFS still cleaning up from previous pause"
+				} else {
+					reason = "Resume token became stale"
+				}
+
+				tm.logger.Warn("Resume failed - "+reason,
+					"id", info.ID,
+					"hint", "User should retry resume to get fresh token")
+
+				tm.mu.Lock()
+				info.Status = TransferStatusPaused
+				info.ErrorMessage = "Resume token is stale or ZFS is still processing. Please retry resume after a minute."
+				tm.saveTransferConfig(info)
+				tm.mu.Unlock()
+
+				tm.logger.Info("Transfer kept in paused state for retry", "id", info.ID, "reason", reason)
+				return
+			}
+
 			tm.updateTransferStatusLocked(info, TransferStatusFailed, fmt.Sprintf("Transfer failed: %v", err))
 			tm.logger.Error("Status Update: Transfer failed", "id", info.ID, "error", err)
 		}
@@ -606,7 +648,13 @@ func (tm *TransferManager) PauseTransfer(transferID string) error {
 	// Check if we have a valid PID to pause (defensive - should not happen with fail-fast on PID save)
 	if info.PID == 0 {
 		info.pendingAction = TransferActionNone // Reset pending action
-		tm.logger.Error("Unexpected: transfer has no PID during pause", "id", info.ID, "status", info.Status)
+		tm.logger.Error(
+			"Unexpected: transfer has no PID during pause",
+			"id",
+			info.ID,
+			"status",
+			info.Status,
+		)
 		return errors.New(
 			errors.TransferPauseFailed,
 			"transfer PID not available (unexpected state - please check logs)",
@@ -641,6 +689,12 @@ func (tm *TransferManager) PauseTransfer(transferID string) error {
 
 		// Update status to paused but keep pending action until executeTransfer completes
 		tm.updateTransferStatusUnlocked(info, TransferStatusPaused, "")
+
+		// Record pause time for cooloff period enforcement
+		now := time.Now()
+		info.LastPausedAt = &now
+		tm.saveTransferConfig(info)
+
 		// sleep for a couple of seconds to allow graceful termination
 		tm.mu.Unlock()
 		time.Sleep(100 * time.Millisecond)
@@ -686,8 +740,30 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 		return errors.New(errors.TransferInvalidState, "Transfer is not paused")
 	}
 
+	// Enforce cooloff period to allow ZFS to clean up after pause
+	if info.LastPausedAt != nil {
+		elapsed := time.Since(*info.LastPausedAt)
+		if elapsed < cooloffPeriod {
+			remaining := cooloffPeriod - elapsed
+			remainingSeconds := int(remaining.Seconds())
+			return errors.New(
+				errors.TransferResumeFailed,
+				fmt.Sprintf(
+					"Please wait %d more seconds before resuming to allow ZFS to clean up from pause",
+					remainingSeconds,
+				),
+			)
+		}
+	}
+
 	// Fetch resume token (works for both initial_send and main send phases)
-	tm.logger.Info("Fetching resume token for paused transfer", "id", transferID, "phase", info.Progress.Phase)
+	tm.logger.Info(
+		"Fetching resume token for paused transfer",
+		"id",
+		transferID,
+		"phase",
+		info.Progress.Phase,
+	)
 	token, err := tm.getReceiveResumeTokenWithRetry(
 		info.Config.ReceiveConfig.Target,
 		info.Config.ReceiveConfig.RemoteConfig,
@@ -704,8 +780,10 @@ func (tm *TransferManager) ResumeTransfer(ctx context.Context, transferID string
 				"id", transferID,
 				"error", err,
 				"hint", "ZFS is still cleaning up from pause, please retry in a few seconds")
-			return errors.New(errors.TransferResumeFailed,
-				"Dataset busy - ZFS is still processing the paused receive. Please retry resume in a few seconds")
+			return errors.New(
+				errors.TransferResumeFailed,
+				"Dataset busy - ZFS is still processing the paused receive. Please retry resume in a few seconds",
+			)
 		}
 
 		// Non-transient error - fail the transfer
@@ -768,7 +846,13 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 	// Check if we have a valid PID to stop (defensive - should not happen with fail-fast on PID save)
 	if info.PID == 0 {
 		info.pendingAction = TransferActionNone // Reset pending action
-		tm.logger.Error("Unexpected: transfer has no PID during stop", "id", info.ID, "status", info.Status)
+		tm.logger.Error(
+			"Unexpected: transfer has no PID during stop",
+			"id",
+			info.ID,
+			"status",
+			info.Status,
+		)
 		return errors.New(
 			errors.TransferStopFailed,
 			"transfer PID not available (unexpected state - please check logs)",
@@ -1292,9 +1376,21 @@ func (tm *TransferManager) performInitialSend(
 	if err := tm.savePID(info); err != nil {
 		// Kill the process immediately if we can't save PID
 		// Without PID, the transfer cannot be paused/stopped later
-		tm.logger.Error("Failed to save PID for initial send, killing process", "error", err, "id", info.ID, "pid", info.PID)
+		tm.logger.Error(
+			"Failed to save PID for initial send, killing process",
+			"error",
+			err,
+			"id",
+			info.ID,
+			"pid",
+			info.PID,
+		)
 		if killErr := syscall.Kill(-info.PID, syscall.SIGKILL); killErr != nil {
-			tm.logger.Error("Failed to kill initial send process after PID save failure", "error", killErr)
+			tm.logger.Error(
+				"Failed to kill initial send process after PID save failure",
+				"error",
+				killErr,
+			)
 		}
 		cmd.Wait() // Clean up zombie process
 		return fmt.Errorf("failed to save transfer PID: %w", err)
@@ -1316,7 +1412,13 @@ func (tm *TransferManager) performInitialSend(
 
 	// If transfer was paused/cancelled, return without error (status already set)
 	if wasPaused || wasCancelled {
-		tm.logger.Info("Initial send terminated due to pause/stop", "id", info.ID, "status", info.Status)
+		tm.logger.Info(
+			"Initial send terminated due to pause/stop",
+			"id",
+			info.ID,
+			"status",
+			info.Status,
+		)
 		return nil
 	}
 
@@ -1664,7 +1766,10 @@ func (tm *TransferManager) loadExistingTransfers() error {
 
 // buildDataTransferPayload creates a complete DataTransferTransferPayload from TransferInfo
 // This ensures Toggle receives all essential transfer details for proper sync
-func (tm *TransferManager) buildDataTransferPayload(info *TransferInfo, operation eventspb.DataTransferTransferPayload_DataTransferOperation) *eventspb.DataTransferTransferPayload {
+func (tm *TransferManager) buildDataTransferPayload(
+	info *TransferInfo,
+	operation eventspb.DataTransferTransferPayload_DataTransferOperation,
+) *eventspb.DataTransferTransferPayload {
 	payload := &eventspb.DataTransferTransferPayload{
 		TransferId:    info.ID,
 		OperationType: string(info.Operation),
@@ -1708,7 +1813,10 @@ func (tm *TransferManager) buildDataTransferPayload(info *TransferInfo, operatio
 }
 
 // emitTransferEvent emits DataTransfer events with complete transfer information
-func (tm *TransferManager) emitTransferEvent(info *TransferInfo, operation eventspb.DataTransferTransferPayload_DataTransferOperation) {
+func (tm *TransferManager) emitTransferEvent(
+	info *TransferInfo,
+	operation eventspb.DataTransferTransferPayload_DataTransferOperation,
+) {
 	var level eventspb.EventLevel
 	var action string
 
@@ -1749,7 +1857,10 @@ func (tm *TransferManager) emitTransferEvent(info *TransferInfo, operation event
 
 	// Add duration to metadata if available
 	if info.CompletedAt != nil && info.StartedAt != nil {
-		transferMeta["duration_seconds"] = fmt.Sprintf("%.0f", info.CompletedAt.Sub(*info.StartedAt).Seconds())
+		transferMeta["duration_seconds"] = fmt.Sprintf(
+			"%.0f",
+			info.CompletedAt.Sub(*info.StartedAt).Seconds(),
+		)
 	}
 
 	events.EmitDataTransfer(level, payload, transferMeta)
@@ -1778,4 +1889,15 @@ func (tm *TransferManager) handleTransferCompletion(info *TransferInfo) {
 	}
 
 	tm.logger.Info("Transfer completed", "id", info.ID, "status", info.Status)
+}
+
+// readLastLinesFromLogFile reads the last N lines from a log file
+func (tm *TransferManager) readLastLinesFromLogFile(logFilePath string, numLines int) string {
+	cmd := exec.Command("tail", "-n", fmt.Sprintf("%d", numLines), logFilePath)
+	output, err := cmd.Output()
+	if err != nil {
+		tm.logger.Debug("Failed to read log file", "path", logFilePath, "error", err)
+		return ""
+	}
+	return string(output)
 }
