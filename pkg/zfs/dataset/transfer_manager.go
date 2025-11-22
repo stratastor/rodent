@@ -580,6 +580,15 @@ func (tm *TransferManager) PauseTransfer(transferID string) error {
 	// Set pending action to pause to prevent executeTransfer from updating status
 	info.pendingAction = TransferActionPause
 
+	// Check if we have a valid PID to pause
+	if info.PID == 0 {
+		info.pendingAction = TransferActionNone // Reset pending action
+		return errors.New(
+			errors.TransferPauseFailed,
+			"transfer process not yet started or PID not available",
+		)
+	}
+
 	tm.logger.Debug("Process group before pause", "id", info.ID, "pgid", info.PID)
 	// Terminate the entire process group gracefully
 	if info.PID > 0 {
@@ -714,6 +723,17 @@ func (tm *TransferManager) StopTransfer(transferID string) error {
 
 	// Set pending action to stop to prevent executeTransfer from updating status
 	info.pendingAction = TransferActionStop
+
+	// Warn if PID is not available (process may not be killable)
+	if info.PID == 0 {
+		tm.logger.Warn(
+			"Cannot kill transfer process - PID not available",
+			"id",
+			info.ID,
+			"status",
+			info.Status,
+		)
+	}
 
 	// Terminate the entire process group
 	if info.PID > 0 {
@@ -1227,10 +1247,20 @@ func (tm *TransferManager) performInitialSend(
 		return fmt.Errorf("failed to start initial send command: %w", err)
 	}
 
+	// Save PID so the initial send can be paused/stopped
+	info.PID = cmd.Process.Pid
+	if err := tm.savePID(info); err != nil {
+		tm.logger.Warn("Failed to save PID for initial send", "error", err)
+	}
+	tm.logger.Debug("Initial send PID saved", "id", info.ID, "pid", info.PID)
+
 	// Wait for completion
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("initial send failed: %w", err)
 	}
+
+	// Clear PID after initial send completes (main transfer will set it again)
+	info.PID = 0
 
 	fmt.Fprint(logFile, "=== Initial Snapshot Send Completed ===\n\n")
 	tm.logger.Info("Initial snapshot send completed", "id", info.ID, "snapshot", fromSnapshot)
