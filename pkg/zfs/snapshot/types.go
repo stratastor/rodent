@@ -74,10 +74,11 @@ type SnapshotPolicy struct {
 	Enabled         bool              `json:"enabled"           yaml:"enabled"`           // Whether this policy is enabled
 	CreatedAt       time.Time         `json:"created_at"        yaml:"created_at"`        // When this policy was created
 	UpdatedAt       time.Time         `json:"updated_at"        yaml:"updated_at"`        // When this policy was last updated
-	LastRunAt       time.Time         `json:"last_run_at"       yaml:"last_run_at"`       // When this policy was last executed
-	LastRunStatus   string            `json:"last_run_status"   yaml:"last_run_status"`   // Status of the last run
-	LastRunError    string            `json:"last_run_error"    yaml:"last_run_error"`    // Error from the last run, if any
-	MonitorStatus   *JobMonitor       `json:"monitor_status"    yaml:"-"`                 // Detailed job monitor status (not stored in YAML)
+	LastRunAt         time.Time         `json:"last_run_at"         yaml:"last_run_at"`                    // When this policy was last executed
+	LastRunStatus     string            `json:"last_run_status"     yaml:"last_run_status"`                // Status of the last run
+	LastRunError      string            `json:"last_run_error"      yaml:"last_run_error"`                 // Error from the last run, if any
+	TransferPolicyIDs []string          `json:"transfer_policy_ids" yaml:"transfer_policy_ids,omitempty"` // IDs of transfer policies using this snapshot policy
+	MonitorStatus     *JobMonitor       `json:"monitor_status"      yaml:"-"`                              // Detailed job monitor status (not stored in YAML)
 }
 
 // JobMonitor monitors job status and execution

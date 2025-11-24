@@ -40,6 +40,7 @@ const (
 	TransferStatusCompleted TransferStatus = "completed"
 	TransferStatusFailed    TransferStatus = "failed"
 	TransferStatusCancelled TransferStatus = "cancelled"
+	TransferStatusUnknown   TransferStatus = "unknown"
 )
 
 // TransferOperation represents different types of transfer operations
@@ -66,6 +67,7 @@ const cooloffPeriod = 3 * time.Minute
 // TransferInfo holds comprehensive information about a ZFS transfer
 type TransferInfo struct {
 	ID           string            `json:"id"                       yaml:"id"`
+	PolicyID     string            `json:"policy_id,omitempty"      yaml:"policy_id,omitempty"` // ID of the transfer policy that created this transfer (if any)
 	Operation    TransferOperation `json:"operation"                yaml:"operation"`
 	Status       TransferStatus    `json:"status"                   yaml:"status"`
 	Config       TransferConfig    `json:"config"                   yaml:"config"`
@@ -137,10 +139,29 @@ func NewTransferManager(logCfg logger.Config) (*TransferManager, error) {
 
 // StartTransfer initiates a new managed ZFS transfer operation
 func (tm *TransferManager) StartTransfer(ctx context.Context, cfg TransferConfig) (string, error) {
+	return tm.startTransferInternal(ctx, cfg, "")
+}
+
+// StartTransferWithPolicy starts a new transfer that was initiated by a transfer policy
+func (tm *TransferManager) StartTransferWithPolicy(
+	ctx context.Context,
+	cfg TransferConfig,
+	policyID string,
+) (string, error) {
+	return tm.startTransferInternal(ctx, cfg, policyID)
+}
+
+// startTransferInternal is the internal implementation for starting transfers
+func (tm *TransferManager) startTransferInternal(
+	ctx context.Context,
+	cfg TransferConfig,
+	policyID string,
+) (string, error) {
 	transferID := common.UUID7()
 
 	transferInfo := &TransferInfo{
 		ID:           transferID,
+		PolicyID:     policyID, // Set policy ID if transfer was initiated by a policy
 		Operation:    TransferOperationSendReceive,
 		Status:       TransferStatusStarting,
 		Config:       cfg,
@@ -1691,8 +1712,14 @@ func (tm *TransferManager) saveTransferConfig(info *TransferInfo) error {
 }
 
 func (tm *TransferManager) savePID(info *TransferInfo) error {
+	// Save PID to .pid file
 	pidData := fmt.Appendf(nil, "%d", info.PID)
-	return os.WriteFile(info.PIDFile, pidData, 0644)
+	if err := os.WriteFile(info.PIDFile, pidData, 0644); err != nil {
+		return err
+	}
+
+	// Also save to YAML config so loadExistingTransfers can detect running processes
+	return tm.saveTransferConfig(info)
 }
 
 func (tm *TransferManager) saveProgress(info *TransferInfo) error {
@@ -1728,10 +1755,13 @@ func (tm *TransferManager) loadExistingTransfers() error {
 			continue
 		}
 
+		// Track original status to detect changes
+		originalStatus := info.Status
+
 		// Only load transfers that should be in activeTransfers
-		// Completed/failed/cancelled transfers are handled as historical transfers
+		// Completed/failed/cancelled/unknown transfers are handled as historical transfers
 		if info.Status == TransferStatusCompleted || info.Status == TransferStatusFailed ||
-			info.Status == TransferStatusCancelled {
+			info.Status == TransferStatusCancelled || info.Status == TransferStatusUnknown {
 			continue // Skip - these are historical transfers
 		}
 
@@ -1745,14 +1775,27 @@ func (tm *TransferManager) loadExistingTransfers() error {
 				info.Status = TransferStatusPaused
 				info.ErrorMessage = ""
 			} else {
-				// If not resumable, mark as failed
-				info.Status = TransferStatusFailed
-				info.ErrorMessage = "Process terminated unexpectedly"
+				// If not resumable, we can't determine if it completed successfully or failed
+				// Mark as unknown since we don't have enough information
+				info.Status = TransferStatusUnknown
+				info.ErrorMessage = "Process no longer running (status uncertain)"
 			}
 		} else if info.Status == TransferStatusPaused {
 			// Transfer was paused, keep it paused regardless of process state
 			// (paused transfers don't have running processes)
 			info.ErrorMessage = ""
+		}
+
+		// Save the corrected status back to disk if it changed
+		// This ensures GetTransfer returns consistent status with ListTransfers
+		if originalStatus != info.Status {
+			if err := tm.saveTransferConfig(&info); err != nil {
+				tm.logger.Warn("Failed to save corrected transfer status",
+					"transfer_id", info.ID,
+					"old_status", originalStatus,
+					"new_status", info.Status,
+					"error", err)
+			}
 		}
 
 		// Only add truly active transfers (running/paused) to activeTransfers

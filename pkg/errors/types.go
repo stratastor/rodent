@@ -195,6 +195,17 @@ const (
 	TransferStopFailed
 	TransferResumeFailed
 
+	// Transfer policy errors
+	TransferPolicyNotFound
+	TransferPolicyAlreadyExists
+	TransferPolicyInvalidConfig
+	TransferPolicySnapshotPolicyNotFound
+	TransferPolicySnapshotPolicyInUse
+	TransferPolicyNoSnapshots
+	TransferPolicyTransferRunning
+	TransferPolicySchedulerError
+	TransferPolicyInvalidState
+
 	ZFSSnapshotList
 	ZFSSnapshotDestroy
 	ZFSSnapshotRollback
@@ -775,6 +786,17 @@ var errorDefinitions = map[ErrorCode]struct {
 	TransferPauseFailed:  {"Failed to pause transfer", DomainZFS, http.StatusInternalServerError},
 	TransferStopFailed:   {"Failed to stop transfer", DomainZFS, http.StatusInternalServerError},
 	TransferResumeFailed: {"Failed to resume transfer", DomainZFS, http.StatusInternalServerError},
+
+	// Transfer policy error definitions
+	TransferPolicyNotFound:               {"Transfer policy not found", DomainZFS, http.StatusNotFound},
+	TransferPolicyAlreadyExists:          {"Transfer policy already exists", DomainZFS, http.StatusConflict},
+	TransferPolicyInvalidConfig:          {"Invalid transfer policy configuration", DomainZFS, http.StatusBadRequest},
+	TransferPolicySnapshotPolicyNotFound: {"Associated snapshot policy not found", DomainZFS, http.StatusNotFound},
+	TransferPolicySnapshotPolicyInUse:    {"Snapshot policy is in use by transfer policies", DomainZFS, http.StatusConflict},
+	TransferPolicyNoSnapshots:            {"No snapshots available for transfer", DomainZFS, http.StatusNotFound},
+	TransferPolicyTransferRunning:        {"Transfer already running for this policy", DomainZFS, http.StatusConflict},
+	TransferPolicySchedulerError:         {"Transfer policy scheduler error", DomainZFS, http.StatusInternalServerError},
+	TransferPolicyInvalidState:           {"Invalid transfer policy state", DomainZFS, http.StatusBadRequest},
 
 	ZFSSnapshotList:     {"Failed to list snapshots", DomainZFS, http.StatusBadRequest},
 	ZFSSnapshotDestroy:  {"Failed to destroy snapshot", DomainZFS, http.StatusBadRequest},

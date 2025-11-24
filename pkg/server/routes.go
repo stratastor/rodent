@@ -95,6 +95,18 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 				sharedSnapshotHandler = snapshotHandler
 			}
 			// If err != nil, sharedSnapshotHandler remains nil and inventory won't include snapshot policies
+
+			// Register transfer policy routes
+			if snapshotHandler != nil && transferManager != nil {
+				_, err := api.RegisterTransferPolicyRoutes(schedulers, transferManager, snapshotHandler)
+				if err != nil {
+					// Log the error but don't fail startup
+					cfg := config.GetConfig()
+					if l, lerr := logger.NewTag(logger.Config{LogLevel: cfg.Server.LogLevel}, "routes"); lerr == nil {
+						l.Warn("Failed to register transfer policy routes", "error", err)
+					}
+				}
+			}
 		}
 
 		// Health check routes

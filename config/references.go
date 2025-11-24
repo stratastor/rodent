@@ -18,6 +18,7 @@ var (
 	transfersDir string // Directory for managing ZFS dataset transfers
 	eventsDir    string // Directory for event logs
 	diskDir      string // Directory for disk manager state and config
+	policiesDir  string // Directory for policy configurations (snapshot, transfer, etc.)
 )
 
 func init() {
@@ -38,6 +39,7 @@ func init() {
 	transfersDir = filepath.Join(configDir, "transfers")
 	eventsDir = filepath.Join(configDir, "events")
 	diskDir = filepath.Join(configDir, "disk")
+	policiesDir = filepath.Join(configDir, "policies")
 
 	// Ensure the directories exist
 	if err := EnsureDirectories(); err != nil {
@@ -82,6 +84,11 @@ func GetDiskDir() string {
 	return diskDir
 }
 
+// GetPoliciesDir returns the directory for policy configurations
+func GetPoliciesDir() string {
+	return policiesDir
+}
+
 // EnsureDirectories creates necessary directories if they do not exist
 func EnsureDirectories() error {
 	dirs := []string{
@@ -92,6 +99,7 @@ func EnsureDirectories() error {
 		transfersDir,
 		eventsDir,
 		diskDir,
+		policiesDir,
 	}
 
 	for _, dir := range dirs {
