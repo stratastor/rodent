@@ -489,7 +489,7 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 		"schedule_index", scheduleIndex)
 
 	// Generate snapshot name based on pattern
-	snapName := expandSnapNamePattern(policyID, scheduleIndex, policy.SnapNamePattern, time.Now())
+	snapName := expandSnapNamePattern(policyID, policy.Name, scheduleIndex, policy.SnapNamePattern, time.Now())
 
 	// Create snapshot config
 	snapshotCfg := dataset.SnapshotConfig{
@@ -743,9 +743,35 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 }
 
 // expandSnapNamePattern expands a snapshot name pattern with current time
-func expandSnapNamePattern(id string, idx int, pattern string, t time.Time) string {
-	// Simple implementation for common patterns
+// Supports both strftime-style format codes (%Y, %m, etc.) and well-formed placeholders
+// ({timestamp}, {date}, {time}, {policy_id}, {policy_name}, {sequence})
+func expandSnapNamePattern(id string, policyName string, idx int, pattern string, t time.Time) string {
 	result := pattern
+
+	// Replace well-formed placeholders first (matching buildSnapshotPatternRegex)
+	// {timestamp} - Full timestamp: YYYY-MM-DD-HHMMSS
+	timestamp := fmt.Sprintf("%04d-%02d-%02d-%02d%02d%02d",
+		t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+	result = strings.ReplaceAll(result, "{timestamp}", timestamp)
+
+	// {date} - Date only: YYYY-MM-DD
+	date := fmt.Sprintf("%04d-%02d-%02d", t.Year(), t.Month(), t.Day())
+	result = strings.ReplaceAll(result, "{date}", date)
+
+	// {time} - Time only: HHMMSS
+	timeStr := fmt.Sprintf("%02d%02d%02d", t.Hour(), t.Minute(), t.Second())
+	result = strings.ReplaceAll(result, "{time}", timeStr)
+
+	// {policy_id} - Full policy UUID
+	result = strings.ReplaceAll(result, "{policy_id}", id)
+
+	// {policy_name} - Policy name
+	result = strings.ReplaceAll(result, "{policy_name}", policyName)
+
+	// {sequence} - Schedule index
+	result = strings.ReplaceAll(result, "{sequence}", fmt.Sprintf("%d", idx))
+
+	// Replace strftime-style format codes (for backwards compatibility)
 	result = strings.ReplaceAll(result, "%Y", fmt.Sprintf("%04d", t.Year()))
 	result = strings.ReplaceAll(result, "%m", fmt.Sprintf("%02d", t.Month()))
 	result = strings.ReplaceAll(result, "%d", fmt.Sprintf("%02d", t.Day()))
@@ -753,7 +779,8 @@ func expandSnapNamePattern(id string, idx int, pattern string, t time.Time) stri
 	result = strings.ReplaceAll(result, "%M", fmt.Sprintf("%02d", t.Minute()))
 	result = strings.ReplaceAll(result, "%S", fmt.Sprintf("%02d", t.Second()))
 
-	// Append the last portion of the UUID to the result
+	// Append the schedule index and last portion of the UUID to the result
+	// Format: {pattern}-{schedule_index}-{policy_id_suffix}
 	if parts := strings.Split(id, "-"); len(parts) > 0 {
 		lastPart := parts[len(parts)-1]
 		result = result + "-" + fmt.Sprintf("%d", idx) + "-" + lastPart

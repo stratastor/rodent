@@ -384,7 +384,7 @@ func TestExpandSnapNamePattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := expandSnapNamePattern(id, 1, tt.pattern, fixedTime)
+			result := expandSnapNamePattern(id, "test-policy", 1, tt.pattern, fixedTime)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
