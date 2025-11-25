@@ -153,7 +153,7 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 
 		transferInfo, err := transferMgr.GetTransfer(lastTransferID)
 		if err != nil {
-			t.Logf("⚠ Failed to get transfer info: %v", err)
+			t.Logf("Failed to get transfer info: %v", err)
 		} else {
 			t.Logf("Transfer status before stop: %s", transferInfo.Status)
 			if transferInfo.PID > 0 {
@@ -173,11 +173,12 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 
 	t.Logf("\n=== Phase 2: Stop Managers (Simulate Restart) ===")
 
-	// Stop managers
+	// Stop managers and shutdown active transfers
 	policyMgr.Stop()
 	snapshotMgr.Stop()
+	_ = transferMgr.Shutdown(10 * time.Second)
 
-	t.Logf("Managers stopped - simulating service restart")
+	t.Logf("Managers stopped and transfers shut down - simulating service restart")
 	time.Sleep(2 * time.Second)
 
 	t.Logf("\n=== Phase 3: Reload and Verify Status Persistence ===")
@@ -227,7 +228,7 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 
 	if transferViaListActive != nil {
 		t.Logf("Status via ListTransfers (active): %s", transferViaListActive.Status)
-		t.Logf("⚠ WARNING: Transfer still appears in active list - might still be running")
+		t.Logf("WARNING: Transfer still appears in active list - might still be running")
 	} else {
 		t.Logf("Transfer NOT in active list (expected if process died)")
 	}
@@ -248,7 +249,7 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 		assert.Fail(t, "Transfer shows as Running in GetTransfer but not in active list",
 			"This indicates bug: status corrections not persisted to disk")
 	} else {
-		t.Logf("✓ Status consistency verified: GetTransfer and ListTransfers are consistent")
+		t.Logf("Status consistency verified: GetTransfer and ListTransfers are consistent")
 	}
 
 	// Additional checks

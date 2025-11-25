@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stratastor/logger"
@@ -43,6 +44,8 @@ import (
 
 // TODO: Review this logic
 var srv *http.Server
+
+const transfersShutdownTimeout = 60 * time.Second
 
 func Start(ctx context.Context, port int) error {
 	// TODO: Exclude logging source file info
@@ -256,6 +259,16 @@ func Shutdown(ctx context.Context) error {
 		servicePayload,
 		serviceMeta,
 	)
+
+	// Shutdown active transfers before shutting down HTTP server
+	// This prevents orphaned transfer processes when Rodent exits
+	if sharedTransferManager != nil {
+		fmt.Println("Shutting down active transfers...")
+		if err := sharedTransferManager.Shutdown(transfersShutdownTimeout); err != nil {
+			// Log but don't fail shutdown
+			fmt.Printf("Warning: transfer shutdown had errors: %v\n", err)
+		}
+	}
 
 	return srv.Shutdown(ctx)
 }

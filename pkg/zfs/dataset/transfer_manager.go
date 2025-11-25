@@ -1944,3 +1944,80 @@ func (tm *TransferManager) readLastLinesFromLogFile(logFilePath string, numLines
 	}
 	return string(output)
 }
+
+// Shutdown gracefully terminates all active transfers
+// Sends SIGTERM to all process groups concurrently, waits for graceful exit,
+// then sends SIGKILL to any stragglers
+func (tm *TransferManager) Shutdown(timeout time.Duration) error {
+	tm.mu.Lock()
+
+	// Get snapshot of active transfers
+	activeTransfers := make([]*TransferInfo, 0, len(tm.activeTransfers))
+	for _, info := range tm.activeTransfers {
+		if info.Status == TransferStatusRunning && info.PID > 0 {
+			activeTransfers = append(activeTransfers, info)
+		}
+	}
+	tm.mu.Unlock()
+
+	if len(activeTransfers) == 0 {
+		tm.logger.Info("No active transfers to shutdown")
+		return nil
+	}
+
+	tm.logger.Info("Shutting down active transfers", "count", len(activeTransfers))
+
+	// Send SIGTERM to all process groups concurrently
+	for _, info := range activeTransfers {
+		go func(info *TransferInfo) {
+			tm.logger.Debug("Sending SIGTERM to transfer process group",
+				"id", info.ID, "pid", info.PID)
+			// Negative PID sends signal to entire process group
+			if err := syscall.Kill(-info.PID, syscall.SIGTERM); err != nil {
+				tm.logger.Debug("Failed to send SIGTERM",
+					"id", info.ID, "pid", info.PID, "error", err)
+			}
+		}(info)
+	}
+
+	// Wait for processes to exit gracefully
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	remaining := make(map[string]*TransferInfo)
+	for _, info := range activeTransfers {
+		remaining[info.ID] = info
+	}
+
+	for time.Now().Before(deadline) && len(remaining) > 0 {
+		<-ticker.C
+
+		for id, info := range remaining {
+			if !tm.isProcessRunning(info.PID) {
+				tm.logger.Debug("Transfer process exited gracefully",
+					"id", info.ID, "pid", info.PID)
+				delete(remaining, id)
+			}
+		}
+	}
+
+	// Kill any remaining processes with SIGKILL
+	if len(remaining) > 0 {
+		tm.logger.Warn("Forcefully killing remaining transfer processes",
+			"count", len(remaining))
+
+		for _, info := range remaining {
+			tm.logger.Debug("Sending SIGKILL to transfer process group",
+				"id", info.ID, "pid", info.PID)
+			// Ignore errors - process might have exited between checks
+			_ = syscall.Kill(-info.PID, syscall.SIGKILL)
+		}
+
+		// Give SIGKILL a moment to take effect
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	tm.logger.Info("Transfer shutdown complete")
+	return nil
+}

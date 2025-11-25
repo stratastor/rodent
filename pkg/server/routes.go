@@ -52,6 +52,10 @@ var (
 	// sharedSnapshotHandler holds the snapshot handler which provides access to the snapshot manager
 	// Used by inventory to collect snapshot policies information
 	sharedSnapshotHandler *snapshot.Handler
+
+	// sharedTransferManager holds the transfer manager instance
+	// Used for shutdown to gracefully terminate active transfers
+	sharedTransferManager *dataset.TransferManager
 )
 
 func registerZFSRoutes(engine *gin.Engine) (error error) {
@@ -70,6 +74,9 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 		return fmt.Errorf("failed to create dataset transfer manager: %w", err)
 
 	} else {
+		// Store shared instance for use by shutdown handler
+		sharedTransferManager = transferManager
+
 		// Create dataset handler with transfer manager
 		datasetHandler, err = api.NewDatasetHandler(datasetManager, transferManager)
 		if err != nil {

@@ -302,7 +302,9 @@ func skipIfNotIntegration(t *testing.T) {
 }
 
 // setupTestManagers creates test instances of required managers
-func setupTestManagers(t *testing.T) (*Manager, *snapshot.Manager, *dataset.TransferManager, func()) {
+func setupTestManagers(
+	t *testing.T,
+) (*Manager, *snapshot.Manager, *dataset.TransferManager, func()) {
 	skipIfNotIntegration(t)
 
 	// Ensure config directories exist
@@ -333,11 +335,16 @@ func setupTestManagers(t *testing.T) (*Manager, *snapshot.Manager, *dataset.Tran
 
 	// Cleanup function
 	cleanup := func() {
+		// Stop managers
 		if policyMgr != nil {
 			_ = policyMgr.Stop()
 		}
 		if snapshotMgr != nil {
 			_ = snapshotMgr.Stop()
+		}
+		// Shutdown active transfers to prevent orphaned processes
+		if transferMgr != nil {
+			_ = transferMgr.Shutdown(10 * time.Second)
 		}
 	}
 
@@ -388,9 +395,19 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 	require.NoError(t, err, "Failed to create snapshot policy")
 	t.Logf("Created snapshot policy: %s", snapPolicyID)
 
-	// Cleanup snapshot policy after test
+	// Cleanup snapshot policy after test (with snapshots)
 	defer func() {
-		_ = snapshotMgr.RemovePolicy(snapPolicyID, false)
+		_ = snapshotMgr.RemovePolicy(snapPolicyID, true)
+	}()
+
+	// Variable to track transfer policy ID for cleanup
+	var transferPolicyID string
+
+	// Cleanup transfer policy after test (with transfers)
+	defer func() {
+		if transferPolicyID != "" {
+			_ = mgr.RemovePolicy(ctx, transferPolicyID, true)
+		}
 	}()
 
 	// Test 1: Create transfer policy
@@ -424,6 +441,7 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 		policyID, err := mgr.AddPolicy(ctx, params)
 		require.NoError(t, err, "Failed to create transfer policy")
 		require.NotEmpty(t, policyID, "Policy ID should not be empty")
+		transferPolicyID = policyID // Store for cleanup
 		t.Logf("Created transfer policy: %s", policyID)
 
 		// Test 2: Get policy
@@ -494,7 +512,11 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 			require.NoError(t, err, "Failed to get updated policy")
 			assert.Equal(t, updateParams.Name, updated.Name)
 			assert.Equal(t, updateParams.Description, updated.Description)
-			assert.Equal(t, updateParams.RetentionPolicy.KeepCount, updated.RetentionPolicy.KeepCount)
+			assert.Equal(
+				t,
+				updateParams.RetentionPolicy.KeepCount,
+				updated.RetentionPolicy.KeepCount,
+			)
 			t.Logf("Updated policy: %+v", updated)
 		})
 
@@ -521,13 +543,16 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 
 		// Test 6: Delete policy
 		t.Run("delete_policy", func(t *testing.T) {
-			err := mgr.RemovePolicy(ctx, policyID, false)
+			err := mgr.RemovePolicy(ctx, policyID, true)
 			require.NoError(t, err, "Failed to delete policy")
 
 			// Verify deletion
 			_, err = mgr.GetPolicy(policyID)
 			assert.Error(t, err, "Should get error when fetching deleted policy")
 			t.Logf("Policy deleted")
+
+			// Clear the policy ID so defer cleanup doesn't try to delete again
+			transferPolicyID = ""
 		})
 	})
 }
@@ -563,7 +588,7 @@ func TestPolicyExecution_Integration(t *testing.T) {
 	t.Logf("Created snapshot policy: %s", snapPolicyID)
 
 	defer func() {
-		_ = snapshotMgr.RemovePolicy(snapPolicyID, false)
+		_ = snapshotMgr.RemovePolicy(snapPolicyID, true)
 	}()
 
 	// Create a transfer policy
@@ -651,7 +676,7 @@ func TestSnapshotPolicyProtection_Integration(t *testing.T) {
 	t.Logf("Created snapshot policy: %s", snapPolicyID)
 
 	defer func() {
-		_ = snapshotMgr.RemovePolicy(snapPolicyID, false)
+		_ = snapshotMgr.RemovePolicy(snapPolicyID, true)
 	}()
 
 	// Create a transfer policy that references the snapshot policy
@@ -823,7 +848,7 @@ func TestScheduledExecution_Integration(t *testing.T) {
 			// Get transfer info using GetTransfer
 			transferInfo, err := transferMgr.GetTransfer(transferPolicy.LastTransferID)
 			if err != nil {
-				t.Logf("  ⚠ Failed to get transfer info via GetTransfer: %v", err)
+				t.Logf("  Failed to get transfer info via GetTransfer: %v", err)
 			} else {
 				t.Logf("  Transfer details (via GetTransfer):")
 				t.Logf("    Status: %s", transferInfo.Status)
@@ -864,8 +889,12 @@ func TestScheduledExecution_Integration(t *testing.T) {
 
 			if transferInfo != nil {
 				if transferInfo.Status == dataset.TransferStatusRunning {
-					assert.True(t, foundInActive, "Running transfer should appear in active transfers list")
-					t.Logf("  ✓ Transfer found in active transfers list")
+					assert.True(
+						t,
+						foundInActive,
+						"Running transfer should appear in active transfers list",
+					)
+					t.Logf("  Transfer found in active transfers list")
 				} else {
 					t.Logf("  Transfer status: %s (foundInActive=%v, foundInAll=%v)",
 						transferInfo.Status, foundInActive, foundInAll)
@@ -927,7 +956,7 @@ func TestScheduledExecution_Integration(t *testing.T) {
 	// Verify snapshots on target
 	targetSnapshots, err := listZFSSnapshots("tank/test-frequent-target")
 	if err != nil {
-		t.Logf("⚠ Failed to list target snapshots: %v", err)
+		t.Logf("Failed to list target snapshots: %v", err)
 	} else {
 		t.Logf("\nSnapshots on target (tank/test-frequent-target): %d", len(targetSnapshots))
 		for _, snap := range targetSnapshots {
@@ -951,5 +980,7 @@ func TestScheduledExecution_Integration(t *testing.T) {
 	assert.True(t, completedCount > 0 || failedCount > 0,
 		"Should have at least one transfer initiated")
 
-	t.Logf("\nTest completed successfully - verified transfer policy scheduling and incremental transfers")
+	t.Logf(
+		"\nTest completed successfully - verified transfer policy scheduling and incremental transfers",
+	)
 }
