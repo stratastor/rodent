@@ -29,7 +29,6 @@ import (
 const (
 	configFileName        = "zfs.snapshots.rodent.yml"
 	schedulerJobNameFmt   = "snapshot-policy-%s-schedule-%d"
-	backupFileSuffixFmt   = ".backup.%s"
 	errorFileSuffixFmt    = ".error.%s"
 	defaultErrorBackupFmt = "2006-01-02-150405"
 )
@@ -489,7 +488,13 @@ func (m *Manager) createSnapshot(policyID string, scheduleIndex int) (CreateSnap
 		"schedule_index", scheduleIndex)
 
 	// Generate snapshot name based on pattern
-	snapName := expandSnapNamePattern(policyID, policy.Name, scheduleIndex, policy.SnapNamePattern, time.Now())
+	snapName := expandSnapNamePattern(
+		policyID,
+		policy.Name,
+		scheduleIndex,
+		policy.SnapNamePattern,
+		time.Now(),
+	)
 
 	// Create snapshot config
 	snapshotCfg := dataset.SnapshotConfig{
@@ -745,7 +750,13 @@ func (m *Manager) pruneSnapshots(policy SnapshotPolicy) ([]string, error) {
 // expandSnapNamePattern expands a snapshot name pattern with current time
 // Supports both strftime-style format codes (%Y, %m, etc.) and well-formed placeholders
 // ({timestamp}, {date}, {time}, {policy_id}, {policy_name}, {sequence})
-func expandSnapNamePattern(id string, policyName string, idx int, pattern string, t time.Time) string {
+func expandSnapNamePattern(
+	id string,
+	policyName string,
+	idx int,
+	pattern string,
+	t time.Time,
+) string {
 	result := pattern
 
 	// Replace well-formed placeholders first (matching buildSnapshotPatternRegex)
@@ -1010,8 +1021,13 @@ func (m *Manager) RemovePolicy(policyID string, removeSnapshots bool) error {
 		m.logger.Warn("Policy cannot be deleted - referenced by transfer policies",
 			"policy_id", policyID,
 			"transfer_policy_count", len(policy.TransferPolicyIDs))
-		return errors.New(errors.ZFSSnapshotPolicyError,
-			fmt.Sprintf("cannot delete policy: referenced by %d transfer policies", len(policy.TransferPolicyIDs)))
+		return errors.New(
+			errors.ZFSSnapshotPolicyError,
+			fmt.Sprintf(
+				"cannot delete policy: referenced by %d transfer policies",
+				len(policy.TransferPolicyIDs),
+			),
+		)
 	}
 
 	m.logger.Debug("Found policy for removal",
@@ -1253,7 +1269,10 @@ func (m *Manager) AddTransferPolicyAssociation(snapshotPolicyID, transferPolicyI
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.NotFoundError, fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID))
+		return errors.New(
+			errors.NotFoundError,
+			fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID),
+		)
 	}
 
 	// Check if already associated
@@ -1299,7 +1318,10 @@ func (m *Manager) RemoveTransferPolicyAssociation(snapshotPolicyID, transferPoli
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.NotFoundError, fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID))
+		return errors.New(
+			errors.NotFoundError,
+			fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID),
+		)
 	}
 
 	// Remove the association
@@ -1339,7 +1361,10 @@ func (m *Manager) GetTransferPolicyAssociations(snapshotPolicyID string) ([]stri
 		}
 	}
 
-	return nil, errors.New(errors.NotFoundError, fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID))
+	return nil, errors.New(
+		errors.NotFoundError,
+		fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID),
+	)
 }
 
 // Start starts the scheduler
