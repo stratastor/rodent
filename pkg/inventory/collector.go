@@ -22,6 +22,7 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 	"github.com/stratastor/rodent/pkg/zfs/snapshot"
+	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // Collector aggregates inventory data from all Rodent subsystems
@@ -34,6 +35,7 @@ type Collector struct {
 	systemManager   *system.Manager
 	sharesManager   shares.SharesManager
 	snapshotManager snapshot.SchedulerInterface
+	transferManager *transfers.Manager
 
 	logger logger.Logger
 	mu     sync.RWMutex
@@ -48,6 +50,7 @@ func NewCollector(
 	systemMgr *system.Manager,
 	sharesMgr shares.SharesManager,
 	snapshotMgr snapshot.SchedulerInterface,
+	transferMgr *transfers.Manager,
 	log logger.Logger,
 ) *Collector {
 	return &Collector{
@@ -58,6 +61,7 @@ func NewCollector(
 		systemManager:   systemMgr,
 		sharesManager:   sharesMgr,
 		snapshotManager: snapshotMgr,
+		transferManager: transferMgr,
 		logger:          log,
 	}
 }
@@ -154,6 +158,18 @@ func (c *Collector) CollectInventory(
 				errChan <- fmt.Errorf("snapshot_policies: %w", err)
 			} else {
 				inventory.SnapshotPolicies = summary
+			}
+		})
+	}
+
+	// Transfer Policies
+	if opts.ShouldInclude("transfer_policies") && c.transferManager != nil {
+		wg.Go(func() {
+			if summary, err := c.collectTransferPoliciesSummary(ctx, opts.DetailLevel); err != nil {
+				c.logger.Warn("Failed to collect transfer policies summary", "error", err)
+				errChan <- fmt.Errorf("transfer_policies: %w", err)
+			} else {
+				inventory.TransferPolicies = summary
 			}
 		})
 	}
@@ -704,6 +720,57 @@ func (c *Collector) collectSnapshotPoliciesSummary(
 			}
 			if hasActiveSchedule {
 				summary.ActiveCount++
+			}
+		}
+	}
+
+	// Include full policy list in basic/full detail levels
+	if level == DetailLevelBasic || level == DetailLevelFull {
+		summary.Policies = policies
+	}
+
+	return summary, nil
+}
+
+// collectTransferPoliciesSummary collects transfer automation policies summary
+func (c *Collector) collectTransferPoliciesSummary(
+	_ context.Context,
+	level DetailLevel,
+) (*TransferPoliciesSummary, error) {
+	if c.transferManager == nil {
+		return nil, fmt.Errorf("transfer manager not available")
+	}
+
+	summary := &TransferPoliciesSummary{}
+
+	// Get all policies
+	policies, err := c.transferManager.ListPolicies()
+	if err != nil {
+		return nil, fmt.Errorf("list policies: %w", err)
+	}
+
+	summary.TotalCount = len(policies)
+
+	// Count enabled, active, and running policies
+	for _, policy := range policies {
+		if policy.Enabled {
+			summary.EnabledCount++
+
+			// A policy is considered "active" if it's enabled and has at least one enabled schedule
+			hasActiveSchedule := false
+			for _, schedule := range policy.Schedules {
+				if schedule.Enabled {
+					hasActiveSchedule = true
+					break
+				}
+			}
+			if hasActiveSchedule {
+				summary.ActiveCount++
+			}
+
+			// Check if policy is currently running a transfer
+			if policy.MonitorStatus != nil && policy.MonitorStatus.Status == "running" {
+				summary.RunningCount++
 			}
 		}
 	}

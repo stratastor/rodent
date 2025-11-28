@@ -13,6 +13,7 @@ import (
 	"github.com/stratastor/rodent/pkg/system"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 	"github.com/stratastor/rodent/pkg/zfs/snapshot"
+	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // DetailLevel specifies the level of detail to include in the inventory
@@ -82,6 +83,9 @@ type RodentInventory struct {
 
 	// Snapshot policies summary
 	SnapshotPolicies *SnapshotPoliciesSummary `json:"snapshot_policies,omitempty"`
+
+	// Transfer policies summary
+	TransferPolicies *TransferPoliciesSummary `json:"transfer_policies,omitempty"`
 
 	// Services summary
 	Services *ServicesSummary `json:"services,omitempty"`
@@ -232,8 +236,17 @@ type SharesSummary struct {
 
 // SnapshotPoliciesSummary represents snapshot automation policies summary
 type SnapshotPoliciesSummary struct {
-	TotalCount   int                      `json:"total_count"`
-	EnabledCount int                      `json:"enabled_count"`
-	ActiveCount  int                      `json:"active_count"` // Policies with schedules running
+	TotalCount   int                       `json:"total_count"`
+	EnabledCount int                       `json:"enabled_count"`
+	ActiveCount  int                       `json:"active_count"`       // Policies with enabled schedules
 	Policies     []snapshot.SnapshotPolicy `json:"policies,omitempty"` // Included in basic/full detail level
+}
+
+// TransferPoliciesSummary represents transfer automation policies summary
+type TransferPoliciesSummary struct {
+	TotalCount   int                        `json:"total_count"`
+	EnabledCount int                        `json:"enabled_count"`
+	ActiveCount  int                        `json:"active_count"`       // Policies with enabled schedules
+	RunningCount int                        `json:"running_count"`      // Policies currently executing transfers
+	Policies     []transfers.TransferPolicy `json:"policies,omitempty"` // Included in basic/full detail level
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 	"github.com/stratastor/rodent/pkg/zfs/snapshot"
+	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // Shared manager instances for stateful subsystems
@@ -52,6 +53,10 @@ var (
 	// sharedSnapshotHandler holds the snapshot handler which provides access to the snapshot manager
 	// Used by inventory to collect snapshot policies information
 	sharedSnapshotHandler *snapshot.Handler
+
+	// sharedTransferPolicyHandler holds the transfer policy handler
+	// Used by inventory to collect transfer policies information
+	sharedTransferPolicyHandler *transfers.Handler
 
 	// sharedTransferManager holds the transfer manager instance
 	// Used for shutdown to gracefully terminate active transfers
@@ -105,13 +110,15 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 
 			// Register transfer policy routes
 			if snapshotHandler != nil && transferManager != nil {
-				_, err := api.RegisterTransferPolicyRoutes(schedulers, transferManager, snapshotHandler)
+				transferPolicyHandler, err := api.RegisterTransferPolicyRoutes(schedulers, transferManager, snapshotHandler)
 				if err != nil {
 					// Log the error but don't fail startup
 					cfg := config.GetConfig()
 					if l, lerr := logger.NewTag(logger.Config{LogLevel: cfg.Server.LogLevel}, "routes"); lerr == nil {
 						l.Warn("Failed to register transfer policy routes", "error", err)
 					}
+				} else {
+					sharedTransferPolicyHandler = transferPolicyHandler
 				}
 			}
 		}
@@ -447,6 +454,15 @@ func registerInventoryRoutes(engine *gin.Engine) (*inventory.Handler, error) {
 		l.Warn("Shared snapshot handler not available, snapshot policies inventory will be unavailable")
 	}
 
+	// Transfer Policy Manager - extract from shared handler
+	// May be nil if transfer policy routes haven't been registered yet
+	var transferPolicyMgr *transfers.Manager
+	if sharedTransferPolicyHandler != nil {
+		transferPolicyMgr = sharedTransferPolicyHandler.Manager()
+	} else {
+		l.Warn("Shared transfer policy handler not available, transfer policies inventory will be unavailable")
+	}
+
 	// Create inventory collector
 	collector := inventory.NewCollector(
 		diskMgr,
@@ -456,6 +472,7 @@ func registerInventoryRoutes(engine *gin.Engine) (*inventory.Handler, error) {
 		systemMgr,
 		sharesMgr,
 		snapshotMgr,
+		transferPolicyMgr,
 		l,
 	)
 

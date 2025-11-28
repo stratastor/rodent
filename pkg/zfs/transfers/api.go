@@ -42,6 +42,11 @@ func NewHandlerWithManager(manager *Manager) *Handler {
 	}
 }
 
+// Manager returns the transfer policy manager for use by other subsystems
+func (h *Handler) Manager() *Manager {
+	return h.manager
+}
+
 // RegisterRoutes registers HTTP routes for transfer policy operations
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	transfers := router.Group("/transfers")
