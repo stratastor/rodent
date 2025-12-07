@@ -6,15 +6,18 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 )
 
 // RegisterAutoSnapshotRoutes registers the auto-snapshot routes to the dataset router group
 // Returns the handler so it can be stored for use by other subsystems (e.g., inventory)
-func RegisterAutoSnapshotRoutes(router *gin.RouterGroup, dsManager *dataset.Manager) (*snapshot.Handler, error) {
+func RegisterAutoSnapshotRoutes(
+	router *gin.RouterGroup,
+	dsManager *dataset.Manager,
+) (*autosnapshots.Handler, error) {
 	// Create handler
-	handler, err := snapshot.NewHandler(dsManager)
+	handler, err := autosnapshots.NewHandler(dsManager)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,7 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package transfers
+package autotransfers
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 	// Create managers for initial setup
 	executor := command.NewCommandExecutor(true, logCfg)
 	datasetMgr := dataset.NewManager(executor)
-	snapshotMgr, err := snapshot.GetManager(datasetMgr, "")
+	snapshotMgr, err := autosnapshots.GetManager(datasetMgr, "")
 	require.NoError(t, err, "Failed to create snapshot manager")
 	transferMgr, err := dataset.NewTransferManager(logCfg)
 	require.NoError(t, err, "Failed to create transfer manager")
@@ -48,18 +48,18 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 	require.NoError(t, err, "Failed to create transfer policy manager")
 
 	// Create a snapshot policy that runs every 1 minute
-	snapPolicyParams := snapshot.EditPolicyParams{
+	snapPolicyParams := autosnapshots.EditPolicyParams{
 		Name:        "test-snap-persistence",
 		Description: "Test snapshot policy for status persistence",
 		Dataset:     "tiny1/split",
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeMinutely,
+				Type:     autosnapshots.ScheduleTypeMinutely,
 				Interval: 1,
 				Enabled:  true,
 			},
 		},
-		RetentionPolicy: snapshot.RetentionPolicy{
+		RetentionPolicy: autosnapshots.RetentionPolicy{
 			Count: 10,
 		},
 		Enabled: true,
@@ -103,9 +103,9 @@ func TestTransferStatusPersistence_Integration(t *testing.T) {
 				FooterLines:      20,
 			},
 		},
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeMinutely,
+				Type:     autosnapshots.ScheduleTypeMinutely,
 				Interval: 2,
 				Enabled:  true,
 			},

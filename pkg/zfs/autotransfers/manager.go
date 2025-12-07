@@ -2,7 +2,7 @@
 // Copyright 2024 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package transfers
+package autotransfers
 
 import (
 	"context"
@@ -24,8 +24,8 @@ import (
 	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 )
 
 // Manager manages transfer policies and their scheduled execution
@@ -33,7 +33,7 @@ type Manager struct {
 	logger          logger.Logger
 	configPath      string
 	config          TransferPolicyConfig
-	snapshotManager *snapshot.Manager
+	snapshotManager *autosnapshots.Manager
 	transferManager *dataset.TransferManager
 	scheduler       gocron.Scheduler
 	jobMapping      map[string][]uuid.UUID // policyID -> []jobIDs
@@ -48,7 +48,11 @@ var (
 )
 
 // GetManager returns the singleton transfer policy manager instance
-func GetManager(snapshotMgr *snapshot.Manager, transferMgr *dataset.TransferManager, logCfg logger.Config) (*Manager, error) {
+func GetManager(
+	snapshotMgr *autosnapshots.Manager,
+	transferMgr *dataset.TransferManager,
+	logCfg logger.Config,
+) (*Manager, error) {
 	initMutex.Lock()
 	defer initMutex.Unlock()
 
@@ -66,7 +70,10 @@ func GetManager(snapshotMgr *snapshot.Manager, transferMgr *dataset.TransferMana
 
 	// Ensure transfers subdirectory exists
 	if err := os.MkdirAll(transferPoliciesDir, 0755); err != nil {
-		return nil, errors.New(errors.TransferPolicySchedulerError, fmt.Sprintf("failed to create transfer policies directory: %v", err))
+		return nil, errors.New(
+			errors.TransferPolicySchedulerError,
+			fmt.Sprintf("failed to create transfer policies directory: %v", err),
+		)
 	}
 
 	configPath := filepath.Join(transferPoliciesDir, "zfs.transfer-policies.rodent.yml")
@@ -105,7 +112,10 @@ func (m *Manager) Start() error {
 	defer m.mu.Unlock()
 
 	if m.started {
-		return errors.New(errors.TransferPolicyInvalidState, "transfer policy manager already started")
+		return errors.New(
+			errors.TransferPolicyInvalidState,
+			"transfer policy manager already started",
+		)
 	}
 
 	// Create jobs for all enabled policies
@@ -113,7 +123,13 @@ func (m *Manager) Start() error {
 		policy := &m.config.Policies[i]
 		if policy.Enabled {
 			if err := m.createJobsForPolicy(policy); err != nil {
-				m.logger.Error("Failed to create jobs for policy", "policy_id", policy.ID, "error", err)
+				m.logger.Error(
+					"Failed to create jobs for policy",
+					"policy_id",
+					policy.ID,
+					"error",
+					err,
+				)
 			}
 		}
 	}
@@ -199,7 +215,13 @@ func (m *Manager) AddPolicy(ctx context.Context, params EditTransferPolicyParams
 	// Create scheduler jobs if enabled and scheduler is running
 	if policy.Enabled && m.started {
 		if err := m.createJobsForPolicy(&policy); err != nil {
-			m.logger.Error("Failed to create jobs for new policy", "policy_id", policyID, "error", err)
+			m.logger.Error(
+				"Failed to create jobs for new policy",
+				"policy_id",
+				policyID,
+				"error",
+				err,
+			)
 			// Don't fail policy creation, just log the error
 		}
 	}
@@ -236,7 +258,10 @@ func (m *Manager) UpdatePolicy(ctx context.Context, params EditTransferPolicyPar
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", params.ID))
+		return errors.New(
+			errors.TransferPolicyNotFound,
+			fmt.Sprintf("policy %s not found", params.ID),
+		)
 	}
 
 	// Handle snapshot policy association changes
@@ -296,7 +321,13 @@ func (m *Manager) UpdatePolicy(ctx context.Context, params EditTransferPolicyPar
 	// Create new jobs if enabled and scheduler is running
 	if m.config.Policies[policyIdx].Enabled && m.started {
 		if err := m.createJobsForPolicy(&m.config.Policies[policyIdx]); err != nil {
-			m.logger.Error("Failed to create jobs for updated policy", "policy_id", params.ID, "error", err)
+			m.logger.Error(
+				"Failed to create jobs for updated policy",
+				"policy_id",
+				params.ID,
+				"error",
+				err,
+			)
 		}
 	}
 
@@ -324,7 +355,10 @@ func (m *Manager) RemovePolicy(ctx context.Context, policyID string, deleteTrans
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", policyID))
+		return errors.New(
+			errors.TransferPolicyNotFound,
+			fmt.Sprintf("policy %s not found", policyID),
+		)
 	}
 
 	// Get snapshot policy ID before removing
@@ -356,7 +390,13 @@ func (m *Manager) RemovePolicy(ctx context.Context, policyID string, deleteTrans
 		return err
 	}
 
-	m.logger.Info("Transfer policy removed", "policy_id", policyID, "deleted_transfers", deleteTransfers)
+	m.logger.Info(
+		"Transfer policy removed",
+		"policy_id",
+		policyID,
+		"deleted_transfers",
+		deleteTransfers,
+	)
 	return nil
 }
 
@@ -377,7 +417,10 @@ func (m *Manager) GetPolicy(policyID string) (*TransferPolicy, error) {
 		}
 	}
 
-	return nil, errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", policyID))
+	return nil, errors.New(
+		errors.TransferPolicyNotFound,
+		fmt.Sprintf("policy %s not found", policyID),
+	)
 }
 
 // ListPolicies returns all transfer policies with enriched monitor status
@@ -412,7 +455,10 @@ func (m *Manager) EnablePolicy(ctx context.Context, policyID string) error {
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", policyID))
+		return errors.New(
+			errors.TransferPolicyNotFound,
+			fmt.Sprintf("policy %s not found", policyID),
+		)
 	}
 
 	// Check if already enabled
@@ -427,7 +473,13 @@ func (m *Manager) EnablePolicy(ctx context.Context, policyID string) error {
 	// Create scheduler jobs if scheduler is running
 	if m.started {
 		if err := m.createJobsForPolicy(&m.config.Policies[policyIdx]); err != nil {
-			m.logger.Error("Failed to create jobs for enabled policy", "policy_id", policyID, "error", err)
+			m.logger.Error(
+				"Failed to create jobs for enabled policy",
+				"policy_id",
+				policyID,
+				"error",
+				err,
+			)
 			// Don't fail enable operation
 		}
 	}
@@ -456,7 +508,10 @@ func (m *Manager) DisablePolicy(ctx context.Context, policyID string) error {
 	}
 
 	if policyIdx == -1 {
-		return errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", policyID))
+		return errors.New(
+			errors.TransferPolicyNotFound,
+			fmt.Sprintf("policy %s not found", policyID),
+		)
 	}
 
 	// Check if already disabled
@@ -481,7 +536,10 @@ func (m *Manager) DisablePolicy(ctx context.Context, policyID string) error {
 }
 
 // RunPolicy manually executes a transfer policy immediately
-func (m *Manager) RunPolicy(ctx context.Context, params RunTransferPolicyParams) (*CreateTransferResult, error) {
+func (m *Manager) RunPolicy(
+	ctx context.Context,
+	params RunTransferPolicyParams,
+) (*CreateTransferResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -495,7 +553,10 @@ func (m *Manager) RunPolicy(ctx context.Context, params RunTransferPolicyParams)
 	}
 
 	if policy == nil {
-		return nil, errors.New(errors.TransferPolicyNotFound, fmt.Sprintf("policy %s not found", params.PolicyID))
+		return nil, errors.New(
+			errors.TransferPolicyNotFound,
+			fmt.Sprintf("policy %s not found", params.PolicyID),
+		)
 	}
 
 	// Execute transfer
@@ -536,7 +597,11 @@ func (m *Manager) createJobsForPolicy(policy *TransferPolicy) error {
 }
 
 // createJob creates a single gocron job for a schedule
-func (m *Manager) createJob(policy *TransferPolicy, scheduleIdx int, schedule snapshot.ScheduleSpec) (gocron.Job, error) {
+func (m *Manager) createJob(
+	policy *TransferPolicy,
+	scheduleIdx int,
+	schedule autosnapshots.ScheduleSpec,
+) (gocron.Job, error) {
 	// Define the task function that will execute the transfer
 	taskFn := func(ctx context.Context) (any, error) {
 		start := time.Now()
@@ -609,19 +674,19 @@ func (m *Manager) createJob(policy *TransferPolicy, scheduleIdx int, schedule sn
 	var err error
 
 	switch schedule.Type {
-	case snapshot.ScheduleTypeSecondly:
+	case autosnapshots.ScheduleTypeSecondly:
 		interval := time.Duration(schedule.Interval) * time.Second
 		jobDef = gocron.DurationJob(interval)
 
-	case snapshot.ScheduleTypeMinutely:
+	case autosnapshots.ScheduleTypeMinutely:
 		interval := time.Duration(schedule.Interval) * time.Minute
 		jobDef = gocron.DurationJob(interval)
 
-	case snapshot.ScheduleTypeHourly:
+	case autosnapshots.ScheduleTypeHourly:
 		interval := time.Duration(schedule.Interval) * time.Hour
 		jobDef = gocron.DurationJob(interval)
 
-	case snapshot.ScheduleTypeDaily:
+	case autosnapshots.ScheduleTypeDaily:
 		jobDef = gocron.DailyJob(uint(schedule.Interval), gocron.NewAtTimes(
 			gocron.NewAtTime(
 				uint(schedule.AtTime[0:2][0]),
@@ -630,7 +695,7 @@ func (m *Manager) createJob(policy *TransferPolicy, scheduleIdx int, schedule sn
 			),
 		))
 
-	case snapshot.ScheduleTypeWeekly:
+	case autosnapshots.ScheduleTypeWeekly:
 		jobDef = gocron.WeeklyJob(uint(schedule.Interval),
 			gocron.NewWeekdays(schedule.WeekDay),
 			gocron.NewAtTimes(
@@ -641,13 +706,13 @@ func (m *Manager) createJob(policy *TransferPolicy, scheduleIdx int, schedule sn
 				),
 			))
 
-	case snapshot.ScheduleTypeDuration:
+	case autosnapshots.ScheduleTypeDuration:
 		jobDef = gocron.DurationJob(schedule.Duration)
 
-	case snapshot.ScheduleTypeRandom:
+	case autosnapshots.ScheduleTypeRandom:
 		jobDef = gocron.DurationRandomJob(schedule.MinDuration, schedule.MaxDuration)
 
-	case snapshot.ScheduleTypeOneTime:
+	case autosnapshots.ScheduleTypeOneTime:
 		jobDef = gocron.OneTimeJob(gocron.OneTimeJobStartDateTime(schedule.StartTime))
 
 	default:
@@ -696,7 +761,15 @@ func (m *Manager) removeJobsForPolicy(policyID string) {
 
 	for _, jobID := range jobIDs {
 		if err := m.scheduler.RemoveJob(jobID); err != nil {
-			m.logger.Warn("Failed to remove job", "policy_id", policyID, "job_id", jobID, "error", err)
+			m.logger.Warn(
+				"Failed to remove job",
+				"policy_id",
+				policyID,
+				"job_id",
+				jobID,
+				"error",
+				err,
+			)
 		}
 	}
 
@@ -704,7 +777,11 @@ func (m *Manager) removeJobsForPolicy(policyID string) {
 }
 
 // executeTransferForPolicy executes a transfer for a policy
-func (m *Manager) executeTransferForPolicy(ctx context.Context, policy *TransferPolicy, snapshotOverride string) (*CreateTransferResult, error) {
+func (m *Manager) executeTransferForPolicy(
+	ctx context.Context,
+	policy *TransferPolicy,
+	snapshotOverride string,
+) (*CreateTransferResult, error) {
 	// Check if previous transfer is still running
 	if policy.LastTransferID != "" {
 		lastTransfer, err := m.transferManager.GetTransfer(policy.LastTransferID)
@@ -720,7 +797,11 @@ func (m *Manager) executeTransferForPolicy(ctx context.Context, policy *Transfer
 
 			// Update monitor with blocked reason
 			if monitor, exists := m.config.Monitors[policy.ID]; exists {
-				monitor.BlockedReason = fmt.Sprintf("Previous transfer %s still %s", policy.LastTransferID, lastTransfer.Status)
+				monitor.BlockedReason = fmt.Sprintf(
+					"Previous transfer %s still %s",
+					policy.LastTransferID,
+					lastTransfer.Status,
+				)
 			}
 
 			return nil, errors.New(errors.TransferPolicyTransferRunning,
@@ -810,12 +891,30 @@ func (m *Manager) getLatestSnapshotFromPolicy(snapshotPolicyID string) (string, 
 	}
 
 	// List all snapshots for the dataset, sorted by creation time (most recent first)
-	cmd := exec.Command("sudo", "zfs", "list", "-o", "name", "-H", "-t", "snap", "-S", "creation", snapPolicy.Dataset)
+	cmd := exec.Command(
+		"sudo",
+		"zfs",
+		"list",
+		"-o",
+		"name",
+		"-H",
+		"-t",
+		"snap",
+		"-S",
+		"creation",
+		snapPolicy.Dataset,
+	)
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", errors.New(errors.ZFSSnapshotList,
-				fmt.Sprintf("failed to list snapshots for dataset %s: %s", snapPolicy.Dataset, string(exitErr.Stderr)))
+			return "", errors.New(
+				errors.ZFSSnapshotList,
+				fmt.Sprintf(
+					"failed to list snapshots for dataset %s: %s",
+					snapPolicy.Dataset,
+					string(exitErr.Stderr),
+				),
+			)
 		}
 		return "", errors.New(errors.ZFSSnapshotList,
 			fmt.Sprintf("failed to list snapshots for dataset %s: %v", snapPolicy.Dataset, err))
@@ -888,12 +987,12 @@ func (m *Manager) buildSnapshotPatternRegex(pattern string) (*regexp.Regexp, err
 	// Replace placeholder patterns with regex patterns
 	// Common placeholders: {timestamp}, {policy_id}, {policy_name}, {date}, {time}, etc.
 	replacements := map[string]string{
-		regexp.QuoteMeta("{timestamp}"):   `\d{4}-\d{2}-\d{2}-\d{6}`,     // YYYY-MM-DD-HHMMSS
-		regexp.QuoteMeta("{date}"):        `\d{4}-\d{2}-\d{2}`,            // YYYY-MM-DD
-		regexp.QuoteMeta("{time}"):        `\d{6}`,                        // HHMMSS
-		regexp.QuoteMeta("{policy_id}"):   `[a-f0-9\-]+`,                  // UUID
-		regexp.QuoteMeta("{policy_name}"): `[a-zA-Z0-9\-_]+`,              // Policy name
-		regexp.QuoteMeta("{sequence}"):    `\d+`,                          // Sequence number
+		regexp.QuoteMeta("{timestamp}"):   `\d{4}-\d{2}-\d{2}-\d{6}`, // YYYY-MM-DD-HHMMSS
+		regexp.QuoteMeta("{date}"):        `\d{4}-\d{2}-\d{2}`,       // YYYY-MM-DD
+		regexp.QuoteMeta("{time}"):        `\d{6}`,                   // HHMMSS
+		regexp.QuoteMeta("{policy_id}"):   `[a-f0-9\-]+`,             // UUID
+		regexp.QuoteMeta("{policy_name}"): `[a-zA-Z0-9\-_]+`,         // Policy name
+		regexp.QuoteMeta("{sequence}"):    `\d+`,                     // Sequence number
 	}
 
 	for placeholder, regexRepl := range replacements {
@@ -914,7 +1013,9 @@ func (m *Manager) buildSnapshotPatternRegex(pattern string) (*regexp.Regexp, err
 // findMostRecentCommonSnapshot finds the most recent common snapshot between source and target
 // using ZFS GUIDs for reliable matching. Returns the common snapshot name on the source dataset,
 // or an empty string if no common snapshot is found or target doesn't exist.
-func (m *Manager) findMostRecentCommonSnapshot(sourceDataset, targetDataset string) (string, error) {
+func (m *Manager) findMostRecentCommonSnapshot(
+	sourceDataset, targetDataset string,
+) (string, error) {
 	// Check if target dataset exists
 	checkCmd := exec.Command("sudo", "zfs", "list", "-H", "-o", "name", targetDataset)
 	if err := checkCmd.Run(); err != nil {
@@ -925,7 +1026,19 @@ func (m *Manager) findMostRecentCommonSnapshot(sourceDataset, targetDataset stri
 	}
 
 	// List source snapshots with GUIDs (sorted by creation, newest first)
-	sourceCmd := exec.Command("sudo", "zfs", "list", "-H", "-o", "name,guid", "-t", "snap", "-S", "creation", sourceDataset)
+	sourceCmd := exec.Command(
+		"sudo",
+		"zfs",
+		"list",
+		"-H",
+		"-o",
+		"name,guid",
+		"-t",
+		"snap",
+		"-S",
+		"creation",
+		sourceDataset,
+	)
 	sourceOutput, err := sourceCmd.Output()
 	if err != nil {
 		return "", errors.New(errors.ZFSSnapshotList,
@@ -933,7 +1046,17 @@ func (m *Manager) findMostRecentCommonSnapshot(sourceDataset, targetDataset stri
 	}
 
 	// List target snapshots with GUIDs
-	targetCmd := exec.Command("sudo", "zfs", "list", "-H", "-o", "name,guid", "-t", "snap", targetDataset)
+	targetCmd := exec.Command(
+		"sudo",
+		"zfs",
+		"list",
+		"-H",
+		"-o",
+		"name,guid",
+		"-t",
+		"snap",
+		targetDataset,
+	)
 	targetOutput, err := targetCmd.Output()
 	if err != nil {
 		return "", errors.New(errors.ZFSSnapshotList,
@@ -1168,7 +1291,10 @@ func (m *Manager) LoadConfig() error {
 	var cfg TransferPolicyConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		// Backup corrupted config
-		backupPath := m.configPath + fmt.Sprintf(".error.%s", time.Now().Format("2006-01-02-150405"))
+		backupPath := m.configPath + fmt.Sprintf(
+			".error.%s",
+			time.Now().Format("2006-01-02-150405"),
+		)
 		if copyErr := os.WriteFile(backupPath, data, 0644); copyErr != nil {
 			m.logger.Error("Failed to backup corrupted config", "error", copyErr)
 		}
@@ -1180,7 +1306,13 @@ func (m *Manager) LoadConfig() error {
 	validPolicies := []TransferPolicy{}
 	for _, policy := range cfg.Policies {
 		if err := ValidateTransferPolicy(&policy); err != nil {
-			m.logger.Warn("Invalid policy in config, skipping", "policy_id", policy.ID, "error", err)
+			m.logger.Warn(
+				"Invalid policy in config, skipping",
+				"policy_id",
+				policy.ID,
+				"error",
+				err,
+			)
 			continue
 		}
 		validPolicies = append(validPolicies, policy)
@@ -1191,7 +1323,10 @@ func (m *Manager) LoadConfig() error {
 		m.logger.Info("Removed invalid policies from config",
 			"original_count", len(cfg.Policies),
 			"valid_count", len(validPolicies))
-		backupPath := m.configPath + fmt.Sprintf(".cleaned.%s", time.Now().Format("2006-01-02-150405"))
+		backupPath := m.configPath + fmt.Sprintf(
+			".cleaned.%s",
+			time.Now().Format("2006-01-02-150405"),
+		)
 		if copyErr := os.WriteFile(backupPath, data, 0644); copyErr == nil {
 			m.logger.Info("Original config backed up before cleaning", "backup_path", backupPath)
 		}

@@ -2,7 +2,7 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package transfers
+package autotransfers
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,9 +56,9 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -76,9 +76,9 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -96,9 +96,9 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -117,7 +117,7 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{},
+				Schedules: []autosnapshots.ScheduleSpec{},
 			},
 			wantErr: true,
 		},
@@ -131,13 +131,43 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "02:00", Enabled: true},
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "03:00", Enabled: true},
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "04:00", Enabled: true},
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "05:00", Enabled: true},
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "06:00", Enabled: true},
-					{Type: snapshot.ScheduleTypeDaily, Interval: 1, AtTime: "07:00", Enabled: true},
+				Schedules: []autosnapshots.ScheduleSpec{
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "02:00",
+						Enabled:  true,
+					},
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "03:00",
+						Enabled:  true,
+					},
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "04:00",
+						Enabled:  true,
+					},
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "05:00",
+						Enabled:  true,
+					},
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "06:00",
+						Enabled:  true,
+					},
+					{
+						Type:     autosnapshots.ScheduleTypeDaily,
+						Interval: 1,
+						AtTime:   "07:00",
+						Enabled:  true,
+					},
 				},
 			},
 			wantErr: true,
@@ -148,9 +178,9 @@ func TestValidateTransferPolicy(t *testing.T) {
 				Name:             "test-policy",
 				SnapshotPolicyID: "snap-policy-id",
 				TransferConfig:   dataset.TransferConfig{},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -169,9 +199,9 @@ func TestValidateTransferPolicy(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						// Missing AtTime for daily schedule
 						Enabled: true,
@@ -211,9 +241,9 @@ func TestValidateEditTransferPolicyParams(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -231,9 +261,9 @@ func TestValidateEditTransferPolicyParams(t *testing.T) {
 						Target: "tank/backup",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "02:00",
 						Enabled:  true,
@@ -268,9 +298,9 @@ func TestNewTransferPolicy(t *testing.T) {
 				Target: "tank/backup",
 			},
 		},
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "02:00",
 				Enabled:  true,
@@ -304,7 +334,7 @@ func skipIfNotIntegration(t *testing.T) {
 // setupTestManagers creates test instances of required managers
 func setupTestManagers(
 	t *testing.T,
-) (*Manager, *snapshot.Manager, *dataset.TransferManager, func()) {
+) (*Manager, *autosnapshots.Manager, *dataset.TransferManager, func()) {
 	skipIfNotIntegration(t)
 
 	// Ensure config directories exist
@@ -322,7 +352,7 @@ func setupTestManagers(
 	datasetMgr := dataset.NewManager(executor)
 
 	// Create snapshot manager with dataset manager
-	snapshotMgr, err := snapshot.GetManager(datasetMgr, "")
+	snapshotMgr, err := autosnapshots.GetManager(datasetMgr, "")
 	require.NoError(t, err, "Failed to create snapshot manager")
 
 	// Create transfer manager
@@ -373,19 +403,19 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// First, create a snapshot policy to reference
-	snapPolicyParams := snapshot.EditPolicyParams{
+	snapPolicyParams := autosnapshots.EditPolicyParams{
 		Name:        "test-snap-policy-for-transfer",
 		Description: "Test snapshot policy for transfer testing",
 		Dataset:     "tiny1/split",
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "02:00",
 				Enabled:  true,
 			},
 		},
-		RetentionPolicy: snapshot.RetentionPolicy{
+		RetentionPolicy: autosnapshots.RetentionPolicy{
 			Count: 5,
 		},
 		Enabled: true,
@@ -424,9 +454,9 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 					Target: "tank/test-transfer-target",
 				},
 			},
-			Schedules: []snapshot.ScheduleSpec{
+			Schedules: []autosnapshots.ScheduleSpec{
 				{
-					Type:     snapshot.ScheduleTypeDaily,
+					Type:     autosnapshots.ScheduleTypeDaily,
 					Interval: 1,
 					AtTime:   "03:00",
 					Enabled:  true,
@@ -490,9 +520,9 @@ func TestPolicyCRUD_Integration(t *testing.T) {
 						Target: "tank/test-transfer-target-updated",
 					},
 				},
-				Schedules: []snapshot.ScheduleSpec{
+				Schedules: []autosnapshots.ScheduleSpec{
 					{
-						Type:     snapshot.ScheduleTypeDaily,
+						Type:     autosnapshots.ScheduleTypeDaily,
 						Interval: 1,
 						AtTime:   "04:00", // Changed time
 						Enabled:  true,
@@ -565,19 +595,19 @@ func TestPolicyExecution_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a snapshot policy
-	snapPolicyParams := snapshot.EditPolicyParams{
+	snapPolicyParams := autosnapshots.EditPolicyParams{
 		Name:        "test-snap-policy-execution",
 		Description: "Test snapshot policy for execution",
 		Dataset:     "tiny1/split",
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "02:00",
 				Enabled:  true,
 			},
 		},
-		RetentionPolicy: snapshot.RetentionPolicy{
+		RetentionPolicy: autosnapshots.RetentionPolicy{
 			Count: 5,
 		},
 		Enabled: true,
@@ -604,9 +634,9 @@ func TestPolicyExecution_Integration(t *testing.T) {
 				Target: "tank/test-execution-target",
 			},
 		},
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "03:00",
 				Enabled:  true,
@@ -653,19 +683,19 @@ func TestSnapshotPolicyProtection_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a snapshot policy
-	snapPolicyParams := snapshot.EditPolicyParams{
+	snapPolicyParams := autosnapshots.EditPolicyParams{
 		Name:        "test-snap-policy-protected",
 		Description: "Test snapshot policy protection",
 		Dataset:     "tiny1/split",
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "02:00",
 				Enabled:  true,
 			},
 		},
-		RetentionPolicy: snapshot.RetentionPolicy{
+		RetentionPolicy: autosnapshots.RetentionPolicy{
 			Count: 5,
 		},
 		Enabled: true,
@@ -692,9 +722,9 @@ func TestSnapshotPolicyProtection_Integration(t *testing.T) {
 				Target: "tank/test-protection-target",
 			},
 		},
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeDaily,
+				Type:     autosnapshots.ScheduleTypeDaily,
 				Interval: 1,
 				AtTime:   "03:00",
 				Enabled:  true,
@@ -736,18 +766,18 @@ func TestScheduledExecution_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a snapshot policy that runs every 1 minute
-	snapPolicyParams := snapshot.EditPolicyParams{
+	snapPolicyParams := autosnapshots.EditPolicyParams{
 		Name:        "test-snap-frequent",
 		Description: "Test snapshot policy with frequent execution",
 		Dataset:     "tiny1/split",
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeMinutely,
+				Type:     autosnapshots.ScheduleTypeMinutely,
 				Interval: 1, // Every 1 minute
 				Enabled:  true,
 			},
 		},
-		RetentionPolicy: snapshot.RetentionPolicy{
+		RetentionPolicy: autosnapshots.RetentionPolicy{
 			Count: 10, // Keep last 10 snapshots
 		},
 		Enabled: true,
@@ -791,9 +821,9 @@ func TestScheduledExecution_Integration(t *testing.T) {
 				FooterLines:      20,
 			},
 		},
-		Schedules: []snapshot.ScheduleSpec{
+		Schedules: []autosnapshots.ScheduleSpec{
 			{
-				Type:     snapshot.ScheduleTypeMinutely,
+				Type:     autosnapshots.ScheduleTypeMinutely,
 				Interval: 2, // Every 2 minutes
 				Enabled:  true,
 			},

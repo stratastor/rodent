@@ -2,7 +2,7 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package snapshot
+package autosnapshots
 
 import (
 	"fmt"
@@ -62,23 +62,23 @@ type ScheduleSpec struct {
 
 // SnapshotPolicy represents a complete auto-snapshot policy
 type SnapshotPolicy struct {
-	ID              string            `json:"id"                yaml:"id"`                // Unique identifier
-	Name            string            `json:"name"              yaml:"name"`              // User-friendly name
-	Description     string            `json:"description"       yaml:"description"`       // Description of the policy
-	Dataset         string            `json:"dataset"           yaml:"dataset"`           // ZFS dataset to snapshot
-	Schedules       []ScheduleSpec    `json:"schedules"         yaml:"schedules"`         // List of schedules for this policy (max 5)
-	Recursive       bool              `json:"recursive"         yaml:"recursive"`         // Whether to snapshot recursively
-	SnapNamePattern string            `json:"snap_name_pattern" yaml:"snap_name_pattern"` // Pattern for snapshot names
-	RetentionPolicy RetentionPolicy   `json:"retention_policy"  yaml:"retention_policy"`  // Retention/pruning policy
-	Properties      map[string]string `json:"properties"        yaml:"properties"`        // ZFS properties to set on snapshots
-	Enabled         bool              `json:"enabled"           yaml:"enabled"`           // Whether this policy is enabled
-	CreatedAt       time.Time         `json:"created_at"        yaml:"created_at"`        // When this policy was created
-	UpdatedAt       time.Time         `json:"updated_at"        yaml:"updated_at"`        // When this policy was last updated
-	LastRunAt         time.Time         `json:"last_run_at"         yaml:"last_run_at"`                    // When this policy was last executed
-	LastRunStatus     string            `json:"last_run_status"     yaml:"last_run_status"`                // Status of the last run
-	LastRunError      string            `json:"last_run_error"      yaml:"last_run_error"`                 // Error from the last run, if any
+	ID                string            `json:"id"                  yaml:"id"`                            // Unique identifier
+	Name              string            `json:"name"                yaml:"name"`                          // User-friendly name
+	Description       string            `json:"description"         yaml:"description"`                   // Description of the policy
+	Dataset           string            `json:"dataset"             yaml:"dataset"`                       // ZFS dataset to snapshot
+	Schedules         []ScheduleSpec    `json:"schedules"           yaml:"schedules"`                     // List of schedules for this policy (max 5)
+	Recursive         bool              `json:"recursive"           yaml:"recursive"`                     // Whether to snapshot recursively
+	SnapNamePattern   string            `json:"snap_name_pattern"   yaml:"snap_name_pattern"`             // Pattern for snapshot names
+	RetentionPolicy   RetentionPolicy   `json:"retention_policy"    yaml:"retention_policy"`              // Retention/pruning policy
+	Properties        map[string]string `json:"properties"          yaml:"properties"`                    // ZFS properties to set on snapshots
+	Enabled           bool              `json:"enabled"             yaml:"enabled"`                       // Whether this policy is enabled
+	CreatedAt         time.Time         `json:"created_at"          yaml:"created_at"`                    // When this policy was created
+	UpdatedAt         time.Time         `json:"updated_at"          yaml:"updated_at"`                    // When this policy was last updated
+	LastRunAt         time.Time         `json:"last_run_at"         yaml:"last_run_at"`                   // When this policy was last executed
+	LastRunStatus     string            `json:"last_run_status"     yaml:"last_run_status"`               // Status of the last run
+	LastRunError      string            `json:"last_run_error"      yaml:"last_run_error"`                // Error from the last run, if any
 	TransferPolicyIDs []string          `json:"transfer_policy_ids" yaml:"transfer_policy_ids,omitempty"` // IDs of transfer policies using this snapshot policy
-	MonitorStatus     *JobMonitor       `json:"monitor_status"      yaml:"-"`                              // Detailed job monitor status (not stored in YAML)
+	MonitorStatus     *JobMonitor       `json:"monitor_status"      yaml:"-"`                             // Detailed job monitor status (not stored in YAML)
 }
 
 // JobMonitor monitors job status and execution

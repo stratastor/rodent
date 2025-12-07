@@ -33,11 +33,11 @@ import (
 	"github.com/stratastor/rodent/pkg/system"
 	systemAPI "github.com/stratastor/rodent/pkg/system/api"
 	"github.com/stratastor/rodent/pkg/zfs/api"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
+	"github.com/stratastor/rodent/pkg/zfs/autotransfers"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
-	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // Shared manager instances for stateful subsystems
@@ -52,11 +52,11 @@ var (
 
 	// sharedSnapshotHandler holds the snapshot handler which provides access to the snapshot manager
 	// Used by inventory to collect snapshot policies information
-	sharedSnapshotHandler *snapshot.Handler
+	sharedSnapshotHandler *autosnapshots.Handler
 
 	// sharedTransferPolicyHandler holds the transfer policy handler
 	// Used by inventory to collect transfer policies information
-	sharedTransferPolicyHandler *transfers.Handler
+	sharedTransferPolicyHandler *autotransfers.Handler
 
 	// sharedTransferManager holds the transfer manager instance
 	// Used for shutdown to gracefully terminate active transfers
@@ -110,7 +110,11 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 
 			// Register transfer policy routes
 			if snapshotHandler != nil && transferManager != nil {
-				transferPolicyHandler, err := api.RegisterTransferPolicyRoutes(schedulers, transferManager, snapshotHandler)
+				transferPolicyHandler, err := api.RegisterTransferPolicyRoutes(
+					schedulers,
+					transferManager,
+					snapshotHandler,
+				)
 				if err != nil {
 					// Log the error but don't fail startup
 					cfg := config.GetConfig()
@@ -447,7 +451,7 @@ func registerInventoryRoutes(engine *gin.Engine) (*inventory.Handler, error) {
 
 	// Snapshot Manager - extract from shared handler
 	// May be nil if snapshot routes haven't been registered yet
-	var snapshotMgr snapshot.SchedulerInterface
+	var snapshotMgr autosnapshots.SchedulerInterface
 	if sharedSnapshotHandler != nil {
 		snapshotMgr = sharedSnapshotHandler // Handler implements SchedulerInterface
 	} else {
@@ -456,7 +460,7 @@ func registerInventoryRoutes(engine *gin.Engine) (*inventory.Handler, error) {
 
 	// Transfer Policy Manager - extract from shared handler
 	// May be nil if transfer policy routes haven't been registered yet
-	var transferPolicyMgr *transfers.Manager
+	var transferPolicyMgr *autotransfers.Manager
 	if sharedTransferPolicyHandler != nil {
 		transferPolicyMgr = sharedTransferPolicyHandler.Manager()
 	} else {

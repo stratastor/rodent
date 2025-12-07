@@ -2,7 +2,7 @@
 // Copyright 2025 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package transfers
+package autotransfers
 
 import (
 	"context"
@@ -115,7 +115,10 @@ func handleGetPolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if payload.PolicyID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Call the manager's GetPolicy method
@@ -171,7 +174,10 @@ func handleUpdatePolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if params.ID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Validate policy
@@ -209,7 +215,10 @@ func handleDeletePolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if payload.PolicyID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Call the manager's RemovePolicy method
@@ -241,7 +250,10 @@ func handleRunPolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if params.PolicyID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Call the manager's RunPolicy method with background context
@@ -273,7 +285,10 @@ func handleEnablePolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if payload.PolicyID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Call the manager's EnablePolicy method
@@ -303,7 +318,10 @@ func handleDisablePolicy(h *GRPCHandler) client.CommandHandler {
 		}
 
 		if payload.PolicyID == "" {
-			return errorResponse(req.RequestId, errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"))
+			return errorResponse(
+				req.RequestId,
+				errors.New(errors.TransferPolicyInvalidConfig, "policy ID is required"),
+			)
 		}
 
 		// Call the manager's DisablePolicy method

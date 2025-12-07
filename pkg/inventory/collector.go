@@ -19,10 +19,10 @@ import (
 	netTypes "github.com/stratastor/rodent/pkg/netmage/types"
 	"github.com/stratastor/rodent/pkg/shares"
 	"github.com/stratastor/rodent/pkg/system"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
+	"github.com/stratastor/rodent/pkg/zfs/autotransfers"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
-	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // Collector aggregates inventory data from all Rodent subsystems
@@ -34,8 +34,8 @@ type Collector struct {
 	networkManager  netTypes.Manager
 	systemManager   *system.Manager
 	sharesManager   shares.SharesManager
-	snapshotManager snapshot.SchedulerInterface
-	transferManager *transfers.Manager
+	snapshotManager autosnapshots.SchedulerInterface
+	transferManager *autotransfers.Manager
 
 	logger logger.Logger
 	mu     sync.RWMutex
@@ -49,8 +49,8 @@ func NewCollector(
 	networkMgr netTypes.Manager,
 	systemMgr *system.Manager,
 	sharesMgr shares.SharesManager,
-	snapshotMgr snapshot.SchedulerInterface,
-	transferMgr *transfers.Manager,
+	snapshotMgr autosnapshots.SchedulerInterface,
+	transferMgr *autotransfers.Manager,
 	log logger.Logger,
 ) *Collector {
 	return &Collector{

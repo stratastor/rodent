@@ -11,9 +11,9 @@ import (
 	netTypes "github.com/stratastor/rodent/pkg/netmage/types"
 	"github.com/stratastor/rodent/pkg/shares"
 	"github.com/stratastor/rodent/pkg/system"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
+	"github.com/stratastor/rodent/pkg/zfs/autotransfers"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
-	"github.com/stratastor/rodent/pkg/zfs/transfers"
 )
 
 // DetailLevel specifies the level of detail to include in the inventory
@@ -226,27 +226,27 @@ type NetworkUtilization struct {
 
 // SharesSummary represents file shares summary (SMB/NFS/iSCSI)
 type SharesSummary struct {
-	TotalCount   int                   `json:"total_count"`
-	EnabledCount int                   `json:"enabled_count"`
-	SMBCount     int                   `json:"smb_count"`
-	NFSCount     int                   `json:"nfs_count"`
-	ISCSICount   int                   `json:"iscsi_count"`
-	Shares       []shares.ShareConfig  `json:"shares,omitempty"` // Included in basic/full detail level
+	TotalCount   int                  `json:"total_count"`
+	EnabledCount int                  `json:"enabled_count"`
+	SMBCount     int                  `json:"smb_count"`
+	NFSCount     int                  `json:"nfs_count"`
+	ISCSICount   int                  `json:"iscsi_count"`
+	Shares       []shares.ShareConfig `json:"shares,omitempty"` // Included in basic/full detail level
 }
 
 // SnapshotPoliciesSummary represents snapshot automation policies summary
 type SnapshotPoliciesSummary struct {
-	TotalCount   int                       `json:"total_count"`
-	EnabledCount int                       `json:"enabled_count"`
-	ActiveCount  int                       `json:"active_count"`       // Policies with enabled schedules
-	Policies     []snapshot.SnapshotPolicy `json:"policies,omitempty"` // Included in basic/full detail level
+	TotalCount   int                            `json:"total_count"`
+	EnabledCount int                            `json:"enabled_count"`
+	ActiveCount  int                            `json:"active_count"`       // Policies with enabled schedules
+	Policies     []autosnapshots.SnapshotPolicy `json:"policies,omitempty"` // Included in basic/full detail level
 }
 
 // TransferPoliciesSummary represents transfer automation policies summary
 type TransferPoliciesSummary struct {
-	TotalCount   int                        `json:"total_count"`
-	EnabledCount int                        `json:"enabled_count"`
-	ActiveCount  int                        `json:"active_count"`       // Policies with enabled schedules
-	RunningCount int                        `json:"running_count"`      // Policies currently executing transfers
-	Policies     []transfers.TransferPolicy `json:"policies,omitempty"` // Included in basic/full detail level
+	TotalCount   int                            `json:"total_count"`
+	EnabledCount int                            `json:"enabled_count"`
+	ActiveCount  int                            `json:"active_count"`       // Policies with enabled schedules
+	RunningCount int                            `json:"running_count"`      // Policies currently executing transfers
+	Policies     []autotransfers.TransferPolicy `json:"policies,omitempty"` // Included in basic/full detail level
 }

@@ -2,7 +2,7 @@
 // Copyright 2024 The StrataSTOR Authors and Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package transfers
+package autotransfers
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 
 	"github.com/stratastor/rodent/internal/common"
 	"github.com/stratastor/rodent/pkg/errors"
+	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
 	"github.com/stratastor/rodent/pkg/zfs/dataset"
-	"github.com/stratastor/rodent/pkg/zfs/snapshot"
 )
 
 // Helper functions from common package for middleware
@@ -38,7 +38,7 @@ type TransferPolicy struct {
 	TransferConfig dataset.TransferConfig `json:"transfer_config" yaml:"transfer_config"`
 
 	// Scheduling - supports multiple schedules per policy
-	Schedules []snapshot.ScheduleSpec `json:"schedules" yaml:"schedules"`
+	Schedules []autosnapshots.ScheduleSpec `json:"schedules" yaml:"schedules"`
 
 	// Retention policy for transfer entries (not snapshots)
 	// Controls automatic cleanup of completed/failed transfer records
@@ -114,14 +114,14 @@ const (
 
 // EditTransferPolicyParams defines parameters for creating/updating a transfer policy
 type EditTransferPolicyParams struct {
-	ID               string                  `json:"id,omitempty"`
-	Name             string                  `json:"name"`
-	Description      string                  `json:"description"`
-	SnapshotPolicyID string                  `json:"snapshot_policy_id"`
-	TransferConfig   dataset.TransferConfig  `json:"transfer_config"`
-	Schedules        []snapshot.ScheduleSpec `json:"schedules"`
-	RetentionPolicy  TransferRetentionPolicy `json:"retention_policy"`
-	Enabled          bool                    `json:"enabled"`
+	ID               string                       `json:"id,omitempty"`
+	Name             string                       `json:"name"`
+	Description      string                       `json:"description"`
+	SnapshotPolicyID string                       `json:"snapshot_policy_id"`
+	TransferConfig   dataset.TransferConfig       `json:"transfer_config"`
+	Schedules        []autosnapshots.ScheduleSpec `json:"schedules"`
+	RetentionPolicy  TransferRetentionPolicy      `json:"retention_policy"`
+	Enabled          bool                         `json:"enabled"`
 }
 
 // RunTransferPolicyParams defines parameters for manually running a transfer policy
@@ -190,7 +190,7 @@ func ValidateTransferPolicy(policy *TransferPolicy) error {
 
 	// Validate each schedule
 	for i, schedule := range policy.Schedules {
-		if err := snapshot.ValidateScheduleSpec(schedule); err != nil {
+		if err := autosnapshots.ValidateScheduleSpec(schedule); err != nil {
 			return errors.New(
 				errors.TransferPolicyInvalidConfig,
 				fmt.Sprintf("schedule %d invalid: %v", i, err),
@@ -251,7 +251,7 @@ func ValidateEditTransferPolicyParams(params *EditTransferPolicyParams) error {
 
 	// Validate each schedule
 	for i, schedule := range params.Schedules {
-		if err := snapshot.ValidateScheduleSpec(schedule); err != nil {
+		if err := autosnapshots.ValidateScheduleSpec(schedule); err != nil {
 			return errors.New(
 				errors.TransferPolicyInvalidConfig,
 				fmt.Sprintf("schedule %d invalid: %v", i, err),
