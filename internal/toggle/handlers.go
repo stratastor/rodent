@@ -8,6 +8,7 @@ import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
 	generalCmd "github.com/stratastor/rodent/internal/command"
+	"github.com/stratastor/rodent/internal/managers"
 	servicesAPI "github.com/stratastor/rodent/internal/services/api"
 	servicesMgr "github.com/stratastor/rodent/internal/services/manager"
 	adHandlers "github.com/stratastor/rodent/pkg/ad/handlers"
@@ -17,8 +18,8 @@ import (
 	"github.com/stratastor/rodent/pkg/shares/smb"
 	zfsAPI "github.com/stratastor/rodent/pkg/zfs/api"
 	"github.com/stratastor/rodent/pkg/zfs/autosnapshots"
+	"github.com/stratastor/rodent/pkg/zfs/autotransfers"
 	"github.com/stratastor/rodent/pkg/zfs/command"
-	"github.com/stratastor/rodent/pkg/zfs/dataset"
 	"github.com/stratastor/rodent/pkg/zfs/pool"
 )
 
@@ -33,21 +34,24 @@ func RegisterAllHandlers() {
 	// Create command executor with sudo support
 	executor := command.NewCommandExecutor(true, logger.Config{LogLevel: cfg.Server.LogLevel})
 
-	// Initialize managers
-	datasetHandler, _ := zfsAPI.NewDatasetHandler(nil, nil)
-	datasetManager := dataset.NewManager(executor)
-	transferManager, err := dataset.NewTransferManager(logger.Config{LogLevel: cfg.Server.LogLevel})
-	if err != nil {
-		l.Error("Failed to create dataset transfer manager", "error", err)
-	} else {
-		// Create dataset handler with transfer manager
+	// Get shared managers (set by HTTP routes during server startup)
+	datasetManager := managers.GetDatasetManager()
+	transferManager := managers.GetTransferManager()
+
+	// Create dataset handler using shared managers
+	var datasetHandler *zfsAPI.DatasetHandler
+	if datasetManager != nil && transferManager != nil {
 		datasetHandler, err = zfsAPI.NewDatasetHandler(datasetManager, transferManager)
 		if err != nil {
 			l.Error("Failed to create dataset handler", "error", err)
 		}
+	} else {
+		l.Warn("Shared managers not available, creating dataset handler without transfer support")
+		// Fallback: create minimal handler (datasetManager may be nil)
+		datasetHandler, _ = zfsAPI.NewDatasetHandler(datasetManager, nil)
 	}
-	poolManager := pool.NewManager(executor)
 
+	poolManager := pool.NewManager(executor)
 	poolHandler := zfsAPI.NewPoolHandler(poolManager)
 
 	// Register ZFS-related handlers
@@ -89,19 +93,26 @@ func RegisterAllHandlers() {
 		l.Info("Registered SMB shares gRPC handlers")
 	}
 
-	// Create and register auto-snapshot handler for gRPC
-	snapHandler, err := autosnapshots.NewGRPCHandler(datasetManager)
-	if err != nil {
-		l.Error("Failed to create auto-snapshot handler", "error", err)
-	} else {
-		// Start the snapshot manager
-		if err := snapHandler.StartManager(); err != nil {
-			l.Error("Failed to start auto-snapshot manager", "error", err)
-		}
-
-		// Register the handlers
+	// Register auto-snapshot gRPC handlers using shared manager
+	snapshotManager := managers.GetSnapshotManager()
+	if snapshotManager != nil {
+		snapHandler := autosnapshots.NewGRPCHandlerWithManager(snapshotManager)
+		// Don't start the manager - it's already started by HTTP routes
 		autosnapshots.RegisterAutosnapshotGRPCHandlers(snapHandler)
 		l.Info("Registered auto-snapshot gRPC handlers")
+	} else {
+		l.Warn("Snapshot manager not available, skipping auto-snapshot gRPC handlers")
+	}
+
+	// Register auto-transfer gRPC handlers using shared manager
+	transferPolicyManager := managers.GetTransferPolicyManager()
+	if transferPolicyManager != nil {
+		transferHandler := autotransfers.NewGRPCHandlerWithManager(transferPolicyManager)
+		// Don't start the manager - it's already started by HTTP routes
+		autotransfers.RegisterTransferPolicyGRPCHandlers(transferHandler)
+		l.Info("Registered auto-transfer gRPC handlers")
+	} else {
+		l.Warn("Transfer policy manager not available, skipping auto-transfer gRPC handlers")
 	}
 
 	// Create and register services handler for gRPC

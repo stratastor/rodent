@@ -65,6 +65,11 @@ func (h *Handler) StopManager() error {
 	return h.manager.Stop()
 }
 
+// Manager returns the underlying snapshot manager
+func (h *Handler) Manager() *Manager {
+	return h.manager
+}
+
 // SchedulerInterface implementation - delegate to manager
 // These methods allow Handler to be used as a SchedulerInterface
 

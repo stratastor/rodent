@@ -14,6 +14,7 @@ import (
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/constants"
 	"github.com/stratastor/rodent/internal/events"
+	"github.com/stratastor/rodent/internal/managers"
 	svcAPI "github.com/stratastor/rodent/internal/services/api"
 	svcManager "github.com/stratastor/rodent/internal/services/manager"
 	"github.com/stratastor/rodent/pkg/ad"
@@ -73,14 +74,17 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 
 	// Initialize managers
 	datasetManager := dataset.NewManager(executor)
+	managers.SetDatasetManager(datasetManager)
+
 	var datasetHandler *api.DatasetHandler
 	transferManager, err := dataset.NewTransferManager(logger.Config{LogLevel: cfg.Server.LogLevel})
 	if err != nil {
 		return fmt.Errorf("failed to create dataset transfer manager: %w", err)
 
 	} else {
-		// Store shared instance for use by shutdown handler
+		// Store shared instance for use by shutdown handler and gRPC handlers
 		sharedTransferManager = transferManager
+		managers.SetTransferManager(transferManager)
 
 		// Create dataset handler with transfer manager
 		datasetHandler, err = api.NewDatasetHandler(datasetManager, transferManager)
@@ -105,6 +109,7 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 			snapshotHandler, err := api.RegisterAutoSnapshotRoutes(schedulers, datasetManager)
 			if err == nil {
 				sharedSnapshotHandler = snapshotHandler
+				managers.SetSnapshotManager(snapshotHandler.Manager())
 			}
 			// If err != nil, sharedSnapshotHandler remains nil and inventory won't include snapshot policies
 
@@ -123,6 +128,7 @@ func registerZFSRoutes(engine *gin.Engine) (error error) {
 					}
 				} else {
 					sharedTransferPolicyHandler = transferPolicyHandler
+					managers.SetTransferPolicyManager(transferPolicyHandler.Manager())
 				}
 			}
 		}

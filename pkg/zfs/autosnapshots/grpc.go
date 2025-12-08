@@ -30,6 +30,13 @@ func NewGRPCHandler(dsManager *dataset.Manager) (*GRPCHandler, error) {
 	}, nil
 }
 
+// NewGRPCHandlerWithManager creates a new snapshot gRPC handler with an existing manager
+func NewGRPCHandlerWithManager(manager *Manager) *GRPCHandler {
+	return &GRPCHandler{
+		manager: manager,
+	}
+}
+
 // StartManager starts the snapshot manager scheduler
 func (h *GRPCHandler) StartManager() error {
 	return h.manager.Start()
