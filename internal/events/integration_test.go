@@ -283,13 +283,9 @@ func testDirectStructuredEventClient(
 				DataTransferEvent: &eventspb.DataTransferEvent{
 					EventType: &eventspb.DataTransferEvent_TransferEvent{
 						TransferEvent: &eventspb.DataTransferTransferPayload{
-							TransferId:    "test-transfer-1",
-							OperationType: "send_receive",
-							Source:        "tank/test@snap1",
-							Destination:   "backup/test",
-							Status:        "running",
-							TotalBytes:    1024 * 1024,
-							Operation:     eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED,
+							TransferId:       "test-transfer-1",
+							Operation:        eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED,
+							TransferInfoJson: `{"id":"test-transfer-1","operation":"send_receive","status":"running","config":{"send_config":{"snapshot":"tank/test@snap1"},"receive_config":{"target":"backup/test"}},"progress":{"total_bytes":1048576}}`,
 						},
 					},
 				},
@@ -348,8 +344,9 @@ func testDirectStructuredEventClient(
 	require.NotNil(t, dataTransferEvent, "Should have data transfer event payload")
 	transferEvent := dataTransferEvent.GetTransferEvent()
 	require.NotNil(t, transferEvent, "Should have transfer event")
-	assert.Equal(t, "tank/test@snap1", transferEvent.Source)
+	assert.Equal(t, "test-transfer-1", transferEvent.TransferId)
 	assert.Equal(t, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED, transferEvent.Operation)
+	assert.Contains(t, transferEvent.TransferInfoJson, "tank/test@snap1")
 
 	// Verify metadata
 	assert.Equal(t, "zfs-transfer", event1.Metadata["component"])
@@ -401,13 +398,8 @@ func testStructuredEventSystemInitialization(
 	// Data Transfer Event - using new comprehensive payload
 	EmitDataTransfer(eventspb.EventLevel_EVENT_LEVEL_WARN, &eventspb.DataTransferTransferPayload{
 		TransferId:       "test-transfer-warn",
-		OperationType:    "send_receive",
-		Source:           "remote/dataset@snap",
-		Destination:      "local/dataset",
-		Status:           "running",
-		TotalBytes:       1024,
-		BytesTransferred: 512,
 		Operation:        eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_PROGRESS,
+		TransferInfoJson: `{"id":"test-transfer-warn","operation":"send_receive","status":"running","config":{"send_config":{"snapshot":"remote/dataset@snap"},"receive_config":{"target":"local/dataset"}},"progress":{"total_bytes":1024,"bytes_transferred":512}}`,
 	}, map[string]string{
 		"component":   "zfs-transfer",
 		"action":      "progress",
@@ -552,13 +544,8 @@ func testProtobufBinaryDiskFlush(t *testing.T, l logger.Logger) {
 					EventType: &eventspb.DataTransferEvent_TransferEvent{
 						TransferEvent: &eventspb.DataTransferTransferPayload{
 							TransferId:       "flush-transfer-1",
-							OperationType:    "send_receive",
-							Source:           "tank/test@snap",
-							Destination:      "backup/test",
-							Status:           "completed",
-							TotalBytes:       1024 * 1024,
-							BytesTransferred: 1024 * 1024,
 							Operation:        eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED,
+							TransferInfoJson: `{"id":"flush-transfer-1","operation":"send_receive","status":"completed","config":{"send_config":{"snapshot":"tank/test@snap"},"receive_config":{"target":"backup/test"}},"progress":{"total_bytes":1048576,"bytes_transferred":1048576}}`,
 						},
 					},
 				},
@@ -675,7 +662,7 @@ func testProtobufBinaryDiskFlush(t *testing.T, l logger.Logger) {
 				foundStorage = true
 				transferEvent := payload.DataTransferEvent.GetTransferEvent()
 				assert.NotNil(t, transferEvent, "Should have transfer event")
-				assert.Equal(t, "tank/test@snap", transferEvent.Source)
+				assert.Contains(t, transferEvent.TransferInfoJson, "tank/test@snap")
 				assert.Equal(t, eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED, transferEvent.Operation)
 			case *eventspb.Event_IdentityEvent:
 				foundIdentity = true

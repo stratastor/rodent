@@ -43,15 +43,6 @@ const (
 	TransferStatusUnknown   TransferStatus = "unknown"
 )
 
-// TransferOperation represents different types of transfer operations
-type TransferOperation string
-
-const (
-	TransferOperationSend        TransferOperation = "send"
-	TransferOperationReceive     TransferOperation = "receive"
-	TransferOperationSendReceive TransferOperation = "send_receive"
-)
-
 // TransferAction represents the intended action for the transfer
 type TransferAction string
 
@@ -66,22 +57,21 @@ const cooloffPeriod = 3 * time.Minute
 
 // TransferInfo holds comprehensive information about a ZFS transfer
 type TransferInfo struct {
-	ID           string            `json:"id"                       yaml:"id"`
-	PolicyID     string            `json:"policy_id,omitempty"      yaml:"policy_id,omitempty"` // ID of the transfer policy that created this transfer (if any)
-	Operation    TransferOperation `json:"operation"                yaml:"operation"`
-	Status       TransferStatus    `json:"status"                   yaml:"status"`
-	Config       TransferConfig    `json:"config"                   yaml:"config"`
-	Progress     TransferProgress  `json:"progress"                 yaml:"progress"`
-	CreatedAt    time.Time         `json:"created_at"               yaml:"created_at"`
-	StartedAt    *time.Time        `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
-	CompletedAt  *time.Time        `json:"completed_at,omitempty"   yaml:"completed_at,omitempty"`
-	LastPausedAt *time.Time        `json:"last_paused_at,omitempty" yaml:"last_paused_at,omitempty"`
-	PID          int               `json:"pid,omitempty"            yaml:"pid,omitempty"`
-	LogFile      string            `json:"log_file"                 yaml:"log_file"`
-	PIDFile      string            `json:"pid_file"                 yaml:"pid_file"`
-	ConfigFile   string            `json:"config_file"              yaml:"config_file"`
-	ProgressFile string            `json:"progress_file"            yaml:"progress_file"`
-	ErrorMessage string            `json:"error_message,omitempty"  yaml:"error_message,omitempty"`
+	ID           string           `json:"id"                       yaml:"id"`
+	PolicyID     string           `json:"policy_id,omitempty"      yaml:"policy_id,omitempty"` // ID of the transfer policy that created this transfer (if any)
+	Status       TransferStatus   `json:"status"                   yaml:"status"`
+	Config       TransferConfig   `json:"config"                   yaml:"config"`
+	Progress     TransferProgress `json:"progress"                 yaml:"progress"`
+	CreatedAt    time.Time        `json:"created_at"               yaml:"created_at"`
+	StartedAt    *time.Time       `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
+	CompletedAt  *time.Time       `json:"completed_at,omitempty"   yaml:"completed_at,omitempty"`
+	LastPausedAt *time.Time       `json:"last_paused_at,omitempty" yaml:"last_paused_at,omitempty"`
+	PID          int              `json:"pid,omitempty"            yaml:"pid,omitempty"`
+	LogFile      string           `json:"log_file"                 yaml:"log_file"`
+	PIDFile      string           `json:"pid_file"                 yaml:"pid_file"`
+	ConfigFile   string           `json:"config_file"              yaml:"config_file"`
+	ProgressFile string           `json:"progress_file"            yaml:"progress_file"`
+	ErrorMessage string           `json:"error_message,omitempty"  yaml:"error_message,omitempty"`
 	// Internal state for action flow tracking
 	pendingAction TransferAction `json:"-"                        yaml:"-"`
 }
@@ -162,7 +152,6 @@ func (tm *TransferManager) startTransferInternal(
 	transferInfo := &TransferInfo{
 		ID:           transferID,
 		PolicyID:     policyID, // Set policy ID if transfer was initiated by a policy
-		Operation:    TransferOperationSendReceive,
 		Status:       TransferStatusStarting,
 		Config:       cfg,
 		Progress:     TransferProgress{LastUpdate: time.Now()},
@@ -206,7 +195,7 @@ func (tm *TransferManager) startTransferInternal(
 	// Start transfer in background
 	go tm.executeTransfer(ctx, transferInfo)
 
-	tm.logger.Info("Transfer initiated", "id", transferID, "operation", transferInfo.Operation)
+	tm.logger.Info("Transfer initiated", "id", transferID)
 
 	// Emit transfer started event with complete transfer information
 	tm.emitTransferEvent(
@@ -930,12 +919,16 @@ func (tm *TransferManager) DeleteTransfer(transferID string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
+	var transferInfo *TransferInfo
+
 	// Check if it's an active transfer (running/paused only)
 	if info, exists := tm.activeTransfers[transferID]; exists {
 		// Can only delete finished transfers
 		if info.Status == TransferStatusRunning || info.Status == TransferStatusPaused {
 			return errors.New(errors.TransferInvalidState, "Cannot delete active transfer")
 		}
+
+		transferInfo = info
 
 		// This shouldn't happen with the new logic, but handle gracefully
 		// Remove files
@@ -955,6 +948,9 @@ func (tm *TransferManager) DeleteTransfer(transferID string) error {
 			return errors.New(errors.TransferNotFound, "Transfer not found")
 		}
 
+		// Load transfer info before deleting for event emission
+		transferInfo = tm.loadTransferFromFile(configFile)
+
 		// Remove historical transfer files
 		files := []string{
 			filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID)),
@@ -967,6 +963,14 @@ func (tm *TransferManager) DeleteTransfer(transferID string) error {
 				tm.logger.Warn("Failed to remove transfer file", "file", file, "error", err)
 			}
 		}
+	}
+
+	// Emit transfer deleted event so Toggle can sync its records
+	if transferInfo != nil {
+		tm.emitTransferEvent(
+			transferInfo,
+			eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_DELETED,
+		)
 	}
 
 	tm.logger.Info("Transfer deleted", "id", transferID)
@@ -1349,7 +1353,6 @@ func (tm *TransferManager) performInitialSend(
 	// Create temporary transfer info for initial send
 	initialInfo := &TransferInfo{
 		ID:        info.ID + "-initial",
-		Operation: TransferOperationSendReceive,
 		Status:    TransferStatusRunning,
 		Config:    initialConfig,
 		Progress:  TransferProgress{LastUpdate: time.Now()},
@@ -1807,52 +1810,31 @@ func (tm *TransferManager) loadExistingTransfers() error {
 	return nil
 }
 
-// buildDataTransferPayload creates a complete DataTransferTransferPayload from TransferInfo
-// This ensures Toggle receives all essential transfer details for proper sync
+// buildDataTransferPayload creates a DataTransferTransferPayload from TransferInfo
+// The payload contains essential routing fields plus the complete TransferInfo as JSON
+// This ensures Toggle receives all transfer details for proper sync without proto schema coupling
 func (tm *TransferManager) buildDataTransferPayload(
 	info *TransferInfo,
 	operation eventspb.DataTransferTransferPayload_DataTransferOperation,
 ) *eventspb.DataTransferTransferPayload {
-	payload := &eventspb.DataTransferTransferPayload{
-		TransferId:    info.ID,
-		OperationType: string(info.Operation),
-		Source:        info.Config.SendConfig.Snapshot,
-		Destination:   info.Config.ReceiveConfig.Target,
-		Status:        string(info.Status),
-		Operation:     operation,
-		ErrorMessage:  info.ErrorMessage,
-
-		// Progress information
-		BytesTransferred: info.Progress.BytesTransferred,
-		TotalBytes:       info.Progress.TotalBytes,
-		TransferRate:     info.Progress.TransferRate,
-		ElapsedTime:      info.Progress.ElapsedTime,
-		EstimatedEta:     info.Progress.EstimatedETA,
-		Phase:            info.Progress.Phase,
-		PhaseDescription: info.Progress.PhaseDescription,
-
-		// Timestamps (convert to Unix milliseconds)
-		CreatedAt: info.CreatedAt.UnixMilli(),
-
-		// Process information
-		Pid:     int32(info.PID),
-		LogFile: info.LogFile,
-
-		// Configuration summary
-		IsIncremental: info.Config.SendConfig.FromSnapshot != "",
-		IsResumable:   info.Config.ReceiveConfig.Resumable,
-		FromSnapshot:  info.Config.SendConfig.FromSnapshot,
+	// Serialize TransferInfo to JSON for complete transfer details
+	infoJSON, err := json.Marshal(info)
+	if err != nil {
+		tm.logger.Error(
+			"Failed to marshal TransferInfo to JSON",
+			"error",
+			err,
+			"transfer_id",
+			info.ID,
+		)
+		infoJSON = []byte("{}")
 	}
 
-	// Set timestamps conditionally (0 if nil)
-	if info.StartedAt != nil {
-		payload.StartedAt = info.StartedAt.UnixMilli()
+	return &eventspb.DataTransferTransferPayload{
+		TransferId:       info.ID,
+		Operation:        operation,
+		TransferInfoJson: string(infoJSON),
 	}
-	if info.CompletedAt != nil {
-		payload.CompletedAt = info.CompletedAt.UnixMilli()
-	}
-
-	return payload
 }
 
 // emitTransferEvent emits DataTransfer events with complete transfer information
@@ -1882,6 +1864,9 @@ func (tm *TransferManager) emitTransferEvent(
 	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_CANCELLED:
 		level = eventspb.EventLevel_EVENT_LEVEL_WARN
 		action = "cancelled"
+	case eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_DELETED:
+		level = eventspb.EventLevel_EVENT_LEVEL_INFO
+		action = "deleted"
 	default:
 		return // Don't emit events for unspecified operations
 	}
@@ -1894,7 +1879,6 @@ func (tm *TransferManager) emitTransferEvent(
 		"component":   "zfs-transfer",
 		"action":      action,
 		"transfer_id": info.ID,
-		"operation":   string(info.Operation),
 		"status":      string(info.Status),
 	}
 
