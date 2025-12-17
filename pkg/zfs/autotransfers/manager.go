@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -198,7 +199,7 @@ func (m *Manager) AddPolicy(ctx context.Context, params EditTransferPolicyParams
 
 	// Associate with snapshot policy FIRST, before modifying our config
 	// This ensures the snapshot policy accepts the association before we commit
-	if err := m.snapshotManager.AddTransferPolicyAssociation(params.SnapshotPolicyID, policyID); err != nil {
+	if err := m.snapshotManager.UpdateTransferPolicyAssociation("", params.SnapshotPolicyID, policyID); err != nil {
 		return "", errors.Wrap(err, errors.TransferPolicySchedulerError)
 	}
 
@@ -275,17 +276,9 @@ func (m *Manager) UpdatePolicy(ctx context.Context, params EditTransferPolicyPar
 				fmt.Sprintf("snapshot policy %s not found", params.SnapshotPolicyID))
 		}
 
-		// Add association to NEW snapshot policy first
-		// If this fails, nothing has changed yet - just return error
-		if err := m.snapshotManager.AddTransferPolicyAssociation(params.SnapshotPolicyID, params.ID); err != nil {
+		// Atomically update association: remove from old, add to new
+		if err := m.snapshotManager.UpdateTransferPolicyAssociation(oldSnapshotPolicyID, params.SnapshotPolicyID, params.ID); err != nil {
 			return errors.Wrap(err, errors.TransferPolicySchedulerError)
-		}
-
-		// Now remove association from old snapshot policy
-		// If this fails, it's not critical - we just log it
-		if err := m.snapshotManager.RemoveTransferPolicyAssociation(oldSnapshotPolicyID, params.ID); err != nil {
-			m.logger.Warn("Failed to remove old snapshot policy association", "error", err)
-			// Continue anyway - new association is in place
 		}
 	}
 
@@ -376,7 +369,7 @@ func (m *Manager) RemovePolicy(ctx context.Context, policyID string, deleteTrans
 	}
 
 	// Remove snapshot policy association
-	if err := m.snapshotManager.RemoveTransferPolicyAssociation(snapshotPolicyID, policyID); err != nil {
+	if err := m.snapshotManager.UpdateTransferPolicyAssociation(snapshotPolicyID, "", policyID); err != nil {
 		m.logger.Warn("Failed to remove snapshot policy association", "error", err)
 		// Don't fail policy deletion
 	}
@@ -1065,7 +1058,7 @@ func (m *Manager) findMostRecentCommonSnapshot(
 
 	// Parse target snapshots into a GUID -> name map
 	targetGUIDs := make(map[string]string)
-	for _, line := range strings.Split(strings.TrimSpace(string(targetOutput)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(targetOutput)), "\n") {
 		if line == "" {
 			continue
 		}
@@ -1084,7 +1077,7 @@ func (m *Manager) findMostRecentCommonSnapshot(
 	}
 
 	// Find the most recent source snapshot that exists on target (by GUID)
-	for _, line := range strings.Split(strings.TrimSpace(string(sourceOutput)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(sourceOutput)), "\n") {
 		if line == "" {
 			continue
 		}
@@ -1193,7 +1186,7 @@ func (m *Manager) applyRetentionPolicy(policy *TransferPolicy) {
 
 	for idx, transfer := range policyTransfers {
 		// Check if transfer is in the keep list
-		if contains(retention.KeepTransferIDs, transfer.ID) {
+		if slices.Contains(retention.KeepTransferIDs, transfer.ID) {
 			m.logger.Debug("Keeping transfer (in keep list)",
 				"transfer_id", transfer.ID)
 			continue
@@ -1261,16 +1254,6 @@ func (m *Manager) applyRetentionPolicy(policy *TransferPolicy) {
 			"deleted_count", deletedCount,
 			"total_transfers", len(policyTransfers))
 	}
-}
-
-// contains checks if a string slice contains a specific string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 // LoadConfig loads the transfer policy configuration from disk

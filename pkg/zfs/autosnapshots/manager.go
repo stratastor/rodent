@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -653,14 +654,7 @@ func (m *Manager) listPolicySnapshots(policy SnapshotPolicy) ([]struct {
 		}
 
 		// Skip snapshots in the keep list
-		skipSnapshot := false
-		for _, keepName := range policy.RetentionPolicy.KeepNamedSnap {
-			if snapName == keepName {
-				skipSnapshot = true
-				break
-			}
-		}
-		if skipSnapshot {
+		if slices.Contains(policy.RetentionPolicy.KeepNamedSnap, snapName) {
 			continue
 		}
 
@@ -1254,94 +1248,107 @@ func (m *Manager) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error
 	return result, nil
 }
 
-// AddTransferPolicyAssociation adds a transfer policy ID to the snapshot policy's association list
-func (m *Manager) AddTransferPolicyAssociation(snapshotPolicyID, transferPolicyID string) error {
+// UpdateTransferPolicyAssociation atomically updates transfer policy associations.
+// It removes from oldSnapshotPolicyID (if non-empty) and adds to newSnapshotPolicyID (if non-empty).
+// This ensures both operations happen in a single save, preventing ghost references.
+//
+// Use cases:
+//   - Create: oldSnapshotPolicyID="", newSnapshotPolicyID="xyz" (add only)
+//   - Update: oldSnapshotPolicyID="abc", newSnapshotPolicyID="xyz" (remove + add)
+//   - Delete: oldSnapshotPolicyID="abc", newSnapshotPolicyID="" (remove only)
+func (m *Manager) UpdateTransferPolicyAssociation(oldSnapshotPolicyID, newSnapshotPolicyID, transferPolicyID string) error {
+	// No-op if both are empty or same (and non-empty)
+	if oldSnapshotPolicyID == "" && newSnapshotPolicyID == "" {
+		return nil
+	}
+	if oldSnapshotPolicyID == newSnapshotPolicyID {
+		m.logger.Debug("Transfer policy association unchanged",
+			"snapshot_policy_id", oldSnapshotPolicyID,
+			"transfer_policy_id", transferPolicyID)
+		return nil
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Find the snapshot policy
-	policyIdx := -1
-	for i, p := range m.config.Policies {
-		if p.ID == snapshotPolicyID {
-			policyIdx = i
-			break
+	// Find old policy index (if removing)
+	oldPolicyIdx := -1
+	if oldSnapshotPolicyID != "" {
+		for i, p := range m.config.Policies {
+			if p.ID == oldSnapshotPolicyID {
+				oldPolicyIdx = i
+				break
+			}
 		}
-	}
-
-	if policyIdx == -1 {
-		return errors.New(
-			errors.NotFoundError,
-			fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID),
-		)
-	}
-
-	// Check if already associated
-	for _, id := range m.config.Policies[policyIdx].TransferPolicyIDs {
-		if id == transferPolicyID {
-			m.logger.Debug("Transfer policy already associated",
-				"snapshot_policy_id", snapshotPolicyID,
+		if oldPolicyIdx == -1 {
+			// Old policy not found - this could happen if snapshot policy was deleted
+			// Log warning but continue with adding to new policy
+			m.logger.Warn("Old snapshot policy not found for disassociation",
+				"snapshot_policy_id", oldSnapshotPolicyID,
 				"transfer_policy_id", transferPolicyID)
-			return nil
 		}
 	}
 
-	// Add the association
-	m.config.Policies[policyIdx].TransferPolicyIDs = append(
-		m.config.Policies[policyIdx].TransferPolicyIDs,
-		transferPolicyID,
-	)
+	// Find new policy index (if adding)
+	newPolicyIdx := -1
+	if newSnapshotPolicyID != "" {
+		for i, p := range m.config.Policies {
+			if p.ID == newSnapshotPolicyID {
+				newPolicyIdx = i
+				break
+			}
+		}
+		if newPolicyIdx == -1 {
+			return errors.New(
+				errors.NotFoundError,
+				fmt.Sprintf("snapshot policy %s not found", newSnapshotPolicyID),
+			)
+		}
+	}
 
-	// Save config (skip lock since we already hold it)
+	// Perform in-memory modifications
+
+	// Remove from old policy
+	if oldPolicyIdx != -1 {
+		filtered := []string{}
+		for _, id := range m.config.Policies[oldPolicyIdx].TransferPolicyIDs {
+			if id != transferPolicyID {
+				filtered = append(filtered, id)
+			}
+		}
+		m.config.Policies[oldPolicyIdx].TransferPolicyIDs = filtered
+	}
+
+	// Add to new policy (if not already associated)
+	if newPolicyIdx != -1 {
+		if !slices.Contains(m.config.Policies[newPolicyIdx].TransferPolicyIDs, transferPolicyID) {
+			m.config.Policies[newPolicyIdx].TransferPolicyIDs = append(
+				m.config.Policies[newPolicyIdx].TransferPolicyIDs,
+				transferPolicyID,
+			)
+		}
+	}
+
+	// Single atomic save
 	if err := m.SaveConfig(true); err != nil {
 		return err
 	}
 
-	m.logger.Info("Transfer policy associated with snapshot policy",
-		"snapshot_policy_id", snapshotPolicyID,
-		"transfer_policy_id", transferPolicyID)
-
-	return nil
-}
-
-// RemoveTransferPolicyAssociation removes a transfer policy ID from the snapshot policy's association list
-func (m *Manager) RemoveTransferPolicyAssociation(snapshotPolicyID, transferPolicyID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Find the snapshot policy
-	policyIdx := -1
-	for i, p := range m.config.Policies {
-		if p.ID == snapshotPolicyID {
-			policyIdx = i
-			break
-		}
+	// Log the result
+	if oldSnapshotPolicyID != "" && newSnapshotPolicyID != "" {
+		m.logger.Info("Transfer policy association updated",
+			"old_snapshot_policy_id", oldSnapshotPolicyID,
+			"new_snapshot_policy_id", newSnapshotPolicyID,
+			"transfer_policy_id", transferPolicyID)
+	} else if newSnapshotPolicyID != "" {
+		m.logger.Info("Transfer policy associated with snapshot policy",
+			"snapshot_policy_id", newSnapshotPolicyID,
+			"transfer_policy_id", transferPolicyID)
+	} else {
+		m.logger.Info("Transfer policy disassociated from snapshot policy",
+			"snapshot_policy_id", oldSnapshotPolicyID,
+			"transfer_policy_id", transferPolicyID)
 	}
-
-	if policyIdx == -1 {
-		return errors.New(
-			errors.NotFoundError,
-			fmt.Sprintf("snapshot policy %s not found", snapshotPolicyID),
-		)
-	}
-
-	// Remove the association
-	filtered := []string{}
-	for _, id := range m.config.Policies[policyIdx].TransferPolicyIDs {
-		if id != transferPolicyID {
-			filtered = append(filtered, id)
-		}
-	}
-
-	m.config.Policies[policyIdx].TransferPolicyIDs = filtered
-
-	// Save config (skip lock since we already hold it)
-	if err := m.SaveConfig(true); err != nil {
-		return err
-	}
-
-	m.logger.Info("Transfer policy disassociated from snapshot policy",
-		"snapshot_policy_id", snapshotPolicyID,
-		"transfer_policy_id", transferPolicyID)
 
 	return nil
 }
