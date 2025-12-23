@@ -846,8 +846,31 @@ func (m *Manager) executeTransferForPolicy(
 			"to_snapshot", sourceSnapshot,
 			"source_dataset", sourceDataset,
 			"target_dataset", targetDataset)
+	} else if transferCfg.SendConfig.Intermediary {
+		// Target is new but Intermediary flag is set - we need to send all snapshots
+		// Get the oldest snapshot to use as FromSnapshot, transfer_manager will:
+		// 1. Send the oldest snapshot as a full send (via performInitialSend)
+		// 2. Then send incremental with -I from oldest to latest
+		oldestSnapshot, err := m.getOldestSnapshotFromPolicy(policy.SnapshotPolicyID)
+		if err != nil {
+			m.logger.Warn("Failed to get oldest snapshot for intermediary transfer, will send only latest",
+				"error", err,
+				"source_dataset", sourceDataset)
+		} else if oldestSnapshot != sourceSnapshot {
+			// Only set FromSnapshot if oldest differs from latest (i.e., there are intermediary snapshots)
+			transferCfg.SendConfig.FromSnapshot = oldestSnapshot
+			m.logger.Info("Configuring initial transfer with intermediary snapshots",
+				"from_snapshot", oldestSnapshot,
+				"to_snapshot", sourceSnapshot,
+				"source_dataset", sourceDataset,
+				"target_dataset", targetDataset)
+		} else {
+			m.logger.Debug("Only one snapshot exists, performing simple full send",
+				"snapshot", sourceSnapshot,
+				"source_dataset", sourceDataset)
+		}
 	}
-	// If commonSnapshot is empty, target doesn't exist or has no snapshots - perform full send
+	// If commonSnapshot is empty and Intermediary is false, perform simple full send of latest snapshot
 
 	// Start the transfer with policy ID
 	transferID, err := m.transferManager.StartTransferWithPolicy(ctx, transferCfg, policy.ID)
@@ -875,15 +898,32 @@ func (m *Manager) executeTransferForPolicy(
 	return result, nil
 }
 
+// getOldestSnapshotFromPolicy retrieves the oldest snapshot from the associated snapshot policy
+// This is used for initial transfers with intermediary snapshots enabled
+func (m *Manager) getOldestSnapshotFromPolicy(snapshotPolicyID string) (string, error) {
+	return m.getSnapshotFromPolicy(snapshotPolicyID, true)
+}
+
 // getLatestSnapshotFromPolicy retrieves the latest snapshot from the associated snapshot policy
 func (m *Manager) getLatestSnapshotFromPolicy(snapshotPolicyID string) (string, error) {
+	return m.getSnapshotFromPolicy(snapshotPolicyID, false)
+}
+
+// getSnapshotFromPolicy retrieves a snapshot from the associated snapshot policy
+// If oldest is true, returns the oldest matching snapshot; otherwise returns the latest
+func (m *Manager) getSnapshotFromPolicy(snapshotPolicyID string, oldest bool) (string, error) {
 	// Get the snapshot policy
 	snapPolicy, err := m.snapshotManager.GetPolicy(snapshotPolicyID)
 	if err != nil {
 		return "", errors.Wrap(err, errors.TransferPolicySnapshotPolicyNotFound)
 	}
 
-	// List all snapshots for the dataset, sorted by creation time (most recent first)
+	// List all snapshots for the dataset, sorted by creation time
+	// -S creation = descending (newest first), -s creation = ascending (oldest first)
+	sortFlag := "-S"
+	if oldest {
+		sortFlag = "-s"
+	}
 	cmd := exec.Command(
 		"sudo",
 		"zfs",
@@ -893,7 +933,7 @@ func (m *Manager) getLatestSnapshotFromPolicy(snapshotPolicyID string) (string, 
 		"-H",
 		"-t",
 		"snap",
-		"-S",
+		sortFlag,
 		"creation",
 		snapPolicy.Dataset,
 	)
