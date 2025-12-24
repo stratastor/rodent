@@ -520,7 +520,7 @@ func (c *Collector) collectNetworkSummary(
 func (c *Collector) collectResourcesSummary(ctx context.Context) (*ResourcesSummary, error) {
 	summary := &ResourcesSummary{}
 
-	// CPU utilization (from system manager)
+	// CPU and Memory utilization (from system manager)
 	if c.systemManager != nil {
 		perfInfo, err := c.systemManager.GetPerformanceInfo(ctx)
 		if err == nil && perfInfo != nil {
@@ -530,27 +530,20 @@ func (c *Collector) collectResourcesSummary(ctx context.Context) (*ResourcesSumm
 				LoadAverage5:  perfInfo.LoadAverage.Load5,
 				LoadAverage15: perfInfo.LoadAverage.Load15,
 			}
-
-			// Get CPU core count from hardware info
-			hwInfo, err := c.systemManager.GetHardwareInfo(ctx)
-			if err == nil && hwInfo != nil {
-				summary.CPU.TotalCores = hwInfo.CPU.ProcessorCount
-			}
 		}
 
-		// Memory utilization
-		if err == nil && perfInfo != nil {
-			hwInfo, err := c.systemManager.GetHardwareInfo(ctx)
-			if err == nil && hwInfo != nil {
-				summary.Memory = MemoryUtilization{
-					TotalBytes:     hwInfo.Memory.Total,
-					UsedBytes:      hwInfo.Memory.Used,
-					AvailableBytes: hwInfo.Memory.Available,
-					UsagePercent:   hwInfo.Memory.MemoryPercent,
-					SwapTotalBytes: hwInfo.Memory.SwapTotal,
-					SwapUsedBytes:  hwInfo.Memory.SwapUsed,
-					SwapPercent:    hwInfo.Memory.SwapPercent,
-				}
+		// Get hardware info once for both CPU core count and memory utilization
+		hwInfo, err := c.systemManager.GetHardwareInfo(ctx)
+		if err == nil && hwInfo != nil {
+			summary.CPU.TotalCores = hwInfo.CPU.ProcessorCount
+			summary.Memory = MemoryUtilization{
+				TotalBytes:     hwInfo.Memory.Total,
+				UsedBytes:      hwInfo.Memory.Used,
+				AvailableBytes: hwInfo.Memory.Available,
+				UsagePercent:   hwInfo.Memory.MemoryPercent,
+				SwapTotalBytes: hwInfo.Memory.SwapTotal,
+				SwapUsedBytes:  hwInfo.Memory.SwapUsed,
+				SwapPercent:    hwInfo.Memory.SwapPercent,
 			}
 		}
 	}

@@ -12,11 +12,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stratastor/logger"
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/pkg/errors"
+)
+
+const (
+	// systemInfoCacheTTL is the duration for which cached system info is valid.
+	// Hardware and OS info are static, performance metrics are acceptable with
+	// slight staleness for inventory collection purposes.
+	systemInfoCacheTTL = 30 * time.Second
 )
 
 // CommandExecutor interface for executing system commands
@@ -52,6 +60,11 @@ func (w *commandExecutorWrapper) ExecuteCommand(
 type InfoCollector struct {
 	executor CommandExecutor
 	logger   logger.Logger
+
+	// Cache for system info to avoid repeated command execution
+	cacheMu        sync.RWMutex
+	cachedInfo     *SystemInfo
+	cacheTimestamp time.Time
 }
 
 // NewInfoCollector creates a new info collector
@@ -64,8 +77,37 @@ func NewInfoCollector(logger logger.Logger) *InfoCollector {
 	}
 }
 
-// GetSystemInfo collects comprehensive system information
+// GetSystemInfo returns cached system information if available and valid,
+// otherwise collects fresh system information and caches it.
 func (ic *InfoCollector) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
+	// Check cache first with read lock
+	ic.cacheMu.RLock()
+	if ic.cachedInfo != nil && time.Since(ic.cacheTimestamp) < systemInfoCacheTTL {
+		info := ic.cachedInfo
+		ic.cacheMu.RUnlock()
+		ic.logger.Debug("Returning cached system info", "age", time.Since(ic.cacheTimestamp))
+		return info, nil
+	}
+	ic.cacheMu.RUnlock()
+
+	// Cache miss or expired - collect fresh info
+	info, err := ic.collectSystemInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache with write lock
+	ic.cacheMu.Lock()
+	ic.cachedInfo = info
+	ic.cacheTimestamp = time.Now()
+	ic.cacheMu.Unlock()
+
+	ic.logger.Debug("Collected and cached fresh system info")
+	return info, nil
+}
+
+// collectSystemInfo performs the actual system information collection.
+func (ic *InfoCollector) collectSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	info := &SystemInfo{
 		Timestamp: time.Now(),
 	}
