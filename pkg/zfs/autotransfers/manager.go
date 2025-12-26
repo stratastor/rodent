@@ -680,23 +680,17 @@ func (m *Manager) createJob(
 		jobDef = gocron.DurationJob(interval)
 
 	case autosnapshots.ScheduleTypeDaily:
+		hour, min, sec := autosnapshots.ParseAtTime(schedule.AtTime)
 		jobDef = gocron.DailyJob(uint(schedule.Interval), gocron.NewAtTimes(
-			gocron.NewAtTime(
-				uint(schedule.AtTime[0:2][0]),
-				uint(schedule.AtTime[3:5][0]),
-				0,
-			),
+			gocron.NewAtTime(hour, min, sec),
 		))
 
 	case autosnapshots.ScheduleTypeWeekly:
+		hour, min, sec := autosnapshots.ParseAtTime(schedule.AtTime)
 		jobDef = gocron.WeeklyJob(uint(schedule.Interval),
 			gocron.NewWeekdays(schedule.WeekDay),
 			gocron.NewAtTimes(
-				gocron.NewAtTime(
-					uint(schedule.AtTime[0:2][0]),
-					uint(schedule.AtTime[3:5][0]),
-					0,
-				),
+				gocron.NewAtTime(hour, min, sec),
 			))
 
 	case autosnapshots.ScheduleTypeDuration:

@@ -244,7 +244,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		jobDef = gocron.DurationJob(time.Duration(schedule.Interval) * time.Hour)
 
 	case ScheduleTypeDaily:
-		hour, min, sec := parseAtTime(schedule.AtTime)
+		hour, min, sec := ParseAtTime(schedule.AtTime)
 		jobDef = gocron.DailyJob(
 			schedule.Interval,
 			gocron.NewAtTimes(
@@ -253,7 +253,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		)
 
 	case ScheduleTypeWeekly:
-		hour, min, sec := parseAtTime(schedule.AtTime)
+		hour, min, sec := ParseAtTime(schedule.AtTime)
 		jobDef = gocron.WeeklyJob(
 			schedule.Interval,
 			gocron.NewWeekdays(
@@ -265,7 +265,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		)
 
 	case ScheduleTypeMonthly:
-		hour, min, sec := parseAtTime(schedule.AtTime)
+		hour, min, sec := ParseAtTime(schedule.AtTime)
 		jobDef = gocron.MonthlyJob(
 			schedule.Interval,
 			gocron.NewDaysOfTheMonth(
@@ -280,7 +280,7 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 		// Using CronJob for yearly schedules since YearlyJob isn't available in gocron v2
 		// Note: Interval is not supported for yearly schedules with CronJob
 		// Cron expression with seconds: second minute hour day month day-of-week
-		hour, min, sec := parseAtTime(schedule.AtTime)
+		hour, min, sec := ParseAtTime(schedule.AtTime)
 		cronExpr := fmt.Sprintf("%d %d %d %d %d *",
 			sec, min, hour, schedule.DayOfMonth, int(schedule.Month))
 		jobDef = gocron.CronJob(
@@ -426,8 +426,8 @@ func (m *Manager) createJob(policy SnapshotPolicy, scheduleIndex int) (string, e
 	return jobID, nil
 }
 
-// parseAtTime parses a time string in the format "HH:MM" or "HH:MM:SS"
-func parseAtTime(atTime string) (hour, min, sec uint) {
+// ParseAtTime parses a time string in the format "HH:MM" or "HH:MM:SS"
+func ParseAtTime(atTime string) (hour, min, sec uint) {
 	parts := strings.Split(atTime, ":")
 	if len(parts) >= 1 {
 		fmt.Sscanf(parts[0], "%d", &hour)
@@ -1256,7 +1256,9 @@ func (m *Manager) RunPolicy(params RunPolicyParams) (CreateSnapshotResult, error
 //   - Create: oldSnapshotPolicyID="", newSnapshotPolicyID="xyz" (add only)
 //   - Update: oldSnapshotPolicyID="abc", newSnapshotPolicyID="xyz" (remove + add)
 //   - Delete: oldSnapshotPolicyID="abc", newSnapshotPolicyID="" (remove only)
-func (m *Manager) UpdateTransferPolicyAssociation(oldSnapshotPolicyID, newSnapshotPolicyID, transferPolicyID string) error {
+func (m *Manager) UpdateTransferPolicyAssociation(
+	oldSnapshotPolicyID, newSnapshotPolicyID, transferPolicyID string,
+) error {
 	// No-op if both are empty or same (and non-empty)
 	if oldSnapshotPolicyID == "" && newSnapshotPolicyID == "" {
 		return nil
