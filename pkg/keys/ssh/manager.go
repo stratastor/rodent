@@ -434,6 +434,81 @@ func (m *SSHKeyManager) GetKnownHostsPath() string {
 	return m.knownHosts
 }
 
+// GetHostPublicKey retrieves this machine's SSH server host public key.
+// It looks for host keys in /etc/ssh/ in order of preference: ed25519, ecdsa, rsa.
+// This is the key that should be added to a remote machine's known_hosts file
+// to establish trust for SSH connections TO this machine.
+func (m *SSHKeyManager) GetHostPublicKey() (*HostKeyResponse, error) {
+	// List of host key files to try, in order of preference
+	hostKeyFiles := []struct {
+		path    string
+		keyType string
+	}{
+		{"/etc/ssh/ssh_host_ed25519_key.pub", "ssh-ed25519"},
+		{"/etc/ssh/ssh_host_ecdsa_key.pub", "ecdsa-sha2-nistp256"},
+		{"/etc/ssh/ssh_host_rsa_key.pub", "ssh-rsa"},
+	}
+
+	for _, hk := range hostKeyFiles {
+		content, err := os.ReadFile(hk.path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue // Try next key type
+			}
+			m.logger.Debug("Error reading host key file",
+				"path", hk.path, "error", err)
+			continue
+		}
+
+		// Validate that it looks like a valid SSH public key
+		keyStr := strings.TrimSpace(string(content))
+		if !isValidSSHPublicKey(keyStr) {
+			m.logger.Debug("Invalid host key format",
+				"path", hk.path)
+			continue
+		}
+
+		return &HostKeyResponse{
+			HostKey: keyStr,
+			KeyType: hk.keyType,
+		}, nil
+	}
+
+	return nil, errors.New(errors.SSHKeyPairNotFound,
+		"No SSH host public key found in /etc/ssh/")
+}
+
+// AddRemoteHostKey adds a remote host's SSH server key to this machine's known_hosts file.
+// This enables SSH connections FROM this machine TO the remote host without
+// host key verification prompts.
+// Parameters:
+//   - hostname: The hostname or IP address of the remote host
+//   - hostKey: The remote host's SSH server public key (from /etc/ssh/ssh_host_*_key.pub)
+//   - peeringID: The peering connection ID (used as a comment for tracking)
+func (m *SSHKeyManager) AddRemoteHostKey(
+	ctx context.Context,
+	hostname string,
+	hostKey string,
+	peeringID string,
+) error {
+	// Validate inputs
+	if err := validateHostname(hostname); err != nil {
+		return err
+	}
+
+	if err := validatePeeringID(peeringID); err != nil {
+		return err
+	}
+
+	// Validate host key format (should start with key type like ssh-rsa, ssh-ed25519)
+	if !isValidSSHPublicKey(hostKey) {
+		return errors.New(errors.SSHKeyPairInvalidPublicKey, "Invalid host key format")
+	}
+
+	// Use the existing AddKnownHost method which handles the file operations
+	return m.AddKnownHost(ctx, hostname, hostKey, peeringID)
+}
+
 // GetKeyPair gets a key pair for a peering ID
 func (m *SSHKeyManager) GetKeyPair(peeringID string) (*KeyPair, error) {
 	// Validate peering ID

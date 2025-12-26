@@ -86,10 +86,36 @@ type AuthorizedKeysEntry struct {
 type PeerInfo struct {
 	// PeeringID is a unique identifier for the peer
 	PeeringID string `json:"peering_id"`
-	// Hostname is the hostname or IP address of the peer
+	// Hostname is the hostname or IP address of the peer (not used for known_hosts anymore)
 	Hostname string `json:"hostname,omitempty"`
 	// PublicKey is the peer's public key
 	PublicKey string `json:"public_key"`
 	// SSHOptions are any additional SSH options to apply (for authorized_keys)
 	SSHOptions []string `json:"ssh_options,omitempty"`
+}
+
+// HostKeyResponse represents the response when getting this machine's SSH host key
+type HostKeyResponse struct {
+	// HostKey is the SSH server's host public key (from /etc/ssh/ssh_host_*_key.pub)
+	HostKey string `json:"host_key"`
+	// KeyType is the type of the host key (e.g., "ssh-ed25519", "ssh-rsa")
+	KeyType string `json:"key_type"`
+}
+
+// AddKnownHostRequest represents a request to add a remote host's key to known_hosts
+type AddKnownHostRequest struct {
+	// PeeringID is the unique identifier for the peering connection
+	PeeringID string `json:"peering_id" binding:"required"`
+	// Hostname is the hostname or IP address of the remote host
+	Hostname string `json:"hostname" binding:"required"`
+	// HostKey is the remote host's SSH server public key
+	HostKey string `json:"host_key" binding:"required"`
+}
+
+// RemoveKnownHostRequest represents a request to remove a host entry from known_hosts
+type RemoveKnownHostRequest struct {
+	// PeeringID is the unique identifier for the peering connection
+	PeeringID string `json:"peering_id" binding:"required"`
+	// Hostname is optional; if provided, only removes the specific hostname entry
+	Hostname string `json:"hostname,omitempty"`
 }

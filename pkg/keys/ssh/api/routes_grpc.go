@@ -22,10 +22,15 @@ func RegisterSSHKeyGRPCHandlers(handler *SSHKeyHandler) {
 	client.RegisterCommandHandler(proto.CmdSSHKeyPairList, handleListKeyPairs(handler))
 	client.RegisterCommandHandler(proto.CmdSSHKeyPairRemove, handleRemoveKeyPair(handler))
 
-	// Peer authorization operations
+	// Peer authorization operations (manages authorized_keys on destination)
 	client.RegisterCommandHandler(proto.CmdSSHPeerAuthorize, handleAuthorizePeer(handler))
 	client.RegisterCommandHandler(proto.CmdSSHPeerDeauthorize, handleDeauthorizePeer(handler))
 	client.RegisterCommandHandler(proto.CmdSSHPeerList, handleListAuthorizedPeers(handler))
+
+	// Host key operations (manages known_hosts on source)
+	client.RegisterCommandHandler(proto.CmdSSHHostKeyGet, handleGetHostKey(handler))
+	client.RegisterCommandHandler(proto.CmdSSHKnownHostAdd, handleAddKnownHost(handler))
+	client.RegisterCommandHandler(proto.CmdSSHKnownHostRemove, handleRemoveKnownHost(handler))
 }
 
 // Helper function to parse JSON payload
@@ -231,5 +236,88 @@ func handleListAuthorizedPeers(handler *SSHKeyHandler) client.CommandHandler {
 		}
 
 		return successResponse(req.RequestId, "Listed authorized peers successfully", response)
+	}
+}
+
+// handleGetHostKey handles requests to get this machine's SSH host public key
+func handleGetHostKey(handler *SSHKeyHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		// Get the host public key
+		hostKeyResp, err := handler.manager.GetHostPublicKey()
+		if err != nil {
+			return nil, err
+		}
+
+		return successResponse(req.RequestId, "Host key retrieved successfully", hostKeyResp)
+	}
+}
+
+// handleAddKnownHost handles requests to add a remote host's key to known_hosts
+func handleAddKnownHost(handler *SSHKeyHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload ssh.AddKnownHostRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		// Validate required fields
+		if payload.PeeringID == "" {
+			return nil, errors.New(errors.SSHKeyPairInvalidPeeringID, "Peering ID is required")
+		}
+		if payload.Hostname == "" {
+			return nil, errors.New(errors.SSHKeyPairInvalidHostname, "Hostname is required")
+		}
+		if payload.HostKey == "" {
+			return nil, errors.New(errors.SSHKeyPairInvalidPublicKey, "Host key is required")
+		}
+
+		// Add the remote host's key to known_hosts
+		if err := handler.manager.AddRemoteHostKey(
+			context.Background(),
+			payload.Hostname,
+			payload.HostKey,
+			payload.PeeringID,
+		); err != nil {
+			return nil, err
+		}
+
+		response := map[string]interface{}{
+			"message":    "Known host added successfully",
+			"peering_id": payload.PeeringID,
+			"hostname":   payload.Hostname,
+		}
+
+		return successResponse(req.RequestId, "Known host added successfully", response)
+	}
+}
+
+// handleRemoveKnownHost handles requests to remove a host entry from known_hosts
+func handleRemoveKnownHost(handler *SSHKeyHandler) client.CommandHandler {
+	return func(req *proto.ToggleRequest, cmd *proto.CommandRequest) (*proto.CommandResponse, error) {
+		var payload ssh.RemoveKnownHostRequest
+		if err := parseJSONPayload(cmd, &payload); err != nil {
+			return nil, errors.Wrap(err, errors.ServerRequestValidation)
+		}
+
+		// Validate peering ID
+		if payload.PeeringID == "" {
+			return nil, errors.New(errors.SSHKeyPairInvalidPeeringID, "Peering ID is required")
+		}
+
+		// Remove the host entry from known_hosts
+		if err := handler.manager.RemoveKnownHost(
+			context.Background(),
+			payload.PeeringID,
+			payload.Hostname,
+		); err != nil {
+			return nil, err
+		}
+
+		response := map[string]interface{}{
+			"message":    "Known host removed successfully",
+			"peering_id": payload.PeeringID,
+		}
+
+		return successResponse(req.RequestId, "Known host removed successfully", response)
 	}
 }

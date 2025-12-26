@@ -11,9 +11,13 @@ import (
 	"github.com/stratastor/rodent/pkg/errors"
 )
 
-// AuthorizePeer adds a peer's public key to the authorized_keys file
-// and also adds it to the known_hosts file if hostname is provided
-// This enables the peer to SSH into this node and also establishes trust
+// AuthorizePeer adds a peer's public key to the authorized_keys file.
+// This enables the peer to SSH into this node for ZFS transfers.
+//
+// NOTE: This function only manages authorized_keys (allowing incoming SSH connections).
+// The known_hosts file (for outgoing SSH connections) is managed separately via
+// AddRemoteHostKey, which requires the remote host's SSH server key, not the
+// peer's authentication key.
 func (m *SSHKeyManager) AuthorizePeer(ctx context.Context, peer PeerInfo) error {
 	// Validate inputs
 	if err := validatePeeringID(peer.PeeringID); err != nil {
@@ -24,28 +28,14 @@ func (m *SSHKeyManager) AuthorizePeer(ctx context.Context, peer PeerInfo) error 
 		return errors.New(errors.SSHKeyPairInvalidPublicKey, "Invalid public key format")
 	}
 
-	// Add to authorized_keys (primary operation)
+	// Add to authorized_keys - this allows the peer to SSH into this machine
 	if err := m.AddAuthorizedKey(peer.PublicKey, peer.PeeringID, peer.SSHOptions); err != nil {
 		return err
 	}
 
-	// If hostname is provided, also add to known_hosts
-	if peer.Hostname != "" {
-		if err := validateHostname(peer.Hostname); err != nil {
-			m.logger.Warn("Invalid hostname provided for peer, skipping known_hosts entry",
-				"peering_id", peer.PeeringID,
-				"hostname", peer.Hostname,
-				"error", err)
-		} else {
-			// Add to known_hosts, but don't fail the entire operation if this fails
-			if err := m.AddKnownHost(ctx, peer.Hostname, peer.PublicKey, peer.PeeringID); err != nil {
-				m.logger.Warn("Failed to add peer to known_hosts after adding to authorized_keys",
-					"peering_id", peer.PeeringID,
-					"hostname", peer.Hostname,
-					"error", err)
-			}
-		}
-	}
+	m.logger.Debug("Peer authorized successfully",
+		"peering_id", peer.PeeringID,
+		"hostname", peer.Hostname)
 
 	return nil
 }

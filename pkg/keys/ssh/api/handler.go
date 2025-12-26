@@ -52,10 +52,15 @@ func (h *SSHKeyHandler) RegisterRoutes(router *gin.RouterGroup) {
 	keyGroup.GET("/keypair", h.listKeyPairs)
 	keyGroup.DELETE("/keypair/:peering_id", h.removeKeyPair)
 
-	// Peer authorization operations
+	// Peer authorization operations (manages authorized_keys on destination)
 	keyGroup.POST("/peer", h.authorizePeer)
 	keyGroup.DELETE("/peer/:peering_id", h.deauthorizePeer)
 	keyGroup.GET("/peer", h.listAuthorizedPeers)
+
+	// Host key operations (manages known_hosts on source)
+	keyGroup.GET("/hostkey", h.getHostKey)
+	keyGroup.POST("/knownhost", h.addKnownHost)
+	keyGroup.DELETE("/knownhost/:peering_id", h.removeKnownHost)
 }
 
 // generateKeyPair handles requests to generate a new SSH key pair
@@ -216,5 +221,88 @@ func (h *SSHKeyHandler) listAuthorizedPeers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"peers": peers,
+	})
+}
+
+// getHostKey handles requests to get this machine's SSH host public key
+func (h *SSHKeyHandler) getHostKey(c *gin.Context) {
+	hostKeyResp, err := h.manager.GetHostPublicKey()
+	if err != nil {
+		h.logger.Error("Failed to get host key", "error", err)
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, hostKeyResp)
+}
+
+// addKnownHost handles requests to add a remote host's key to known_hosts
+func (h *SSHKeyHandler) addKnownHost(c *gin.Context) {
+	var req ssh.AddKnownHostRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		APIError(c, errors.New(errors.ServerRequestValidation, err.Error()))
+		return
+	}
+
+	// Validate required fields
+	if req.PeeringID == "" {
+		APIError(c, errors.New(errors.SSHKeyPairInvalidPeeringID, "Peering ID is required"))
+		return
+	}
+	if req.Hostname == "" {
+		APIError(c, errors.New(errors.SSHKeyPairInvalidHostname, "Hostname is required"))
+		return
+	}
+	if req.HostKey == "" {
+		APIError(c, errors.New(errors.SSHKeyPairInvalidPublicKey, "Host key is required"))
+		return
+	}
+
+	// Add the remote host's key to known_hosts
+	if err := h.manager.AddRemoteHostKey(
+		c.Request.Context(),
+		req.Hostname,
+		req.HostKey,
+		req.PeeringID,
+	); err != nil {
+		h.logger.Error("Failed to add known host",
+			"error", err,
+			"peering_id", req.PeeringID,
+			"hostname", req.Hostname)
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Known host added successfully",
+		"peering_id": req.PeeringID,
+		"hostname":   req.Hostname,
+	})
+}
+
+// removeKnownHost handles requests to remove a host entry from known_hosts
+func (h *SSHKeyHandler) removeKnownHost(c *gin.Context) {
+	peeringID := c.Param("peering_id")
+	if peeringID == "" {
+		APIError(c, errors.New(errors.SSHKeyPairInvalidPeeringID, "Peering ID is required"))
+		return
+	}
+
+	// Hostname is optional - if not provided, removes all entries for the peering ID
+	hostname := c.Query("hostname")
+
+	// Remove the host entry from known_hosts
+	if err := h.manager.RemoveKnownHost(c.Request.Context(), peeringID, hostname); err != nil {
+		h.logger.Error("Failed to remove known host",
+			"error", err,
+			"peering_id", peeringID,
+			"hostname", hostname)
+		APIError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Known host removed successfully",
+		"peering_id": peeringID,
 	})
 }
