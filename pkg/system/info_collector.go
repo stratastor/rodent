@@ -79,8 +79,9 @@ func NewInfoCollector(logger logger.Logger) *InfoCollector {
 
 // GetSystemInfo returns cached system information if available and valid,
 // otherwise collects fresh system information and caches it.
+// Uses double-checked locking to prevent thundering herd on cache miss.
 func (ic *InfoCollector) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
-	// Check cache first with read lock
+	// Fast path: check cache with read lock
 	ic.cacheMu.RLock()
 	if ic.cachedInfo != nil && time.Since(ic.cacheTimestamp) < systemInfoCacheTTL {
 		info := ic.cachedInfo
@@ -90,18 +91,24 @@ func (ic *InfoCollector) GetSystemInfo(ctx context.Context) (*SystemInfo, error)
 	}
 	ic.cacheMu.RUnlock()
 
-	// Cache miss or expired - collect fresh info
+	// Slow path: acquire write lock and double-check before collecting
+	ic.cacheMu.Lock()
+	defer ic.cacheMu.Unlock()
+
+	// Double-check: another goroutine may have populated the cache while we waited
+	if ic.cachedInfo != nil && time.Since(ic.cacheTimestamp) < systemInfoCacheTTL {
+		ic.logger.Debug("Returning cached system info (after lock)", "age", time.Since(ic.cacheTimestamp))
+		return ic.cachedInfo, nil
+	}
+
+	// Cache miss confirmed - collect fresh info while holding the lock
 	info, err := ic.collectSystemInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update cache with write lock
-	ic.cacheMu.Lock()
 	ic.cachedInfo = info
 	ic.cacheTimestamp = time.Now()
-	ic.cacheMu.Unlock()
-
 	ic.logger.Debug("Collected and cached fresh system info")
 	return info, nil
 }
