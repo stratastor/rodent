@@ -22,13 +22,13 @@ import (
 )
 
 var (
-	// Validate snapshot names
+	// Validate snapshot names (ZFS allows alphanumeric, _, -, :, and . in names)
 	snapshotNameRegex = regexp.MustCompile(
-		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*@[a-zA-Z0-9][a-zA-Z0-9_.-]*$`,
+		`^[a-zA-Z0-9][a-zA-Z0-9_.:-]*(/[a-zA-Z0-9][a-zA-Z0-9_.:-]*)*@[a-zA-Z0-9][a-zA-Z0-9_.:-]*$`,
 	)
-	// Validate dataset names
+	// Validate dataset names (ZFS allows alphanumeric, _, -, :, and . in names)
 	datasetNameRegex = regexp.MustCompile(
-		`^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*$`,
+		`^[a-zA-Z0-9][a-zA-Z0-9_.:-]*(/[a-zA-Z0-9][a-zA-Z0-9_.:-]*)*$`,
 	)
 	propertyValueRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]*$`)
 
