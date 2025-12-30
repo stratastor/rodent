@@ -20,11 +20,26 @@ Environment=RODENT_PID_PATH=/home/rodent/.rodent/rodent.pid
 # Allow a reasonable amount of time for the service to start
 TimeoutStartSec=60
 
-# Security hardening
+# Security hardening notes:
+#
+# IMPORTANT: Do not enable PrivateTmp, ReadWritePaths, or similar directives
+# that create mount namespaces. ZFS operations require visibility of the host
+# mount table. Mount namespace isolation causes:
+# - "dataset is busy" errors on destroy
+# - Filesystems appear unmounted despite canmount=on
+# - Mounts exist in Rodent's namespace but not on host
+#
+# Rodent uses sudo-based operations (privilege.SudoFileOperations) for
+# privileged file access to /etc/samba, /etc/hosts, /etc/krb5.conf, etc.
+# Security is enforced via:
+# - Code-level allowedPaths validation in privilege.SudoFileOperations
+# - /etc/sudoers.d/rodent limiting permitted commands
+# - Command validation in command.CommandExecutor
+#
+# See: https://github.com/stratastor/rodent/issues/54
+
 # ProtectSystem=true
-# ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/samba /etc/samba/sbm.conf /etc/hosts /etc/resolv.conf /etc/krb5.conf 
-ReadWritePaths=/var/lib/rodent /var/log/rodent /home/rodent /etc/hosts /etc/resolv.conf /etc/krb5.conf /etc/netplan /etc/systemd/network /etc/samba/smb.conf 
-PrivateTmp=true
+PrivateTmp=false
 NoNewPrivileges=false
 
 [Install]
