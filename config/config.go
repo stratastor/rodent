@@ -100,10 +100,9 @@ type Config struct {
 
 	Keys struct {
 		SSH struct {
-			Username           string `mapstructure:"username"`
-			DirPath            string `mapstructure:"dirPath"`
-			Algorithm          string `mapstructure:"algorithm"`
-			KnownHostsFile     string `mapstructure:"knownHostsFile"`
+			// NOTE: SSH key paths (dirPath, knownHostsFile) are not configurable.
+			// Toggle hardcodes ~/.rodent/ssh/<peeringID>/id_ed25519 for transfers.
+			// See references.go GetSSHDir() and GetKnownHostsFilePath() for paths.
 			AuthorizedKeysFile string `mapstructure:"authorizedKeysFile"`
 		} `mapstructure:"ssh"`
 	} `mapstructure:"keys"`
@@ -229,11 +228,7 @@ func LoadConfig(configFilePath string) *Config {
 		viper.SetDefault("shares.smb.realm", "AD.STRATA.INTERNAL")
 		viper.SetDefault("shares.smb.workgroup", "AD")
 
-		// Set defaults for SSH keys
-		viper.SetDefault("keys.ssh.username", "ubuntu")
-		viper.SetDefault("keys.ssh.dirPath", "~/.rodent/ssh")
-		viper.SetDefault("keys.ssh.algorithm", "ed25519")
-		viper.SetDefault("keys.ssh.knownHostsFile", "~/.rodent/ssh/known_hosts")
+		// Set defaults for SSH keys (paths are hardcoded in references.go, not configurable)
 		viper.SetDefault("keys.ssh.authorizedKeysFile", "~/.ssh/authorized_keys")
 
 		viper.SetDefault("development.enabled", false)

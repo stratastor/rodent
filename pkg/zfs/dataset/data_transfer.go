@@ -17,6 +17,7 @@ import (
 	"github.com/kballard/go-shellquote"
 
 	"github.com/stratastor/logger"
+	"github.com/stratastor/rodent/config"
 	"github.com/stratastor/rodent/pkg/errors"
 	"github.com/stratastor/rodent/pkg/zfs/command"
 )
@@ -464,6 +465,9 @@ func buildSSHCommand(cfg RemoteConfig) ([]string, error) {
 				"Invalid private key path")
 		}
 		sshCmd = append(sshCmd, "-i", cfg.PrivateKey)
+
+		// Use Rodent-managed known_hosts file (respects config overrides)
+		sshCmd = append(sshCmd, "-o", fmt.Sprintf("UserKnownHostsFile=%s", config.GetKnownHostsFilePath()))
 	}
 
 	// Security options

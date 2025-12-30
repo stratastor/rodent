@@ -39,36 +39,13 @@ type SSHKeyManager struct {
 func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 	cfg := config.GetConfig()
 
-	// Set key directory from config with path expansion
-	dirPath := cfg.Keys.SSH.DirPath
-	if dirPath == "" {
-		dirPath = config.GetSSHDir()
-	}
-	expandedDirPath, err := common.ExpandPath(dirPath)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
-			WithMetadata("error", "Failed to expand SSH directory path")
-	}
-	dirPath = expandedDirPath
+	// SSH paths are hardcoded (Toggle expects ~/.rodent/ssh/<peeringID>/id_ed25519)
+	dirPath := config.GetSSHKeyDir()
+	knownHostsFile := config.GetKnownHostsFilePath()
 
-	// Set known hosts file from config with path expansion
-	knownHostsFile := cfg.Keys.SSH.KnownHostsFile
-	if knownHostsFile == "" {
-		knownHostsFile = filepath.Join(dirPath, "known_hosts")
-	} else {
-		expandedKnownHostsFile, err := common.ExpandPath(knownHostsFile)
-		if err != nil {
-			return nil, errors.Wrap(err, errors.SSHKeyPairWriteFailed).
-				WithMetadata("error", "Failed to expand known hosts file path")
-		}
-		knownHostsFile = expandedKnownHostsFile
-	}
-
-	// Set username from config
-	username := cfg.Keys.SSH.Username
-	if username == "" {
-		username = "rodent"
-	}
+	// Hardcoded values (Toggle hardcodes these paths, so they're not configurable)
+	username := "rodent"
+	algorithm := KeyPairTypeED25519
 
 	// Set authorized_keys file from config with path expansion
 	authorizedKeysFile := cfg.Keys.SSH.AuthorizedKeysFile
@@ -87,12 +64,6 @@ func NewSSHKeyManager(logger logger.Logger) (*SSHKeyManager, error) {
 				WithMetadata("error", "Failed to expand authorized keys file path")
 		}
 		authorizedKeysFile = expandedAuthKeysFile
-	}
-
-	// Set algorithm from config
-	algorithm := KeyPairType(cfg.Keys.SSH.Algorithm)
-	if algorithm == "" {
-		algorithm = KeyPairTypeED25519
 	}
 
 	// Ensure SSH key directory exists with proper permissions

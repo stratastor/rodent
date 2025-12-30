@@ -13,7 +13,6 @@ import (
 var (
 	configDir    string // Directory for configuration files
 	servicesDir  string // Directory for service configurations
-	keysDir      string // Directory for keys
 	sshDir       string // Directory for SSH configurations
 	transfersDir string // Directory for managing ZFS dataset transfers
 	eventsDir    string // Directory for event logs
@@ -34,8 +33,7 @@ func init() {
 
 	configDir = filepath.Join(homeDir, ".rodent")
 	servicesDir = filepath.Join(configDir, "services")
-	keysDir = filepath.Join(configDir, "keys")
-	sshDir = filepath.Join(keysDir, "ssh")
+	sshDir = filepath.Join(configDir, "ssh")
 	transfersDir = filepath.Join(configDir, "transfers")
 	eventsDir = filepath.Join(configDir, "events")
 	diskDir = filepath.Join(configDir, "disk")
@@ -57,11 +55,6 @@ func GetConfigDir() string {
 // GetServicesDir returns the directory for service configurations
 func GetServicesDir() string {
 	return servicesDir
-}
-
-// GetKeysDir returns the directory for keys
-func GetKeysDir() string {
-	return keysDir
 }
 
 // GetSSHDir returns the directory for SSH configurations
@@ -89,12 +82,23 @@ func GetPoliciesDir() string {
 	return policiesDir
 }
 
+// GetKnownHostsFilePath returns the path to the SSH known_hosts file.
+// Path is hardcoded to ~/.rodent/ssh/known_hosts (Toggle expects this location).
+func GetKnownHostsFilePath() string {
+	return filepath.Join(sshDir, "known_hosts")
+}
+
+// GetSSHKeyDir returns the directory for SSH keys (peering keys, etc).
+// Path is hardcoded to ~/.rodent/ssh (Toggle expects keys at ~/.rodent/ssh/<peeringID>/id_ed25519).
+func GetSSHKeyDir() string {
+	return sshDir
+}
+
 // EnsureDirectories creates necessary directories if they do not exist
 func EnsureDirectories() error {
 	dirs := []string{
 		configDir,
 		servicesDir,
-		keysDir,
 		sshDir,
 		transfersDir,
 		eventsDir,
