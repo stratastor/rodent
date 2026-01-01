@@ -285,8 +285,14 @@ func (m *Manager) UpdatePolicy(ctx context.Context, params EditTransferPolicyPar
 	// Remove old jobs
 	m.removeJobsForPolicy(params.ID)
 
-	// Update policy fields (preserve CreatedAt and runtime fields)
+	// Preserve critical fields if not provided in update (fallback)
 	oldPolicy := m.config.Policies[policyIdx]
+	if params.TransferConfig.ReceiveConfig.RemoteConfig.PrivateKey == "" {
+		params.TransferConfig.ReceiveConfig.RemoteConfig.PrivateKey =
+			oldPolicy.TransferConfig.ReceiveConfig.RemoteConfig.PrivateKey
+	}
+
+	// Update policy fields (preserve CreatedAt and runtime fields)
 	m.config.Policies[policyIdx] = TransferPolicy{
 		ID:               params.ID,
 		Name:             params.Name,
