@@ -92,6 +92,11 @@ type TransferPolicyMonitor struct {
 	// Transfer-specific tracking
 	CurrentTransferID string `json:"current_transfer_id,omitempty" yaml:"current_transfer_id,omitempty"`
 	BlockedReason     string `json:"blocked_reason,omitempty"      yaml:"blocked_reason,omitempty"` // e.g., "previous transfer still running"
+
+	// Skip tracking (when target is already in sync)
+	LastSkipped    bool   `json:"last_skipped,omitempty"     yaml:"last_skipped,omitempty"`
+	LastSkipReason string `json:"last_skip_reason,omitempty" yaml:"last_skip_reason,omitempty"`
+	SkipCount      int    `json:"skip_count,omitempty"       yaml:"skip_count,omitempty"`
 }
 
 // TransferPolicyConfig is the overall configuration structure

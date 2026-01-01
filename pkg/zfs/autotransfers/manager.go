@@ -632,13 +632,25 @@ func (m *Manager) createJob(
 		if err != nil {
 			monitor.Status = string(TransferPolicyStatusError)
 			monitor.LastError = err.Error()
+			monitor.LastSkipped = false
+			monitor.LastSkipReason = ""
 			m.logger.Error("Transfer policy execution failed",
 				"policy_id", policy.ID,
 				"error", err)
+		} else if result.Status == dataset.TransferStatusSkipped {
+			// Track skipped transfer
+			monitor.Status = string(TransferPolicyStatusIdle)
+			monitor.LastError = ""
+			monitor.CurrentTransferID = result.TransferID
+			monitor.LastSkipped = true
+			monitor.LastSkipReason = fmt.Sprintf("target already has snapshot: %s", result.SourceSnapshot)
+			monitor.SkipCount++
 		} else {
 			monitor.Status = string(TransferPolicyStatusIdle)
 			monitor.LastError = ""
 			monitor.CurrentTransferID = result.TransferID
+			monitor.LastSkipped = false
+			monitor.LastSkipReason = ""
 		}
 
 		// Update policy fields
@@ -648,6 +660,10 @@ func (m *Manager) createJob(
 				if err != nil {
 					m.config.Policies[i].LastRunStatus = "error"
 					m.config.Policies[i].LastRunError = err.Error()
+				} else if result.Status == dataset.TransferStatusSkipped {
+					m.config.Policies[i].LastRunStatus = "skipped"
+					m.config.Policies[i].LastRunError = ""
+					m.config.Policies[i].LastTransferID = result.TransferID
 				} else {
 					m.config.Policies[i].LastRunStatus = "success"
 					m.config.Policies[i].LastRunError = ""
@@ -839,6 +855,32 @@ func (m *Manager) executeTransferForPolicy(
 			"source_dataset", sourceDataset,
 			"target_dataset", targetDataset)
 	} else if commonSnapshot != "" {
+		// Check if target already has the latest snapshot (nothing to transfer)
+		if commonSnapshot == sourceSnapshot {
+			skipReason := fmt.Sprintf("target already has the latest snapshot: %s", sourceSnapshot)
+			m.logger.Info("Target already in sync, skipping transfer",
+				"snapshot", sourceSnapshot,
+				"source_dataset", sourceDataset,
+				"target_dataset", targetDataset)
+
+			// Create a skipped transfer record
+			transferID, err := m.transferManager.CreateSkippedTransfer(transferCfg, policy.ID, skipReason)
+			if err != nil {
+				return nil, errors.Wrap(err, errors.ZFSDatasetSend)
+			}
+
+			result := &CreateTransferResult{
+				PolicyID:       policy.ID,
+				TransferID:     transferID,
+				SourceSnapshot: sourceSnapshot,
+				TargetDataset:  transferCfg.ReceiveConfig.Target,
+				CreatedAt:      time.Now(),
+				Status:         dataset.TransferStatusSkipped,
+			}
+
+			return result, nil
+		}
+
 		// Use the full snapshot path for incremental transfer
 		// The FromSnapshot field expects the full path: dataset@snapshot
 		transferCfg.SendConfig.FromSnapshot = commonSnapshot

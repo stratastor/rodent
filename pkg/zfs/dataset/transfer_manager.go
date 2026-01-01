@@ -40,6 +40,7 @@ const (
 	TransferStatusCompleted TransferStatus = "completed"
 	TransferStatusFailed    TransferStatus = "failed"
 	TransferStatusCancelled TransferStatus = "cancelled"
+	TransferStatusSkipped   TransferStatus = "skipped" // Target already in sync, nothing to transfer
 	TransferStatusUnknown   TransferStatus = "unknown"
 )
 
@@ -201,6 +202,57 @@ func (tm *TransferManager) startTransferInternal(
 	tm.emitTransferEvent(
 		transferInfo,
 		eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_STARTED,
+	)
+
+	return transferID, nil
+}
+
+// CreateSkippedTransfer creates a transfer record with "skipped" status
+// This is used when the target is already in sync with the source
+func (tm *TransferManager) CreateSkippedTransfer(
+	cfg TransferConfig,
+	policyID string,
+	skipReason string,
+) (string, error) {
+	transferID := common.UUID7()
+	now := time.Now()
+
+	transferInfo := &TransferInfo{
+		ID:           transferID,
+		PolicyID:     policyID,
+		Status:       TransferStatusSkipped,
+		Config:       cfg,
+		Progress:     TransferProgress{LastUpdate: now},
+		CreatedAt:    now,
+		ErrorMessage: skipReason, // Use ErrorMessage to store skip reason for visibility
+		LogFile:      filepath.Join(tm.transfersDir, fmt.Sprintf("%s.log", transferID)),
+		PIDFile:      filepath.Join(tm.transfersDir, fmt.Sprintf("%s.pid", transferID)),
+		ConfigFile:   filepath.Join(tm.transfersDir, fmt.Sprintf("%s.yaml", transferID)),
+		ProgressFile: filepath.Join(tm.transfersDir, fmt.Sprintf("%s.progress", transferID)),
+	}
+
+	// Set completion time since this is a terminal state
+	transferInfo.CompletedAt = &now
+
+	// Save transfer configuration
+	if err := tm.saveTransferConfig(transferInfo); err != nil {
+		return "", err
+	}
+
+	// Register transfer (for listing)
+	tm.mu.Lock()
+	tm.activeTransfers[transferID] = transferInfo
+	tm.mu.Unlock()
+
+	tm.logger.Info("Transfer skipped - target already in sync",
+		"id", transferID,
+		"policy_id", policyID,
+		"reason", skipReason)
+
+	// Emit completed event (skipped is a form of completion)
+	tm.emitTransferEvent(
+		transferInfo,
+		eventspb.DataTransferTransferPayload_DATA_TRANSFER_OPERATION_COMPLETED,
 	)
 
 	return transferID, nil
