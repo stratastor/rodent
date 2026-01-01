@@ -540,27 +540,98 @@ func (m *Manager) RunPolicy(
 	ctx context.Context,
 	params RunTransferPolicyParams,
 ) (*CreateTransferResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	start := time.Now()
 
-	// Find policy
+	// Find policy and initialize monitor under lock
+	m.mu.Lock()
 	var policy *TransferPolicy
+	var policyIdx int
 	for i := range m.config.Policies {
 		if m.config.Policies[i].ID == params.PolicyID {
 			policy = &m.config.Policies[i]
+			policyIdx = i
 			break
 		}
 	}
 
 	if policy == nil {
+		m.mu.Unlock()
 		return nil, errors.New(
 			errors.TransferPolicyNotFound,
 			fmt.Sprintf("policy %s not found", params.PolicyID),
 		)
 	}
 
-	// Execute transfer
-	return m.executeTransferForPolicy(ctx, policy, params.SnapshotOverride)
+	// Get or initialize monitor
+	monitor, exists := m.config.Monitors[policy.ID]
+	if !exists {
+		monitor = &TransferPolicyMonitor{
+			PolicyID:      policy.ID,
+			ScheduleIndex: 0, // Manual run uses schedule index 0
+		}
+		m.config.Monitors[policy.ID] = monitor
+	}
+	monitor.Status = string(TransferPolicyStatusRunning)
+	m.mu.Unlock()
+
+	// Execute transfer without holding the lock
+	result, err := m.executeTransferForPolicy(ctx, policy, params.SnapshotOverride)
+
+	// Update monitor and policy under lock
+	m.mu.Lock()
+	duration := time.Since(start)
+	monitor.LastRunAt = &start
+	monitor.RunCount++
+	monitor.LastDuration = duration
+
+	if err != nil {
+		monitor.Status = string(TransferPolicyStatusError)
+		monitor.LastError = err.Error()
+		monitor.LastSkipped = false
+		monitor.LastSkipReason = ""
+		m.logger.Error("Manual transfer policy execution failed",
+			"policy_id", policy.ID,
+			"error", err)
+	} else if result.Status == dataset.TransferStatusSkipped {
+		monitor.Status = string(TransferPolicyStatusIdle)
+		monitor.LastError = ""
+		monitor.CurrentTransferID = result.TransferID
+		monitor.LastSkipped = true
+		monitor.LastSkipReason = fmt.Sprintf("target already has snapshot: %s", result.SourceSnapshot)
+		monitor.SkipCount++
+	} else {
+		monitor.Status = string(TransferPolicyStatusIdle)
+		monitor.LastError = ""
+		monitor.CurrentTransferID = result.TransferID
+		monitor.LastSkipped = false
+		monitor.LastSkipReason = ""
+	}
+
+	// Update policy fields
+	m.config.Policies[policyIdx].LastRunAt = monitor.LastRunAt
+	if err != nil {
+		m.config.Policies[policyIdx].LastRunStatus = "error"
+		m.config.Policies[policyIdx].LastRunError = err.Error()
+	} else if result.Status == dataset.TransferStatusSkipped {
+		m.config.Policies[policyIdx].LastRunStatus = "skipped"
+		m.config.Policies[policyIdx].LastRunError = ""
+		m.config.Policies[policyIdx].LastTransferID = result.TransferID
+	} else {
+		m.config.Policies[policyIdx].LastRunStatus = "success"
+		m.config.Policies[policyIdx].LastRunError = ""
+		m.config.Policies[policyIdx].LastTransferID = result.TransferID
+	}
+
+	// Save config asynchronously
+	go func() {
+		if saveErr := m.SaveConfig(false); saveErr != nil {
+			m.logger.Warn("Failed to save config after manual policy execution", "error", saveErr)
+		}
+	}()
+
+	m.mu.Unlock()
+
+	return result, err
 }
 
 // createJobsForPolicy creates gocron jobs for all schedules in a policy
