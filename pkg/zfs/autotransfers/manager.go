@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
+	"github.com/kballard/go-shellquote"
 	"gopkg.in/yaml.v3"
 
 	"github.com/stratastor/logger"
@@ -830,7 +831,7 @@ func (m *Manager) executeTransferForPolicy(
 	// Find the most recent common snapshot between source and target for incremental transfer
 	// This uses ZFS GUIDs to reliably identify common snapshots
 	targetDataset := transferCfg.ReceiveConfig.Target
-	commonSnapshot, err := m.findMostRecentCommonSnapshot(sourceDataset, targetDataset)
+	commonSnapshot, err := m.findMostRecentCommonSnapshot(sourceDataset, targetDataset, transferCfg.ReceiveConfig)
 	if err != nil {
 		// If we can't find common snapshot, log warning and attempt full send
 		m.logger.Warn("Failed to find common snapshot, will attempt full send",
@@ -1048,13 +1049,37 @@ func (m *Manager) buildSnapshotPatternRegex(pattern string) (*regexp.Regexp, err
 // or an empty string if no common snapshot is found or target doesn't exist.
 func (m *Manager) findMostRecentCommonSnapshot(
 	sourceDataset, targetDataset string,
+	recvCfg dataset.ReceiveConfig,
 ) (string, error) {
+	isRemote := recvCfg.RemoteConfig.Host != ""
+
+	// Build SSH command prefix for remote targets
+	var sshPrefix []string
+	if isRemote {
+		var err error
+		sshPrefix, err = dataset.BuildSSHCommand(recvCfg.RemoteConfig)
+		if err != nil {
+			return "", errors.New(errors.ZFSDatasetSend,
+				fmt.Sprintf("failed to build SSH command: %v", err))
+		}
+	}
+
 	// Check if target dataset exists
-	checkCmd := exec.Command("sudo", "zfs", "list", "-H", "-o", "name", targetDataset)
+	var checkCmd *exec.Cmd
+	if isRemote {
+		cmdStr := fmt.Sprintf("%s sudo zfs list -H -o name %s",
+			shellquote.Join(sshPrefix...), shellquote.Join(targetDataset))
+		checkCmd = exec.Command("bash", "-c", cmdStr)
+		m.logger.Debug("Checking remote target dataset existence", "command", cmdStr)
+	} else {
+		checkCmd = exec.Command("sudo", "zfs", "list", "-H", "-o", "name", targetDataset)
+	}
+
 	if err := checkCmd.Run(); err != nil {
 		// Target doesn't exist - this will be a full send
 		m.logger.Debug("Target dataset does not exist, will perform full send",
-			"target", targetDataset)
+			"target", targetDataset,
+			"remote", isRemote)
 		return "", nil
 	}
 
@@ -1079,17 +1104,25 @@ func (m *Manager) findMostRecentCommonSnapshot(
 	}
 
 	// List target snapshots with GUIDs
-	targetCmd := exec.Command(
-		"sudo",
-		"zfs",
-		"list",
-		"-H",
-		"-o",
-		"name,guid",
-		"-t",
-		"snap",
-		targetDataset,
-	)
+	var targetCmd *exec.Cmd
+	if isRemote {
+		cmdStr := fmt.Sprintf("%s sudo zfs list -H -o name,guid -t snap %s",
+			shellquote.Join(sshPrefix...), shellquote.Join(targetDataset))
+		targetCmd = exec.Command("bash", "-c", cmdStr)
+		m.logger.Debug("Listing remote target snapshots", "command", cmdStr)
+	} else {
+		targetCmd = exec.Command(
+			"sudo",
+			"zfs",
+			"list",
+			"-H",
+			"-o",
+			"name,guid",
+			"-t",
+			"snap",
+			targetDataset,
+		)
+	}
 	targetOutput, err := targetCmd.Output()
 	if err != nil {
 		return "", errors.New(errors.ZFSSnapshotList,
@@ -1112,7 +1145,8 @@ func (m *Manager) findMostRecentCommonSnapshot(
 	if len(targetGUIDs) == 0 {
 		// Target has no snapshots - this will be a full send
 		m.logger.Debug("Target dataset has no snapshots, will perform full send",
-			"target", targetDataset)
+			"target", targetDataset,
+			"remote", isRemote)
 		return "", nil
 	}
 
@@ -1134,7 +1168,8 @@ func (m *Manager) findMostRecentCommonSnapshot(
 				"source_snapshot", sourceSnapshot,
 				"guid", sourceGUID,
 				"source_dataset", sourceDataset,
-				"target_dataset", targetDataset)
+				"target_dataset", targetDataset,
+				"remote", isRemote)
 			return sourceSnapshot, nil
 		}
 	}
@@ -1143,7 +1178,8 @@ func (m *Manager) findMostRecentCommonSnapshot(
 	m.logger.Warn("No common snapshots found between source and target",
 		"source_dataset", sourceDataset,
 		"target_dataset", targetDataset,
-		"target_snapshot_count", len(targetGUIDs))
+		"target_snapshot_count", len(targetGUIDs),
+		"remote", isRemote)
 
 	return "", errors.New(errors.ZFSDatasetSend,
 		fmt.Sprintf("no common snapshots found between %s and %s", sourceDataset, targetDataset))

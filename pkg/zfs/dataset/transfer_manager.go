@@ -614,7 +614,7 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 	// Build full command
 	var cmdStr string
 	if recvCfg.RemoteConfig.Host != "" {
-		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
+		sshPart, err := BuildSSHCommand(recvCfg.RemoteConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -1288,7 +1288,7 @@ func (tm *TransferManager) snapshotExistsOnTarget(
 
 	if recvCfg.RemoteConfig.Host != "" {
 		// Remote target - use SSH
-		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
+		sshPart, err := BuildSSHCommand(recvCfg.RemoteConfig)
 		if err != nil {
 			return false, fmt.Errorf("failed to build SSH command: %w", err)
 		}
@@ -1543,7 +1543,7 @@ func (tm *TransferManager) getReceiveResumeToken(
 
 	if remoteConfig.Host != "" {
 		// Remote dataset
-		sshPart, err := buildSSHCommand(remoteConfig)
+		sshPart, err := BuildSSHCommand(remoteConfig)
 		if err != nil {
 			return "", err
 		}
@@ -1626,7 +1626,7 @@ func (tm *TransferManager) abortPartialReceiveOnce(target string, remoteConfig R
 
 	if remoteConfig.Host != "" {
 		// Remote dataset
-		sshPart, err := buildSSHCommand(remoteConfig)
+		sshPart, err := BuildSSHCommand(remoteConfig)
 		if err != nil {
 			return err
 		}

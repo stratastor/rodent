@@ -328,7 +328,7 @@ func (m *Manager) SendReceive(
 	// Build full command with SSH if remote
 	var fullCmd string
 	if recvCfg.RemoteConfig.Host != "" {
-		sshPart, err := buildSSHCommand(recvCfg.RemoteConfig)
+		sshPart, err := BuildSSHCommand(recvCfg.RemoteConfig)
 		if err != nil {
 			return errors.Wrap(err, errors.CommandInvalidInput)
 		}
@@ -450,8 +450,8 @@ func validateSSHConfig(cfg RemoteConfig) error {
 	return nil
 }
 
-// buildSSHCommand constructs SSH command with proper options
-func buildSSHCommand(cfg RemoteConfig) ([]string, error) {
+// BuildSSHCommand constructs SSH command with proper options
+func BuildSSHCommand(cfg RemoteConfig) ([]string, error) {
 	sshCmd := []string{"ssh"}
 
 	// Core SSH options
@@ -467,7 +467,11 @@ func buildSSHCommand(cfg RemoteConfig) ([]string, error) {
 		sshCmd = append(sshCmd, "-i", cfg.PrivateKey)
 
 		// Use Rodent-managed known_hosts file (respects config overrides)
-		sshCmd = append(sshCmd, "-o", fmt.Sprintf("UserKnownHostsFile=%s", config.GetKnownHostsFilePath()))
+		sshCmd = append(
+			sshCmd,
+			"-o",
+			fmt.Sprintf("UserKnownHostsFile=%s", config.GetKnownHostsFilePath()),
+		)
 	}
 
 	// Security options
