@@ -1,0 +1,103 @@
+name: "Tell me about your storage pain"
+description: "Help me understand what's not working for you"
+title: "[Storage Pain] "
+labels: ["user-research"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Takes < 2 minutes. Check boxes, pick dropdowns, done.
+
+  - type: checkboxes
+    id: pain-points
+    attributes:
+      label: What resonates?
+      description: Pick all that apply
+      options:
+        - label: Expansion means downtime or over-provisioning "just in case"
+        - label: Adding disks doesn't make things faster, just bigger
+        - label: Testing migrations on prod data is terrifying
+        - label: Spinning up dev/test environments from prod takes forever
+        - label: Paying for uncompressed bytes feels wasteful
+        - label: Managing storage across servers = SSH + scripts + hope
+        - label: Snapshots take forever or kill performance
+        - label: No confidence that backups aren't silently corrupted
+        - label: Backup infrastructure costs more than it should
+
+  - type: checkboxes
+    id: workloads
+    attributes:
+      label: What's on your storage?
+      description: Pick all that apply
+      options:
+        - label: Web/app server (static files, uploads, assets)
+        - label: SQL database (Postgres, MySQL, etc.)
+        - label: NoSQL database (Mongo, Redis, etc.)
+        - label: Analytics / OLAP (ClickHouse, DuckDB, etc.)
+        - label: Object store / S3-compatible
+        - label: AI/ML pipelines (model weights, training data, embeddings)
+        - label: Media processing (video, images)
+        - label: Logs / observability data
+        - label: Other
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where do you run?
+      options:
+        - Cloud VMs (AWS/GCP/Azure/DO)
+        - Bare metal / colo
+        - Hybrid
+        - Home lab
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: filesystem
+    attributes:
+      label: Current filesystem
+      options:
+        - ext4
+        - xfs
+        - btrfs
+        - zfs (self-managed)
+        - Not sure
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: scale
+    attributes:
+      label: Rough scale
+      description: "e.g., '2TB across 3 servers' or '500GB, single node'"
+      placeholder: "__ GB across __ servers"
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What happened? (optional)
+      description: A sentence or two is plenty
+      placeholder: |
+        Examples:
+        - "Ran out of space at 2am, had to over-provision 5x"
+        - "Multiple dangling copies of prod data"
+        - "Dev env setup takes 3 hours, kills iteration speed"
+        - "Just curious, no fire yet"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: followup
+    attributes:
+      label: Open to a quick chat?
+      description: "15 mins, no pitch"
+      options:
+        - "Yes, reach out"
+        - "Maybe later, prefer async"
+        - "No, async only"
+    validations:
+      required: true
