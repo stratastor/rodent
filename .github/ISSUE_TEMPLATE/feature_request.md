@@ -2,7 +2,7 @@
 name: Feature Request
 about: Use this template for creating a feature request.
 description: Use this template for raising a feature request.
-title: "feature: "
+title: "[feature] "
 labels: 
 assignees: 
 ---

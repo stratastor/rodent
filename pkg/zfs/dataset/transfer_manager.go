@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -58,21 +59,22 @@ const cooloffPeriod = 3 * time.Minute
 
 // TransferInfo holds comprehensive information about a ZFS transfer
 type TransferInfo struct {
-	ID           string           `json:"id"                       yaml:"id"`
-	PolicyID     string           `json:"policy_id,omitempty"      yaml:"policy_id,omitempty"` // ID of the transfer policy that created this transfer (if any)
-	Status       TransferStatus   `json:"status"                   yaml:"status"`
-	Config       TransferConfig   `json:"config"                   yaml:"config"`
-	Progress     TransferProgress `json:"progress"                 yaml:"progress"`
-	CreatedAt    time.Time        `json:"created_at"               yaml:"created_at"`
-	StartedAt    *time.Time       `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
-	CompletedAt  *time.Time       `json:"completed_at,omitempty"   yaml:"completed_at,omitempty"`
-	LastPausedAt *time.Time       `json:"last_paused_at,omitempty" yaml:"last_paused_at,omitempty"`
-	PID          int              `json:"pid,omitempty"            yaml:"pid,omitempty"`
-	LogFile      string           `json:"log_file"                 yaml:"log_file"`
-	PIDFile      string           `json:"pid_file"                 yaml:"pid_file"`
-	ConfigFile   string           `json:"config_file"              yaml:"config_file"`
-	ProgressFile string           `json:"progress_file"            yaml:"progress_file"`
-	ErrorMessage string           `json:"error_message,omitempty"  yaml:"error_message,omitempty"`
+	ID           string            `json:"id"                       yaml:"id"`
+	PolicyID     string            `json:"policy_id,omitempty"      yaml:"policy_id,omitempty"` // ID of the transfer policy that created this transfer (if any)
+	Status       TransferStatus    `json:"status"                   yaml:"status"`
+	Config       TransferConfig    `json:"config"                   yaml:"config"`
+	Progress     TransferProgress  `json:"progress"                 yaml:"progress"`
+	CreatedAt    time.Time         `json:"created_at"               yaml:"created_at"`
+	StartedAt    *time.Time        `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"   yaml:"completed_at,omitempty"`
+	LastPausedAt *time.Time        `json:"last_paused_at,omitempty" yaml:"last_paused_at,omitempty"`
+	PID          int               `json:"pid,omitempty"            yaml:"pid,omitempty"`
+	LogFile      string            `json:"log_file"                 yaml:"log_file"`
+	PIDFile      string            `json:"pid_file"                 yaml:"pid_file"`
+	ConfigFile   string            `json:"config_file"              yaml:"config_file"`
+	ProgressFile string            `json:"progress_file"            yaml:"progress_file"`
+	ErrorMessage string            `json:"error_message,omitempty"  yaml:"error_message,omitempty"`
+	SizeInfo     *TransferSizeInfo `json:"size_info,omitempty"      yaml:"size_info,omitempty"` // Transfer size calculated via dry-run
 	// Internal state for action flow tracking
 	pendingAction TransferAction `json:"-"                        yaml:"-"`
 }
@@ -87,6 +89,15 @@ type TransferProgress struct {
 	EstimatedETA     int64     `json:"estimated_eta,omitempty"     yaml:"estimated_eta,omitempty"`
 	Phase            string    `json:"phase,omitempty"             yaml:"phase,omitempty"`
 	PhaseDescription string    `json:"phase_description,omitempty" yaml:"phase_description,omitempty"`
+}
+
+// TransferSizeInfo represents size calculation details for transfer metrics.
+// Calculated via `zfs send -nPv` dry-run for accurate stream size.
+type TransferSizeInfo struct {
+	// CalculatedTransferSize is the exact stream size from dry-run in bytes
+	CalculatedTransferSize int64 `json:"calculated_transfer_size" yaml:"calculated_transfer_size"`
+	// ActualTransferType indicates the type: "full", "incremental", or "intermediary"
+	ActualTransferType string `json:"actual_transfer_type"     yaml:"actual_transfer_type"`
 }
 
 // TransferType represents different types of transfer queries
@@ -181,6 +192,12 @@ func (tm *TransferManager) startTransferInternal(
 		tm.logger.Warn(
 			"Receive config does not have resumable flag set, pause/resume will not work properly",
 		)
+	}
+
+	// Calculate transfer size via dry-run (non-blocking, optional)
+	// This provides accurate size metrics for business reporting
+	if sizeInfo, err := tm.calculateTransferSize(cfg); err == nil && sizeInfo != nil {
+		transferInfo.SizeInfo = sizeInfo
 	}
 
 	// Save transfer configuration
@@ -681,6 +698,115 @@ func (tm *TransferManager) buildTransferCommand(info *TransferInfo) (*exec.Cmd, 
 	}
 	tm.logger.Debug("Built transfer command", "command", cmdStr)
 	return exec.Command("bash", "-c", cmdStr), nil
+}
+
+// calculateTransferSize runs a dry-run send to calculate the exact stream size.
+// This uses `zfs send -nPv` which outputs machine-parsable size information.
+// The function parses the output to extract the total stream size in bytes.
+func (tm *TransferManager) calculateTransferSize(cfg TransferConfig) (*TransferSizeInfo, error) {
+	sendCfg := cfg.SendConfig
+
+	// Build dry-run send command with parsable output
+	sendPart := []string{command.BinZFS, "send", "-n", "-P", "-v"}
+
+	// Add flags that affect stream size calculation
+	if sendCfg.Compressed {
+		sendPart = append(sendPart, "-c")
+	}
+	if sendCfg.Properties {
+		sendPart = append(sendPart, "-p")
+	}
+	if sendCfg.Raw {
+		sendPart = append(sendPart, "-w")
+	}
+	if sendCfg.LargeBlocks {
+		sendPart = append(sendPart, "-L")
+	}
+	if sendCfg.Replicate {
+		sendPart = append(sendPart, "-R")
+		if sendCfg.SkipMissing {
+			sendPart = append(sendPart, "-s")
+		}
+	}
+
+	// Determine transfer type and add incremental options
+	transferType := "full"
+
+	if sendCfg.FromSnapshot != "" {
+		if sendCfg.Intermediary {
+			sendPart = append(sendPart, "-I", sendCfg.FromSnapshot)
+			transferType = "intermediary"
+		} else {
+			sendPart = append(sendPart, "-i", sendCfg.FromSnapshot)
+			transferType = "incremental"
+		}
+	}
+
+	// Add target snapshot
+	sendPart = append(sendPart, sendCfg.Snapshot)
+
+	// Sanitize and build command
+	sendPart = sanitizeCommandArgs(sendPart)
+	cmdStr := fmt.Sprintf("sudo %s", shellquote.Join(sendPart...))
+
+	tm.logger.Debug("Calculating transfer size via dry-run", "command", cmdStr)
+
+	// Execute dry-run
+	cmd := exec.Command("bash", "-c", cmdStr)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		tm.logger.Warn("Failed to calculate transfer size",
+			"error", err,
+			"stderr", stderr.String(),
+			"snapshot", sendCfg.Snapshot)
+		// Return nil without error - size calculation is optional
+		return nil, nil
+	}
+
+	// Parse the parsable output to find the total size
+	// Format: "size\t<bytes>" on the last line
+	output := stdout.String()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	var streamSize int64
+	for _, line := range lines {
+		if strings.HasPrefix(line, "size\t") {
+			parts := strings.Split(line, "\t")
+			if len(parts) >= 2 {
+				size, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+				if err != nil {
+					tm.logger.Warn("Failed to parse stream size",
+						"line", line,
+						"error", err)
+					return nil, nil
+				}
+				streamSize = size
+				break
+			}
+		}
+	}
+
+	if streamSize == 0 {
+		tm.logger.Debug("No size line found in dry-run output",
+			"output", output,
+			"snapshot", sendCfg.Snapshot)
+		return nil, nil
+	}
+
+	sizeInfo := &TransferSizeInfo{
+		CalculatedTransferSize: streamSize,
+		ActualTransferType:     transferType,
+	}
+
+	tm.logger.Info("Calculated transfer size",
+		"calculated_transfer_size", streamSize,
+		"actual_transfer_type", transferType,
+		"snapshot", sendCfg.Snapshot)
+
+	return sizeInfo, nil
 }
 
 // PauseTransfer pauses a running transfer gracefully without fetching resume token

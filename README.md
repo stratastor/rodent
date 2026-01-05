@@ -1,8 +1,8 @@
-# Rodent [WIP]
+# Rodent –– API service for securely orchestrating storage of servers at scale
 
 [![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/github.com/stratastor/rodent) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/stratastor/rodent/blob/master/LICENSE.txt)
 
-Rodent is a node agent for managing ZFS-based storage systems. It can connect to Strata platform for centralized management, or run standalone in headless mode. It can also be integrated with other management platforms via its REST and gRPC API.
+Rodent is a node agent for managing ZFS-based storage systems. It can securely connect to [Strata](https://strata.foo) for centralized management, or run standalone in headless mode. It can also be integrated with other management platforms via its REST and gRPC API.
 
 <img src="https://web-static.strata.foo/landing.png" alt="Strata Platform" width="600" height="400"/>
 
