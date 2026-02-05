@@ -316,12 +316,19 @@ chmod 700 /home/rodent/.rodent/ssh
 chmod 755 /var/lib/rodent
 chmod 755 /var/log/rodent
 
-# Add rodent user to docker group if it exists
+# Enable Docker management for non-root users (per Docker post-install docs)
+# https://docs.docker.com/engine/install/linux-postinstall/
 if getent group docker > /dev/null; then
   echo "Adding rodent user to docker group..."
   usermod -aG docker rodent
+
+  # Also add ubuntu user if it exists
+  if id ubuntu &>/dev/null; then
+    echo "Adding ubuntu user to docker group..."
+    usermod -aG docker ubuntu
+  fi
 else
-  echo "Docker group does not exist. Skipping adding rodent to docker group."
+  echo "Docker group does not exist. Skipping docker group configuration."
 fi
 
 # Copy existing configuration from /etc/rodent if it exists

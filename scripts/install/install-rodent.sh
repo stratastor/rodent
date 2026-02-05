@@ -434,6 +434,24 @@ install_docker() {
     systemctl enable docker
     systemctl start docker
 
+    # Enable Docker management for non-root users (per Docker post-install docs)
+    # https://docs.docker.com/engine/install/linux-postinstall/
+    log_info "Configuring Docker for non-root user access..."
+
+    # Ensure docker group exists (should be created by Docker install, but verify)
+    if ! getent group docker > /dev/null; then
+        groupadd docker
+        log_info "Created docker group"
+    fi
+
+    # Add ubuntu user to docker group if it exists
+    if id ubuntu &>/dev/null; then
+        usermod -aG docker ubuntu
+        log_info "Added ubuntu user to docker group"
+    fi
+
+    # Note: rodent user is added to docker group in setup_rodent_user.sh
+
     log_success "Docker installed successfully: $(docker --version)"
 }
 
@@ -705,7 +723,7 @@ print_next_steps() {
     echo -e "${BLUE}Next steps:${NC}"
     echo ""
     echo -e "  1. Configure Rodent with your Toggle JWT:"
-    echo -e "     ${YELLOW}sudo nano /home/rodent/.rodent/rodent.yml${NC}"
+    echo -e "     ${YELLOW}sudo -u rodent nano /home/rodent/.rodent/rodent.yml{NC}"
     echo -e "     (Edit the ${YELLOW}toggle.jwt${NC} field)"
     echo ""
     echo -e "  2. Start the Rodent service:"
