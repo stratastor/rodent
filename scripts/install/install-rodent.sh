@@ -17,6 +17,8 @@ NC='\033[0m'
 
 # Default values
 INTERACTIVE=true
+SERVICE_WAS_RUNNING=false
+BINARY_BACKUP_PATH=""
 INSTALL_DEPS=true
 INSTALL_ZFS=true
 INSTALL_DOCKER=true
@@ -606,11 +608,19 @@ download_binary() {
 
     chmod +x "$temp_binary"
 
-    # Backup existing binary if present
+    # Check if service was running before upgrade (for later restart)
+    if systemctl is-active --quiet rodent.service 2>/dev/null; then
+        SERVICE_WAS_RUNNING=true
+        log_info "Rodent service is running, will restart after upgrade"
+        systemctl stop rodent.service
+        log_info "Stopped rodent service for upgrade"
+    fi
+
+    # Backup existing binary if present (use consistent path for rollback)
     if [ -f /usr/local/bin/rodent ]; then
-        local backup_file="/usr/local/bin/rodent.backup.$(date +%Y%m%d-%H%M%S)"
-        log_info "Backing up existing binary to $backup_file..."
-        cp /usr/local/bin/rodent "$backup_file"
+        BINARY_BACKUP_PATH="/usr/local/bin/rodent.backup.${INSTALL_ID}"
+        log_info "Backing up existing binary to $BINARY_BACKUP_PATH..."
+        cp /usr/local/bin/rodent "$BINARY_BACKUP_PATH"
     fi
 
     mv "$temp_binary" /usr/local/bin/rodent
@@ -654,6 +664,103 @@ install_service() {
 
     log_success "Systemd service installed"
     log_info "Service will not be started automatically"
+}
+
+validate_upgrade() {
+    # Only validate if service was running before upgrade
+    if [ "$SERVICE_WAS_RUNNING" != true ]; then
+        log_info "Service was not running before upgrade, skipping validation"
+        return 0
+    fi
+
+    log_step "Validating upgrade..."
+
+    # Start the service
+    log_info "Starting rodent service..."
+    if ! systemctl start rodent.service; then
+        log_error "Failed to start rodent service"
+        rollback_upgrade
+        return 1
+    fi
+
+    # Wait for service to be ready
+    local max_wait=30
+    local waited=0
+    log_info "Waiting for service to be ready (max ${max_wait}s)..."
+
+    while [ $waited -lt $max_wait ]; do
+        if systemctl is-active --quiet rodent.service; then
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if ! systemctl is-active --quiet rodent.service; then
+        log_error "Service did not start within ${max_wait} seconds"
+        rollback_upgrade
+        return 1
+    fi
+
+    log_info "Service started, waiting for health check endpoint..."
+    sleep 5
+
+    # Health check with retries
+    local health_attempts=3
+    local health_ok=false
+
+    for i in $(seq 1 $health_attempts); do
+        log_info "Health check attempt $i of $health_attempts..."
+        if curl -sf --connect-timeout 5 --max-time 10 http://localhost:8042/health > /dev/null 2>&1; then
+            health_ok=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$health_ok" = true ]; then
+        log_success "Health check passed"
+
+        # Remove backup binary
+        if [ -n "$BINARY_BACKUP_PATH" ] && [ -f "$BINARY_BACKUP_PATH" ]; then
+            log_info "Removing backup binary..."
+            rm -f "$BINARY_BACKUP_PATH"
+        fi
+
+        return 0
+    else
+        log_error "Health check failed after $health_attempts attempts"
+        rollback_upgrade
+        return 1
+    fi
+}
+
+rollback_upgrade() {
+    log_step "Rolling back upgrade..."
+
+    if [ -z "$BINARY_BACKUP_PATH" ] || [ ! -f "$BINARY_BACKUP_PATH" ]; then
+        log_error "No backup binary available for rollback"
+        return 1
+    fi
+
+    # Stop service if running
+    systemctl stop rodent.service 2>/dev/null || true
+
+    # Restore backup
+    log_info "Restoring previous binary from $BINARY_BACKUP_PATH..."
+    mv "$BINARY_BACKUP_PATH" /usr/local/bin/rodent
+
+    # Restart service
+    log_info "Restarting service with previous binary..."
+    if systemctl start rodent.service; then
+        log_success "Rollback completed, service restored"
+    else
+        log_error "Failed to restart service after rollback"
+        return 1
+    fi
+
+    log_warn "Upgrade was rolled back due to health check failure"
+    log_warn "Please check logs: journalctl -u rodent.service"
 }
 
 collect_telemetry() {
@@ -777,6 +884,12 @@ main() {
     # Setup user and environment
     setup_rodent_user
     install_service
+
+    # Validate upgrade if service was running before
+    if ! validate_upgrade; then
+        log_error "Upgrade validation failed, previous version restored"
+        exit 1
+    fi
 
     # Collect telemetry
     collect_telemetry
