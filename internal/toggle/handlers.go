@@ -9,6 +9,7 @@ import (
 	"github.com/stratastor/rodent/config"
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/managers"
+	"github.com/stratastor/rodent/internal/tunnel"
 	servicesAPI "github.com/stratastor/rodent/internal/services/api"
 	servicesMgr "github.com/stratastor/rodent/internal/services/manager"
 	adHandlers "github.com/stratastor/rodent/pkg/ad/handlers"
@@ -133,6 +134,12 @@ func RegisterAllHandlers() {
 			servicesAPI.RegisterServiceGRPCHandlers(serviceHandler)
 			l.Info("Registered services gRPC handlers")
 		}
+	}
+
+	// Register tunnel HTTP proxy handler for gRPC
+	if len(cfg.Tunnel.Services) > 0 {
+		tunnel.RegisterTunnelGRPCHandlers()
+		l.Info("Registered tunnel gRPC handlers", "services", len(cfg.Tunnel.Services))
 	}
 
 	// Note: Network gRPC handlers are registered in pkg/server/routes.go

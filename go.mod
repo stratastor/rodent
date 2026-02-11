@@ -14,7 +14,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stratastor/logger v0.0.0-20241216073552-0e618b524da8
-	github.com/stratastor/toggle-rodent-proto v0.0.0-20251226170039-2820be99503f
+	github.com/stratastor/toggle-rodent-proto v0.0.0-20260211113518-6f1005cc6154
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.38.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9

@@ -120,7 +120,19 @@ type Config struct {
 		MaxFileSize    *int64 `mapstructure:"maxFileSize"`    // Max size in bytes per event log file (default: 10MB)
 	} `mapstructure:"events"`
 
+	Tunnel struct {
+		Services map[string]TunnelService `mapstructure:"services"`
+	} `mapstructure:"tunnel"`
+
 	Environment string `mapstructure:"environment"`
+}
+
+// TunnelService defines a local service that can be proxied through the gRPC tunnel
+type TunnelService struct {
+	Address        string   `mapstructure:"address"`        // Local service address (e.g., "http://localhost:4000")
+	AllowedPaths   []string `mapstructure:"allowedPaths"`   // Path prefixes allowed (e.g., ["/cubejs-api/"])
+	AllowedMethods []string `mapstructure:"allowedMethods"` // HTTP methods allowed (e.g., ["GET", "POST"])
+	Timeout        string   `mapstructure:"timeout"`        // Request timeout (e.g., "30s"), defaults to 30s
 }
 
 // LoadConfig loads the configuration with precedence rules.
