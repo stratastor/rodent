@@ -24,16 +24,45 @@ var (
 )
 
 type Config struct {
+	Toggle struct {
+		Enabled bool   `mapstructure:"enabled"` // Enable or disable Toggle integration
+		JWT     string `mapstructure:"jwt"`     // JWT for Toggle service authentication
+		BaseURL string `mapstructure:"baseURL"` // Base URL for Toggle REST API service
+		RPCAddr string `mapstructure:"rpcAddr"` // Address for Toggle gRPC service
+	}
+
 	Server struct {
 		Port      int    `mapstructure:"port"`
 		LogLevel  string `mapstructure:"logLevel"`
 		Daemonize bool   `mapstructure:"daemonize"`
 	} `mapstructure:"server"`
 
+	Tunnel struct {
+		Services map[string]TunnelService `mapstructure:"services"`
+	} `mapstructure:"tunnel"`
+
+	Development struct {
+		Enabled bool `mapstructure:"enabled"`
+	} `mapstructure:"development"`
+
+	Environment string `mapstructure:"environment"`
+
 	Health struct {
 		Interval string `mapstructure:"interval"`
 		Endpoint string `mapstructure:"endpoint"`
 	} `mapstructure:"health"`
+
+	Logs struct {
+		Path      string `mapstructure:"path"`
+		Retention string `mapstructure:"retention"`
+		Output    string `mapstructure:"output"` // stdout or file
+	} `mapstructure:"logs"`
+
+	Logger struct {
+		LogLevel     string `mapstructure:"logLevel"`
+		EnableSentry bool   `mapstructure:"enableSentry"`
+		SentryDSN    string `mapstructure:"sentryDSN"`
+	} `mapstructure:"logger"`
 
 	AD struct {
 		Mode          string `mapstructure:"mode"` // "self-hosted" or "external"
@@ -71,25 +100,6 @@ type Config struct {
 		} `mapstructure:"external"`
 	} `mapstructure:"ad"`
 
-	Logs struct {
-		Path      string `mapstructure:"path"`
-		Retention string `mapstructure:"retention"`
-		Output    string `mapstructure:"output"` // stdout or file
-	} `mapstructure:"logs"`
-
-	Logger struct {
-		LogLevel     string `mapstructure:"logLevel"`
-		EnableSentry bool   `mapstructure:"enableSentry"`
-		SentryDSN    string `mapstructure:"sentryDSN"`
-	} `mapstructure:"logger"`
-
-	Toggle struct {
-		Enabled bool   `mapstructure:"enabled"` // Enable or disable Toggle integration
-		JWT     string `mapstructure:"jwt"`     // JWT for Toggle service authentication
-		BaseURL string `mapstructure:"baseURL"` // Base URL for Toggle REST API service
-		RPCAddr string `mapstructure:"rpcAddr"` // Address for Toggle gRPC service
-	}
-
 	Shares struct {
 		SMB struct {
 			SecurityMode string `mapstructure:"security_mode"` // Security mode: auto, ads, user
@@ -107,10 +117,6 @@ type Config struct {
 		} `mapstructure:"ssh"`
 	} `mapstructure:"keys"`
 
-	Development struct {
-		Enabled bool `mapstructure:"enabled"`
-	} `mapstructure:"development"`
-
 	Events struct {
 		Profile        string `mapstructure:"profile"`        // Event system profile: "default", "high-throughput", "low-latency", "minimal"
 		BufferSize     *int   `mapstructure:"bufferSize"`     // Max events held in memory before dropping (default: 20000)
@@ -119,12 +125,6 @@ type Config struct {
 		BatchTimeout   *int   `mapstructure:"batchTimeout"`   // Max seconds to wait before sending partial batch (default: 30)
 		MaxFileSize    *int64 `mapstructure:"maxFileSize"`    // Max size in bytes per event log file (default: 10MB)
 	} `mapstructure:"events"`
-
-	Tunnel struct {
-		Services map[string]TunnelService `mapstructure:"services"`
-	} `mapstructure:"tunnel"`
-
-	Environment string `mapstructure:"environment"`
 }
 
 // TunnelService defines a local service that can be proxied through the gRPC tunnel

@@ -30,6 +30,7 @@ _gitignore/
 
 # Claude local instructions (development context)
 CLAUDE.local.md
+.claude/
 
 # app config
 .env

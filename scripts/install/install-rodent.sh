@@ -830,7 +830,7 @@ print_next_steps() {
     echo -e "${BLUE}Next steps:${NC}"
     echo ""
     echo -e "  1. Configure Rodent with your Toggle JWT:"
-    echo -e "     ${YELLOW}sudo -u rodent nano /home/rodent/.rodent/rodent.yml{NC}"
+    echo -e "     ${YELLOW}sudo -u rodent vim /home/rodent/.rodent/rodent.yml${NC}"
     echo -e "     (Edit the ${YELLOW}toggle.jwt${NC} field)"
     echo ""
     echo -e "  2. Start the Rodent service:"
