@@ -85,12 +85,13 @@ case "$SYSTEMD_STATE" in
         exit 1
         ;;
     initializing|starting)
-        # When running inside cloud-init (user-data), waiting for systemd is a deadlock:
-        # cloud-init waits for us, systemd waits for cloud-init → circular.
-        # Detect by checking if cloud-final.service is in our cgroup or if
-        # the parent process is cloud-init.
-        if systemctl is-active cloud-final.service &>/dev/null 2>&1; then
-            log_warn "Running inside cloud-init — skipping systemd wait (would deadlock)"
+        # When running inside cloud-init user-data, waiting for systemd deadlocks:
+        # cloud-final.service runs user-data → bootstrap → systemd --wait →
+        # waits for cloud-final → which waits for user-data. Circular.
+        # Detect by checking if cloud-init is still running (not yet "done").
+        CLOUD_INIT_STATUS=$(cloud-init status 2>/dev/null | awk '{print $2}' || echo "unknown")
+        if [ "$CLOUD_INIT_STATUS" != "done" ] && [ -f /run/cloud-init/enabled ]; then
+            log_warn "cloud-init is active (status: $CLOUD_INIT_STATUS) — skipping systemd wait to avoid deadlock"
         else
             log_info "System is still booting (state: $SYSTEMD_STATE), waiting (max 120s)..."
             if SYSTEMD_STATE=$(timeout 120 systemctl is-system-running --wait 2>&1 || true); then
