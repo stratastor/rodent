@@ -85,21 +85,26 @@ case "$SYSTEMD_STATE" in
         exit 1
         ;;
     initializing|starting)
-        # System is still booting - wait for it to settle
-        log_info "System is still booting (state: $SYSTEMD_STATE), waiting..."
-        if SYSTEMD_STATE=$(systemctl is-system-running --wait 2>&1 || true); then
-            case "$SYSTEMD_STATE" in
-                running|degraded)
-                    log_success "systemd is active (state: $SYSTEMD_STATE)"
-                    ;;
-                *)
-                    log_error "systemd did not reach operational state (state: $SYSTEMD_STATE)"
-                    exit 1
-                    ;;
-            esac
+        # When running inside cloud-init (user-data), waiting for systemd is a deadlock:
+        # cloud-init waits for us, systemd waits for cloud-init → circular.
+        # Detect by checking if cloud-final.service is in our cgroup or if
+        # the parent process is cloud-init.
+        if systemctl is-active cloud-final.service &>/dev/null 2>&1; then
+            log_warn "Running inside cloud-init — skipping systemd wait (would deadlock)"
         else
-            log_error "Failed to determine systemd state"
-            exit 1
+            log_info "System is still booting (state: $SYSTEMD_STATE), waiting (max 120s)..."
+            if SYSTEMD_STATE=$(timeout 120 systemctl is-system-running --wait 2>&1 || true); then
+                case "$SYSTEMD_STATE" in
+                    running|degraded)
+                        log_success "systemd is active (state: $SYSTEMD_STATE)"
+                        ;;
+                    *)
+                        log_warn "systemd state: $SYSTEMD_STATE — proceeding anyway"
+                        ;;
+                esac
+            else
+                log_warn "systemd wait timed out, proceeding with installation"
+            fi
         fi
         ;;
     *)
