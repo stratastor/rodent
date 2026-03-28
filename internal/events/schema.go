@@ -66,6 +66,49 @@ func EmitSystemStartup(startupType string) {
 	emitStructuredEvent(event)
 }
 
+// EmitSystemSpotTermination emits an event when an EC2 spot termination notice is detected
+// action: the action from the IMDS response (e.g., "terminate", "stop")
+// terminationTime: the RFC3339 timestamp when the instance will be terminated
+func EmitSystemSpotTermination(action string, terminationTime string) {
+	cfg := config.GetConfig()
+	jwt := cfg.Toggle.JWT
+
+	rodentID, _ := client.ExtractRodentIDFromJWT(jwt)
+	orgID, _ := client.ExtractSubFromJWT(jwt)
+
+	hostname, _ := os.Hostname()
+
+	payload := &eventspb.SystemShutdownPayload{
+		Operation: eventspb.SystemShutdownPayload_SYSTEM_SHUTDOWN_OPERATION_SHUTDOWN,
+		Reason:    "ec2_spot_termination",
+		Graceful:  false,
+	}
+
+	event := &eventspb.Event{
+		EventId:   generateEventID(),
+		Level:     eventspb.EventLevel_EVENT_LEVEL_CRITICAL,
+		Category:  eventspb.EventCategory_EVENT_CATEGORY_SYSTEM,
+		Source:    "rodent.system",
+		Timestamp: time.Now().UnixMilli(),
+		Metadata: map[string]string{
+			"operation":        "spot_termination",
+			"action":           action,
+			"time":             terminationTime,
+			"rodent_id":        rodentID,
+			"organization_id":  orgID,
+			"hostname":         hostname,
+		},
+		EventPayload: &eventspb.Event_SystemEvent{
+			SystemEvent: &eventspb.SystemEvent{
+				EventType: &eventspb.SystemEvent_Shutdown{
+					Shutdown: payload,
+				},
+			},
+		},
+	}
+	emitStructuredEvent(event)
+}
+
 // EmitSystemRegistration emits a registration event with auto-populated fields
 // registrationType: "new_registration", "renewal", "reconnect"
 func EmitSystemRegistration(

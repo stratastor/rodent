@@ -108,6 +108,9 @@ func RegisterNode(
 // Global connection monitor instance
 var connectionMonitor *ConnectionMonitor
 
+// Global spot monitor instance
+var spotMonitor *SpotMonitor
+
 // establishStreamConnection establishes and maintains a bidirectional stream connection with Toggle
 // It's designed to be run as a goroutine and will use the ConnectionMonitor to maintain
 // a robust and stable connection
@@ -126,6 +129,13 @@ func establishStreamConnection(
 
 	// Log that the connection monitor has been started
 	logger.Info("Toggle connection monitor started")
+
+	// Start the spot termination monitor alongside the connection monitor
+	if spotMonitor == nil {
+		spotMonitor = NewSpotMonitor(ctx)
+	}
+	spotMonitor.Start()
+	logger.Info("EC2 spot termination monitor started")
 }
 
 // StartRegistrationProcess begins the async process of registering with Toggle
