@@ -7,6 +7,7 @@ package toggle
 import (
 	"github.com/stratastor/logger"
 	"github.com/stratastor/rodent/config"
+	certsHandler "github.com/stratastor/rodent/internal/certs"
 	generalCmd "github.com/stratastor/rodent/internal/command"
 	"github.com/stratastor/rodent/internal/managers"
 	"github.com/stratastor/rodent/internal/tunnel"
@@ -135,6 +136,10 @@ func RegisterAllHandlers() {
 			l.Info("Registered services gRPC handlers")
 		}
 	}
+
+	// Register TLS cert delivery handler for gRPC
+	certsHandler.RegisterCertGRPCHandlers()
+	l.Info("Registered cert delivery gRPC handlers")
 
 	// Register tunnel HTTP proxy handler for gRPC
 	if len(cfg.Tunnel.Services) > 0 {
