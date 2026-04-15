@@ -19,6 +19,14 @@ import (
 	"github.com/stratastor/toggle-rodent-proto/proto"
 )
 
+// writeSudo writes content to a file via sudo tee.
+func writeSudo(path, content string) (string, error) {
+	cmd := exec.Command("sudo", "tee", path)
+	cmd.Stdin = strings.NewReader(content)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // RegisterCertGRPCHandlers registers cert delivery command handlers with Toggle.
 func RegisterCertGRPCHandlers() {
 	client.RegisterCommandHandler(proto.CmdCertDeliver, handleCertDeliver())
@@ -49,7 +57,7 @@ func handleCertDeliver() client.CommandHandler {
 			payload.DestDir = "/etc/dremio/tls"
 		}
 
-		// Ensure destination directory exists (Rodent runs as 'rodent' user, need sudo)
+		// Write certs via sudo (Rodent runs as 'rodent' user, sudoers allows /etc/dremio/tls)
 		if err := exec.Command("sudo", "mkdir", "-p", payload.DestDir).Run(); err != nil {
 			return nil, errors.Wrap(err, errors.ServerInternalError)
 		}
@@ -57,26 +65,15 @@ func handleCertDeliver() client.CommandHandler {
 		certPath := filepath.Join(payload.DestDir, "cert.pem")
 		keyPath := filepath.Join(payload.DestDir, "key.pem")
 
-		// Write via sudo tee (Rodent user can't write to /etc/dremio/tls directly)
-		writePEM := func(path, content, mode string) error {
-			cmd := exec.Command("sudo", "tee", path)
-			cmd.Stdin = strings.NewReader(content)
-			cmd.Stdout = nil // discard tee's stdout copy
-			if err := cmd.Run(); err != nil {
-				return err
-			}
-			return exec.Command("sudo", "chmod", mode, path).Run()
+		if out, err := writeSudo(certPath, payload.CertPEM); err != nil {
+			return nil, errors.New(errors.ServerInternalError, fmt.Sprintf("write cert failed: %s", out))
 		}
+		if out, err := writeSudo(keyPath, payload.KeyPEM); err != nil {
+			return nil, errors.New(errors.ServerInternalError, fmt.Sprintf("write key failed: %s", out))
+		}
+		_ = exec.Command("sudo", "chmod", "0600", keyPath).Run()
 
-		if err := writePEM(certPath, payload.CertPEM, "0644"); err != nil {
-			return nil, errors.Wrap(err, errors.ServerInternalError)
-		}
-		if err := writePEM(keyPath, payload.KeyPEM, "0600"); err != nil {
-			return nil, errors.Wrap(err, errors.ServerInternalError)
-		}
-
-		// Traefik watches the file directory and auto-reloads when certs change.
-		// Signal as a safety net — Docker volume mount picks up changes automatically.
+		// Signal Traefik to reload (watches file changes, but SIGHUP as safety net)
 		_ = exec.Command("sudo", "docker", "kill", "--signal=HUP", "traefik-traefik-1").Run()
 
 		resp := map[string]interface{}{

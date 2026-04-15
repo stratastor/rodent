@@ -588,7 +588,11 @@ Cmnd_Alias FILE_OPERATIONS = \\
     $TEE_PATH -a /etc/netplan/*, \\
     $TEST_PATH -e /etc/netplan/*, \\
     $CHMOD_PATH * /etc/netplan/*, \\
-    $RM_PATH -f /etc/netplan/*
+    $RM_PATH -f /etc/netplan/*, \\
+    $MKDIR_PATH -p /etc/dremio/tls, \\
+    $TEE_PATH /etc/dremio/tls/*, \\
+    $CP_PATH * /etc/dremio/tls/*, \\
+    $CHMOD_PATH * /etc/dremio/tls/*
 
 # Grant permissions to the rodent user
 rodent ALL=(ALL) NOPASSWD: ZFS_COMMANDS, SMB_COMMANDS, DOCKER_COMMANDS, FACL_COMMANDS, SYSTEM_COMMANDS, FILE_OPERATIONS
