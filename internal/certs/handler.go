@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/stratastor/rodent/internal/toggle/client"
 	"github.com/stratastor/rodent/pkg/errors"
@@ -48,30 +49,35 @@ func handleCertDeliver() client.CommandHandler {
 			payload.DestDir = "/etc/dremio/tls"
 		}
 
-		// Ensure destination directory exists
-		if err := os.MkdirAll(payload.DestDir, 0755); err != nil {
+		// Ensure destination directory exists (Rodent runs as 'rodent' user, need sudo)
+		if err := exec.Command("sudo", "mkdir", "-p", payload.DestDir).Run(); err != nil {
 			return nil, errors.Wrap(err, errors.ServerInternalError)
 		}
 
 		certPath := filepath.Join(payload.DestDir, "cert.pem")
 		keyPath := filepath.Join(payload.DestDir, "key.pem")
 
-		// Write cert file (world-readable is fine for certs)
-		if err := os.WriteFile(certPath, []byte(payload.CertPEM), 0644); err != nil {
-			return nil, errors.Wrap(err, errors.ServerInternalError)
+		// Write via sudo tee (Rodent user can't write to /etc/dremio/tls directly)
+		writePEM := func(path, content, mode string) error {
+			cmd := exec.Command("sudo", "tee", path)
+			cmd.Stdin = strings.NewReader(content)
+			cmd.Stdout = nil // discard tee's stdout copy
+			if err := cmd.Run(); err != nil {
+				return err
+			}
+			return exec.Command("sudo", "chmod", mode, path).Run()
 		}
 
-		// Write key file (restricted permissions)
-		if err := os.WriteFile(keyPath, []byte(payload.KeyPEM), 0600); err != nil {
+		if err := writePEM(certPath, payload.CertPEM, "0644"); err != nil {
+			return nil, errors.Wrap(err, errors.ServerInternalError)
+		}
+		if err := writePEM(keyPath, payload.KeyPEM, "0600"); err != nil {
 			return nil, errors.Wrap(err, errors.ServerInternalError)
 		}
 
 		// Traefik watches the file directory and auto-reloads when certs change.
-		// If Traefik is running as a Docker container, the volume mount picks up
-		// the change automatically. No explicit reload needed.
-		//
-		// Optionally signal Docker Traefik container to reload via SIGHUP as a safety net.
-		_ = exec.Command("docker", "kill", "--signal=HUP", "traefik-traefik-1").Run()
+		// Signal as a safety net — Docker volume mount picks up changes automatically.
+		_ = exec.Command("sudo", "docker", "kill", "--signal=HUP", "traefik-traefik-1").Run()
 
 		resp := map[string]interface{}{
 			"domain":    payload.Domain,
