@@ -67,8 +67,8 @@ fi
 GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
 print_success "Go version: $GO_VERSION"
 
-# Check if version is 1.25.2 or higher
-REQUIRED_GO_VERSION="1.25.2"
+# Check if version is 1.26.7 or higher
+REQUIRED_GO_VERSION="1.26.7"
 if ! printf '%s\n%s\n' "$REQUIRED_GO_VERSION" "$GO_VERSION" | sort -V -C; then
     print_error "Go $REQUIRED_GO_VERSION or higher is required. Found: $GO_VERSION"
     exit 1

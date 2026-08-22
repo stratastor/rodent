@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.25.2'
+  GO_VERSION: '1.26.7'
 
 jobs:
   build:
@@ -60,6 +60,11 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
       - name: Build binary
         env:

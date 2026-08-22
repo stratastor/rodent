@@ -12,7 +12,7 @@ Build a seamless installer for Rodent supporting Ubuntu 24+ (amd64/arm64) with i
 
 ### Core Components
 
-- **Build system:** Go 1.25.2 multi-arch builds with version injection ([build.sh](../scripts/build/build.sh))
+- **Build system:** Go 1.26.7 multi-arch builds with version injection ([build.sh](../scripts/build/build.sh))
 - **Bootstrap installer:** Pre-flight checks, downloads full installer ([bootstrap.sh](../scripts/install/bootstrap.sh))
 - **Full installer:** OS checks, dependency installation, user setup, telemetry ([install-rodent.sh](../scripts/install/install-rodent.sh))
 - **Setup script:** User/directory creation, sudoers, config management ([setup_rodent_user.sh](../scripts/setup_rodent_user.sh))
